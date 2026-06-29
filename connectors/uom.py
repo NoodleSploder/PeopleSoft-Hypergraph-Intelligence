@@ -1277,7 +1277,7 @@ def sections_for_permissionlist(pl):
     components = rels.get("components", [])
     graph_nodes = pl.get("_graph", {}).get("nodes", [])
     graph_edges = pl.get("_graph", {}).get("edges", [])
-    return [
+    sections = [
         {"name": "Definition", "items": [], "data": {
             "classid": pl["name"],
             "description": pl.get("description") or "",
@@ -1290,6 +1290,20 @@ def sections_for_permissionlist(pl):
             "lastupddttm": raw.get("lastupddttm") or "",
             "lastupdoprid": raw.get("lastupdoprid") or "",
         }},
+    ]
+
+    dynamic_sw = str(raw.get("dynamic_sw") or "").strip().upper()
+    if dynamic_sw == "Y":
+        sections.append({
+            "name": "Dynamic Membership",
+            "items": [{"label": "Dynamic permission-list membership is enabled", "name": pl["name"]}],
+            "data": {
+                "rule_type": dynamic_sw,
+                "note": "Some permission-list access paths may be derived dynamically from the underlying security configuration.",
+            },
+        })
+
+    sections += [
         {"name": "Roles", "items": roles,
          "data": {"count": len(roles), "note": "" if roles else "PSROLECLASS not accessible or no roles assigned"}},
         {"name": "Menus", "items": menus,
@@ -1301,6 +1315,7 @@ def sections_for_permissionlist(pl):
         {"name": "Warnings", "items": pl.get("warnings", []),
          "data": {"count": len(pl.get("warnings", []))}},
     ]
+    return sections
 
 
 def permissionlist_payload(pl):
