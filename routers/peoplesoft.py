@@ -223,12 +223,22 @@ def attach_graph_context(payload, env):
     return payload
 
 
+def normalize_object_type(object_type: str) -> str:
+    object_type = (object_type or "").strip().lower()
+    aliases = {
+        "permission_list": "permissionlist",
+        "permissionlist": "permissionlist",
+        "portal": "portal_registry",
+        "content_reference": "portal_registry",
+        "application_engine": "application_engine",
+        "sql_definition": "sql_definition",
+        "service_operation": "service_operation",
+    }
+    return aliases.get(object_type, object_type)
+
+
 def object_payload(env, object_type, object_name):
-    object_type = object_type.lower()
-    if object_type == "permission_list":
-        object_type = "permissionlist"
-    if object_type in {"portal", "content_reference"}:
-        object_type = "portal_registry"
+    object_type = normalize_object_type(object_type)
     object_name = object_name.upper()
     graph_link = f"/api/peoplesoft/graph/{object_type}/{object_name}?env={env}"
     admin_link = f"/admin/object/{object_type}/{object_name}"

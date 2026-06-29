@@ -1111,7 +1111,7 @@ async function loadReport() {
                 const isOpLink = (c === 'oprid') && val;
                 let cell = val;
                 if (isLink) cell = `<a href="/admin/object/role/${encodeURIComponent(val)}">${val}</a>`;
-                else if (isPlLink) cell = `<a href="/admin/object/permission_list/${encodeURIComponent(val)}">${val}</a>`;
+                else if (isPlLink) cell = `<a href="/admin/object/permissionlist/${encodeURIComponent(val)}">${val}</a>`;
                 else if (isOpLink) cell = `<a href="/admin/object/operator/${encodeURIComponent(val)}">${val}</a>`;
                 h += `<td style="border:1px solid #1e5b66;padding:6px 10px">${cell}</td>`;
             }
