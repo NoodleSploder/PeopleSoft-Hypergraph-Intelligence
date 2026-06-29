@@ -1142,16 +1142,29 @@ def sections_for_role(role):
     if roletype in ("Q", "P") or qryname or pc_func or ldap_on == "Y" or role_query_on == "Y" or role_pcode_on == "Y":
         dynamic_items = []
         rule_type = raw.get("roletype_label") or roletype or ("Dynamic Query" if role_query_on == "Y" else "Dynamic Role")
+        security_query = str(raw.get("qryname_sec") or "").strip()
         if qryname:
             dynamic_items.append({
                 "type": "query", "name": qryname,
                 "label": f"Membership Query: {qryname}",
                 "_links": {"admin": object_url("query", qryname)},
             })
+        if security_query:
+            dynamic_items.append({
+                "type": "query", "name": security_query,
+                "label": f"Security Query: {security_query}",
+                "_links": {"admin": object_url("query", security_query)},
+            })
         if pc_func:
             dynamic_items.append({
                 "label": f"PeopleCode Function: {pc_func}",
                 "name": pc_func,
+            })
+        pc_event_type = str(raw.get("pc_event_type") or "").strip()
+        if pc_event_type:
+            dynamic_items.append({
+                "label": f"PeopleCode Event: {pc_event_type}",
+                "name": pc_event_type,
             })
         if ldap_on == "Y":
             dynamic_items.append({"label": "LDAP Rule: Enabled", "name": "ldap"})

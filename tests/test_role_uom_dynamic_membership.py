@@ -13,7 +13,7 @@ class RoleUomDynamicMembershipTests(unittest.TestCase):
             "description": "",
             "_relationships": {},
             "_graph": {"nodes": [], "edges": []},
-            "_metadata": {"raw": {"role_query_rule_on": "Y"}},
+            "_metadata": {"raw": {"role_query_rule_on": "Y", "qryname_sec": "SEC_QUERY", "pc_event_type": "3"}},
         }
 
         sections = uom.sections_for_role(role)
@@ -21,6 +21,9 @@ class RoleUomDynamicMembershipTests(unittest.TestCase):
 
         self.assertIsNotNone(dynamic)
         self.assertEqual(dynamic["data"]["rule_type"], "Dynamic Query")
+        labels = [item.get("label", "") for item in dynamic["items"]]
+        self.assertTrue(any("Security Query" in label for label in labels))
+        self.assertTrue(any("PeopleCode Event" in label for label in labels))
 
 
 if __name__ == "__main__":
