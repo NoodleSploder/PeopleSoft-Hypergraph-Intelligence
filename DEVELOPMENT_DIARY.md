@@ -259,6 +259,22 @@ Verification:
 - `/api/peoplesoft/object/page/GDP_SELECT_PRCS?env=HCM` returned 200 with
   "PeopleCode" section showing count=7 after reload.
 
+### Security Explorer UOM and Permission Decoding Refinements
+
+- Added dynamic-membership sections to Role and Permission List UOM payloads so
+  role/permission-list security metadata surfaces more clearly in the explorer.
+- Enriched permission-decoding grant paths with permission-list detail and
+  decoded authorized actions so security explanations are more actionable.
+- Normalized object routing so the explorer uses a single canonical
+  `/admin/object/permissionlist/...` route for permission-list aliases.
+- Added regression tests for the new UOM and permission-decoding behaviors.
+
+Verification:
+
+- `python -m unittest tests.test_permissionlist_uom tests.test_role_uom_dynamic_membership`
+- `python -m unittest tests.test_permission_decoding`
+- `python -m unittest tests.test_object_type_normalization`
+
 ### Scheduled Graph Snapshots and Retention Pruning
 
 - Added `prune_snapshots(env, keep=7)` to `connectors/graphdb.py`. Deletes

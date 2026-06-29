@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+oracledb
+pydantic
+requests
+jinja2
+python-multipart
+PyYAML

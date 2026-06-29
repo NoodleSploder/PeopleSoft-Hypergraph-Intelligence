@@ -78,6 +78,7 @@
 -   Shared graph integration
 -   Object Explorer integration
 -   Graph context enrichment
+-   Dynamic-membership sections for Role and Permission List UOM payloads
 
 ### Completed
 
@@ -180,10 +181,13 @@
 -   Graph traversal
 -   Operator comparison: role/permission list/component set diff (`/api/peoplesoft/security/compare-operators`)
 -   Security reports: 6 canned audit reports via `/api/peoplesoft/security/reports?report=<type>`, Reports card in `/admin/security`
+-   Dynamic-membership enrichment for role and permission-list UOM views
+-   Permission-decoding grant-path enrichment with permission-list detail and decoded actions
+-   Canonical object routing for permission-list aliases in the Object Explorer
 
 ### Remaining
 
--   Permission decoding improvements
+-   Broader permission-decoding and access-path visualization improvements
 
 ------------------------------------------------------------------------
 
