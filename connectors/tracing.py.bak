@@ -1,0 +1,225 @@
+"""
+Transaction Tracing connector.
+
+Correlates PeopleSoft user activity across three data sources:
+  1. PSACCESSLOG        — login/logout history
+  2. PSPRCSRQST         — process scheduler runs by OPRID
+  3. V$SESSION          — active Oracle sessions (CLIENT_IDENTIFIER = OPRID when PS sets it)
+
+All functions are grant-aware and return structured warnings on missing tables/views.
+"""
+
+import json
+from pathlib import Path
+from connectors import oracle as oracle_connector
+from connectors import psdb, ptmetadata
+from connectors.execution import _clean, _db_by_name, RUNSTATUS_LABELS, ACTIVE_STATUSES, ERROR_STATUSES
+
+CONFIG = Path("/opt/deathstar-api/config.json")
+
+# ── Event types and display metadata ──────────────────────────────────────────
+
+EVENT_TYPES = {
+    "login":    {"label": "Sign On",        "color": "#00cc66",  "icon": "&#9654;"},
+    "logout":   {"label": "Sign Off",       "color": "#556677",  "icon": "&#9664;"},
+    "process":  {"label": "Process Run",    "color": "#00e5ff",  "icon": "&#9881;"},
+    "oracle":   {"label": "Oracle Session", "color": "#bb88ff",  "icon": "&#9670;"},
+    "ib":       {"label": "IB Transaction", "color": "#ffaa00",  "icon": "&#8644;"},
+}
+
+def _status_class(runstatus):
+    s = str(runstatus or "")
+    if s in ACTIVE_STATUSES:
+        return "warn"
+    if s in ERROR_STATUSES:
+        return "error"
+    return "ok"
+
+
+# ── Operator search ───────────────────────────────────────────────────────────
+
+def operator_search(env, q="", limit=20):
+    """Search PSOPRDEFN for matching OPRIDs (for autocomplete)."""
+    warnings = []
+    if not ptmetadata.has_table(env, "PSOPRDEFN"):
+        warnings.append(ptmetadata.warning("NO_PSOPRDEFN", "PSOPRDEFN not accessible"))
+        return {"items": [], "warnings": warnings}
+
+    sql = """
+        SELECT OPRID, OPRDEFNDESC, EMPLID, EMAILID
+        FROM SYSADM.PSOPRDEFN
+        WHERE UPPER(OPRID) LIKE :pattern
+           OR UPPER(OPRDEFNDESC) LIKE :pattern
+           OR UPPER(EMAILID) LIKE :pattern
+        ORDER BY OPRID
+        FETCH FIRST :limit ROWS ONLY
+    """
+    try:
+        if oprid:
+            safe_oprid = oprid.upper().replace("'", "''")
+            sql = sql.replace(":oprid", f"'{safe_oprid}'")
+        rows = _clean(oracle_connector.query_db(db, sql))
+        return {"items": rows, "db": db_name, "warnings": warnings}
+    except Exception as exc:
+        warnings.append(ptmetadata.warning("ORACLE_SESSIONS_ERR", str(exc), severity="error"))
+        return {"items": [], "db": db_name, "warnings": warnings}
+
+
+# ── IB transactions (best-effort) ─────────────────────────────────────────────
+
+def ib_transactions_for_oprid(env, oprid, hours_back=24, limit=50):
+    """Return IB publication headers where PUBLISHER matches OPRID."""
+    warnings = []
+    if not ptmetadata.has_table(env, "PSAPMSGPUBHDR"):
+        warnings.append(ptmetadata.warning("NO_PSAPMSGPUBHDR", "PSAPMSGPUBHDR not accessible — IB data unavailable"))
+        return {"items": [], "warnings": warnings}
+
+    sql = """
+        SELECT IBTRANSACTIONID, IB_OPERATIONNAME, PUBNODE, QUEUENAME,
+               PUBSTATUS, CREATEDTTM, PUBLISHER
+        FROM SYSADM.PSAPMSGPUBHDR
+        WHERE UPPER(PUBLISHER) = :oprid
+          AND CREATEDTTM >= SYSDATE - :hours_frac
+        ORDER BY CREATEDTTM DESC
+        FETCH FIRST :limit ROWS ONLY
+    """
+    try:
+        rows = _clean(psdb.query(env, sql, {
+            "oprid": oprid.upper(),
+            "hours_frac": float(hours_back) / 24.0,
+            "limit": int(limit),
+        }))
+        return {"items": rows, "warnings": warnings}
+    except Exception as exc:
+        warnings.append(ptmetadata.warning("PSAPMSGPUBHDR_ERR", str(exc), severity="error"))
+        return {"items": [], "warnings": warnings}
+
+
+# ── Unified trace ──────────────────────────────────────────────────────────────
+
+def _to_timeline_event(event_type, ts, title, subtitle=None, status="info", detail=None, links=None):
+    return {
+        "type":     event_type,
+        "ts":       ts or "",
+        "title":    title,
+        "subtitle": subtitle or "",
+        "status":   status,
+        "detail":   detail or {},
+        "links":    links or [],
+        "meta":     EVENT_TYPES.get(event_type, {}),
+    }
+
+
+def trace(env, db_name, oprid, hours_back=24):
+    """
+    Build a unified chronological trace of all observable activity for an OPRID.
+
+    Returns:
+      oprid, env, db, hours_back, timeline (list of events), summary, warnings
+    """
+    all_warnings = []
+    events = []
+
+    # ── 1. Access log sessions ───────────────────────────────────────────────
+    al = access_history(env, oprid, hours_back=hours_back)
+    all_warnings.extend(al.get("warnings", []))
+    for row in al.get("items", []):
+        ts_in  = row.get("logindttm") or ""
+        ts_out = row.get("logoutdttm")
+        duration = None
+        if ts_out:
+            try:
+                from datetime import datetime
+                fmt = "%Y-%m-%dT%H:%M:%S"
+                d_in  = datetime.fromisoformat(ts_in)
+                d_out = datetime.fromisoformat(ts_out)
+                secs  = int((d_out - d_in).total_seconds())
+                duration = f"{secs // 3600}h {(secs % 3600) // 60}m" if secs >= 60 else f"{secs}s"
+            except Exception:
+                pass
+
+        subtitle = row.get("connectdbbname") or ""
+        if duration:
+            subtitle += f" · {duration}"
+
+        events.append(_to_timeline_event(
+            "login", ts_in,
+            title=f"Signed in",
+            subtitle=subtitle,
+            status="ok" if ts_out else "info",
+            detail=row,
+        ))
+        if ts_out:
+            events.append(_to_timeline_event(
+                "logout", ts_out,
+                title="Signed out",
+                subtitle=subtitle,
+                status="ok",
+                detail=row,
+            ))
+
+    # ── 2. Process scheduler runs ────────────────────────────────────────────
+    ph = process_history(env, oprid, hours_back=hours_back)
+    all_warnings.extend(ph.get("warnings", []))
+    for row in ph.get("items", []):
+        ts = row.get("begindttm") or row.get("enddttm") or ""
+        rs = str(row.get("runstatus") or "")
+        label = row.get("runstatus_label") or f"Status {rs}"
+        status = row.get("status_class") or "info"
+        events.append(_to_timeline_event(
+            "process", ts,
+            title=f"{row.get('prcstype','')} {row.get('prcsname','')}".strip(),
+            subtitle=f"#{row.get('prcsinstance','')} · {label} · {row.get('serverbatch','')}",
+            status=status,
+            detail=row,
+            links=[{"label": "View in Runtime", "url": f"/admin/runtime"}],
+        ))
+
+    # ── 3. Oracle sessions (active, correlated by CLIENT_IDENTIFIER) ─────────
+    if db_name:
+        os_ = oracle_sessions_for_oprid(db_name, oprid=oprid)
+        all_warnings.extend(os_.get("warnings", []))
+        for row in os_.get("items", []):
+            ts = row.get("logon_time") or ""
+            events.append(_to_timeline_event(
+                "oracle", ts,
+                title=f"Oracle session (SID {row.get('sid','')})",
+                subtitle=f"{row.get('status','')} · {row.get('program','') or row.get('module','')}",
+                status="warn" if row.get("seconds_in_wait", 0) and int(row.get("seconds_in_wait", 0)) > 30 else "info",
+                detail=row,
+            ))
+
+    # ── 4. IB transactions (best-effort) ─────────────────────────────────────
+    ibt = ib_transactions_for_oprid(env, oprid, hours_back=hours_back)
+    all_warnings.extend(ibt.get("warnings", []))
+    for row in ibt.get("items", []):
+        ts = row.get("createdttm") or ""
+        events.append(_to_timeline_event(
+            "ib", ts,
+            title=f"IB: {row.get('ib_operationname','')}",
+            subtitle=f"{row.get('queuename','')} · {row.get('pubnode','')}",
+            status="info",
+            detail=row,
+        ))
+
+    # Sort by ts descending (most recent first). Blank ts goes last.
+    events.sort(key=lambda e: e["ts"] if e["ts"] else "0000", reverse=True)
+
+    summary = {
+        "login_count":   sum(1 for e in events if e["type"] == "login"),
+        "process_count": sum(1 for e in events if e["type"] == "process"),
+        "error_count":   sum(1 for e in events if e["type"] == "process" and e["status"] == "error"),
+        "oracle_count":  sum(1 for e in events if e["type"] == "oracle"),
+        "ib_count":      sum(1 for e in events if e["type"] == "ib"),
+        "total":         len(events),
+    }
+
+    return {
+        "oprid":      oprid.upper(),
+        "env":        env,
+        "db":         db_name,
+        "hours_back": hours_back,
+        "timeline":   events,
+        "summary":    summary,
+        "warnings":   all_warnings,
+    }

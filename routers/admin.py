@@ -1,0 +1,8122 @@
+import json
+
+from fastapi import APIRouter
+from fastapi.responses import HTMLResponse
+
+router = APIRouter(prefix="/admin", tags=["DeathStar Admin"])
+
+
+@router.get("/", response_class=HTMLResponse)
+def admin_home():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DeathStar Admin</title>
+    <style>
+        body {
+            background: #050b12;
+            color: #d7faff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #00e5ff;
+            text-shadow: 0 0 12px #00e5ff;
+            letter-spacing: 4px;
+        }
+
+        .card {
+            border: 1px solid #00e5ff;
+            box-shadow: 0 0 12px rgba(0,229,255,.4);
+            padding: 20px;
+            margin-top: 20px;
+            max-width: 900px;
+            background: rgba(0, 20, 30, .75);
+        }
+
+        button {
+            background: #00e5ff;
+            border: none;
+            padding: 8px 14px;
+            margin: 4px;
+            cursor: pointer;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 16px;
+        }
+
+        th, td {
+            border-bottom: 1px solid #1e5b66;
+            padding: 8px;
+            text-align: left;
+        }
+
+        input {
+            padding: 8px;
+            margin: 4px;
+            background: #0b1b24;
+            color: white;
+            border: 1px solid #00e5ff;
+        }
+
+        a {
+            color: #00e5ff;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <h1>DEATHSTAR ADMIN</h1>
+
+    <div class="card">
+        <h2>Navigation</h2>
+        <a href="/admin/runtime">Runtime Monitor</a>
+        <br>
+        <a href="/admin/security">PeopleSoft Security Explorer</a>
+        <br>
+        <a href="/admin/graph">PeopleSoft Graph Explorer</a>
+        <br>
+        <a href="/admin/object">PeopleSoft Object Explorer</a>
+        <br>
+        <a href="/admin/portal">Portal Explorer</a>
+        <br>
+        <a href="/admin/metadata">PeopleTools Metadata Engine</a>
+        <br>
+        <a href="/admin/graphdb">DeathStar Knowledge Graph</a>
+        <br>
+        <a href="/admin/sqlws">SQL Workspace</a>
+        <br>
+        <a href="/admin/ib">Integration Broker Explorer</a>
+        <br>
+        <a href="/admin/envcompare">Environment Comparison</a>
+        <br>
+        <a href="/admin/tracing">Transaction Tracing</a>
+        <br>
+        <a href="/admin/record">Record Explorer</a>
+        &nbsp;&nbsp;|&nbsp;&nbsp;
+        <a href="/admin/field">Field Explorer</a>
+        &nbsp;&nbsp;|&nbsp;&nbsp;
+        <a href="/admin/peoplecode">PeopleCode Explorer</a>
+        &nbsp;&nbsp;|&nbsp;&nbsp;
+        <a href="/admin/role">Role Explorer</a>
+        &nbsp;&nbsp;|&nbsp;&nbsp;
+        <a href="/admin/operator">Operator Explorer</a>
+    </div>
+
+    <div class="card">
+        <h2>Authelia Users</h2>
+
+	<button onclick="syncAllIdentities()">Sync All</button>
+
+        <div>
+            <h3>PeopleSoft Lookup</h3>
+            <input id="opridSearch" placeholder="Search OPRID">
+            <button onclick="searchOprids()">Search PeopleSoft</button>
+            <div id="opridResults"></div>
+            <hr>
+
+            <input id="username" placeholder="Username / OPRID">
+            <input id="password" placeholder="Password" type="password">
+            <input id="displayname" placeholder="Display Name">
+            <input id="email" placeholder="Email">
+            <div id="groupCheckboxes"></div>
+            <button onclick="createUser()">Create User</button>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Display Name</th>
+                    <th>Email</th>
+                    <th>Groups</th>
+                    <th>Disabled</th>
+		    <th>Identity Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="users"></tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Identity Audit Log</h2>
+        <button onclick="loadAudit()">Refresh Audit</button>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Action</th>
+                    <th>Target</th>
+                    <th>Detail</th>
+                </tr>
+            </thead>
+            <tbody id="auditRows"></tbody>
+        </table>
+    </div>
+
+<script>
+async function api(path, options = {}) {
+    const res = await fetch(path, options);
+
+    if (res.status === 401) {
+        window.location.reload();
+        return;
+    }
+
+    if (!res.ok) {
+        const msg = await res.text();
+        alert(msg);
+        throw new Error(msg);
+    }
+
+    return res.json();
+}
+
+async function loadGroups() {
+    const groups = await api('/authelia/groups');
+    const box = document.getElementById('groupCheckboxes');
+    box.innerHTML = '';
+
+    groups.forEach(g => {
+        const label = document.createElement('label');
+        label.style.marginRight = '16px';
+        label.innerHTML = `
+            <input type="checkbox" class="group-check" value="${g}">
+            ${g}
+        `;
+        box.appendChild(label);
+    });
+}
+
+function selectedGroups() {
+    return Array.from(document.querySelectorAll('.group-check:checked'))
+        .map(x => x.value);
+}
+
+async function loadUsers() {
+    const users = await api('/authelia/users');
+    const statuses = await api('/api/identity/status?env=HCM');
+
+    const statusMap = {};
+    statuses.forEach(s => statusMap[s.username] = s);
+
+    const tbody = document.getElementById('users');
+    tbody.innerHTML = '';
+
+    users.forEach(u => {
+        const s = statusMap[u.username] || {};
+        let statusText = 'Unknown';
+
+        if (s.error) {
+            statusText = 'Error';
+        } else if (s.in_sync) {
+            statusText = 'In Sync';
+        } else if (s.peoplesoft_exists === false) {
+            statusText = 'Missing in PeopleSoft';
+        } else {
+            statusText = 'Out of Sync';
+        }
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${u.username}</td>
+            <td>${u.displayname || ''}</td>
+            <td>${u.email || ''}</td>
+            <td>${(u.groups || []).join(', ')}</td>
+            <td>${u.disabled}</td>
+            <td>${statusText}</td>
+            <td>
+                <button onclick="compareIdentity('${u.username}')">Compare</button>
+                <button onclick="syncIdentity('${u.username}')">Sync</button>
+                <button onclick="toggleUser('${u.username}', ${!u.disabled})">
+                    ${u.disabled ? 'Enable' : 'Disable'}
+                </button>
+                <button onclick="resetPassword('${u.username}')">Reset Password</button>
+                <button onclick="deleteUser('${u.username}')">Delete</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+async function createUser() {
+    await api('/authelia/users', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            username: document.getElementById('username').value,
+            password: document.getElementById('password').value,
+            displayname: document.getElementById('displayname').value,
+            email: document.getElementById('email').value,
+            groups: selectedGroups()
+        })
+    });
+
+    await loadUsers();
+}
+
+async function toggleUser(username, disabled) {
+    await api(`/authelia/users/${username}`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({disabled})
+    });
+
+    await loadUsers();
+}
+
+async function resetPassword(username) {
+    const password = prompt(`New password for ${username}:`);
+    if (!password) return;
+
+    await api(`/authelia/users/${username}/reset-password`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({password})
+    });
+
+    alert('Password reset.');
+}
+
+async function deleteUser(username) {
+    if (!confirm(`Delete ${username}?`)) return;
+
+    await api(`/authelia/users/${username}`, {
+        method: 'DELETE'
+    });
+
+    await loadUsers();
+}
+
+async function init() {
+    await loadGroups();
+    await loadUsers();
+    await loadAudit();
+}
+
+function selectOprid(r) {
+    document.getElementById('username').value = r.oprid;
+    document.getElementById('displayname').value = r.oprdefndesc || r.oprid;
+    document.getElementById('email').value = `${r.oprid.toLowerCase()}@deathstar.chickenkiller.com`;
+
+    const hcm = document.querySelector('.group-check[value="hcm"]');
+    if (hcm) hcm.checked = true;
+}
+
+async function compareIdentity(username) {
+    const data = await api(`/api/identity/compare/${username}?env=HCM`);
+    alert(JSON.stringify(data, null, 2));
+}
+
+async function syncIdentity(username) {
+    if (!confirm(`Sync ${username} from PeopleSoft roles?`)) return;
+
+    const data = await api(`/api/identity/sync/${username}?env=HCM`, {
+        method: 'POST'
+    });
+
+    alert(
+        `Synced ${data.oprid}\n` +
+        `Groups: ${(data.groups.current || []).join(', ')}\n` +
+        `Disabled: ${data.disabled.new}`
+    );
+    await loadUsers();
+}
+
+async function provisionIdentity(oprid) {
+    const password = prompt(`Initial password for ${oprid}:`);
+    if (!password) return;
+
+    const data = await api(`/api/identity/provision/${oprid}?env=HCM`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({password})
+    });
+
+    alert(
+        `Provisioned ${data.oprid}\n` +
+        `Groups: ${(data.groups || []).join(', ')}\n` +
+        `Disabled: ${data.disabled}`
+    );
+
+    await loadUsers();
+}
+
+async function searchOprids() {
+    const q = document.getElementById('opridSearch').value;
+    const rows = await api(`/api/peoplesoft/oprids?env=HCM&q=${encodeURIComponent(q)}`);
+
+    const div = document.getElementById('opridResults');
+    div.innerHTML = '';
+
+    rows.forEach(r => {
+        const row = document.createElement('div');
+
+        const select = document.createElement('button');
+        select.textContent = 'Select';
+        select.onclick = () => selectOprid(r);
+
+        const provision = document.createElement('button');
+        provision.textContent = 'Provision';
+        provision.onclick = () => provisionIdentity(r.oprid);
+
+        const label = document.createElement('span');
+        label.textContent = `${r.oprid} - ${r.oprdefndesc || ''} - locked=${r.acctlock}`;
+
+        row.appendChild(select);
+        row.appendChild(provision);
+        row.appendChild(label);
+
+        div.appendChild(row);
+    });
+}
+
+async function syncAllIdentities() {
+    if (!confirm('Sync all Authelia users from PeopleSoft?')) return;
+
+    const data = await api('/api/identity/sync-all?env=HCM', {
+        method: 'POST'
+    });
+
+    alert(`Sync complete. Processed ${data.count} users.`);
+    await loadUsers();
+}
+
+async function loadAudit() {
+    const rows = await api('/api/identity/audit?limit=50');
+    const tbody = document.getElementById('auditRows');
+    tbody.innerHTML = '';
+
+    rows.reverse().forEach(e => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${e.timestamp}</td>
+            <td>${e.action}</td>
+            <td>${e.target}</td>
+            <td><pre>${JSON.stringify(e.detail, null, 2)}</pre></td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+
+init();
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/security", response_class=HTMLResponse)
+def admin_security():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DeathStar Security Explorer</title>
+    <style>
+        body {
+            background: #050b12;
+            color: #d7faff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #00e5ff;
+            text-shadow: 0 0 12px #00e5ff;
+            letter-spacing: 4px;
+        }
+
+        h2, h3 {
+            color: #d7faff;
+        }
+
+        a {
+            color: #00e5ff;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(220px, 1fr));
+            gap: 16px;
+            align-items: start;
+        }
+
+        .card {
+            border: 1px solid #00e5ff;
+            box-shadow: 0 0 12px rgba(0,229,255,.4);
+            padding: 20px;
+            margin-top: 20px;
+            background: rgba(0, 20, 30, .75);
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        button {
+            background: #00e5ff;
+            border: none;
+            padding: 8px 14px;
+            margin: 4px 0;
+            cursor: pointer;
+        }
+
+        button.link-row {
+            display: block;
+            width: 100%;
+            background: transparent;
+            color: #d7faff;
+            border: 1px solid #1e5b66;
+            margin: 6px 0;
+            text-align: left;
+        }
+
+        button.link-row:hover,
+        button.link-row.active {
+            border-color: #00e5ff;
+            box-shadow: 0 0 10px rgba(0,229,255,.3);
+        }
+
+        input {
+            padding: 8px;
+            margin: 4px 0;
+            background: #0b1b24;
+            color: white;
+            border: 1px solid #00e5ff;
+        }
+
+        .muted {
+            color: #7faab2;
+        }
+
+        .item-title {
+            color: #00e5ff;
+            font-weight: bold;
+        }
+
+        .item-detail {
+            display: block;
+            margin-top: 4px;
+            color: #b8dce2;
+            font-size: 12px;
+        }
+
+        .status {
+            margin-top: 12px;
+            color: #7faab2;
+        }
+
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .metric {
+            border: 1px solid #1e5b66;
+            padding: 10px;
+            background: rgba(5, 18, 28, .85);
+        }
+
+        @media (max-width: 1100px) {
+            .grid {
+                grid-template-columns: repeat(2, minmax(220px, 1fr));
+            }
+        }
+
+        @media (max-width: 700px) {
+            body {
+                padding: 20px;
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>SECURITY EXPLORER</h1>
+    <a href="/admin/">Back to Admin</a>
+
+    <div class="card">
+        <div class="toolbar">
+            <input id="roleSearch" placeholder="Filter roles">
+            <button onclick="loadRoles()">Load Roles</button>
+            <input id="operatorSearch" placeholder="Analyze OPRID">
+            <button onclick="analyzeOperator()">Analyze Operator</button>
+            <input id="compareOprid" placeholder="Compare with OPRID">
+            <button onclick="compareOperators()">Compare Operators</button>
+            <input id="componentAccessSearch" placeholder="Component access">
+            <button onclick="analyzeComponentAccess()">Who Has Access?</button>
+            <button onclick="explainAccess()">Explain Access</button>
+            <button onclick="explainPageAccess()">Explain Page</button>
+            <button onclick="explainMenuAccess()">Explain Menu</button>
+        </div>
+        <div id="status" class="status">Loading roles...</div>
+        <div id="accessSummary" class="muted">Search a role, operator, or component.</div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h2>Roles</h2>
+            <div id="roles"></div>
+        </div>
+
+        <div class="card">
+            <h2>Permission Lists</h2>
+            <div id="permissionlists" class="muted">Select a role.</div>
+        </div>
+
+        <div class="card">
+            <h2>Menus</h2>
+            <div id="menus" class="muted">Select a permission list.</div>
+            <h2>Components</h2>
+            <div id="components" class="muted">Select a permission list.</div>
+        </div>
+
+        <div class="card">
+            <h2>Pages</h2>
+            <div id="pages" class="muted">Select a component.</div>
+        </div>
+    </div>
+
+<script>
+const ENV = 'HCM';
+const state = {
+    role: null,
+    classid: null,
+    component: null
+};
+
+async function api(path) {
+    const res = await fetch(path);
+
+    if (res.status === 401) {
+        window.location.reload();
+        return;
+    }
+
+    if (!res.ok) {
+        const msg = await res.text();
+        setStatus(msg);
+        throw new Error(msg);
+    }
+
+    return res.json();
+}
+
+function setStatus(message) {
+    document.getElementById('status').textContent = message;
+}
+
+function clearPanel(id, message) {
+    const el = document.getElementById(id);
+    el.innerHTML = '';
+    el.className = 'muted';
+    el.textContent = message;
+}
+
+function label(row, keys) {
+    for (const key of keys) {
+        if (row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== '') {
+            return row[key];
+        }
+    }
+    return '';
+}
+
+function detail(row, keys) {
+    return keys
+        .map(key => row[key])
+        .filter(value => value !== undefined && value !== null && String(value).trim() !== '')
+        .join(' | ');
+}
+
+function renderList(id, rows, emptyText, buildButton) {
+    const el = document.getElementById(id);
+    el.className = '';
+    el.innerHTML = '';
+
+    if (!rows.length) {
+        el.className = 'muted';
+        el.textContent = emptyText;
+        return;
+    }
+
+    rows.forEach(row => el.appendChild(buildButton(row)));
+}
+
+function rowButton(title, subtitle, onclick, active) {
+    const btn = document.createElement('button');
+    btn.className = active ? 'link-row active' : 'link-row';
+    btn.onclick = onclick;
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'item-title';
+    titleEl.textContent = title || '(blank)';
+    btn.appendChild(titleEl);
+
+    if (subtitle) {
+        const detailEl = document.createElement('span');
+        detailEl.className = 'item-detail';
+        detailEl.textContent = subtitle;
+        btn.appendChild(detailEl);
+    }
+
+    return btn;
+}
+
+async function loadRoles() {
+    const q = document.getElementById('roleSearch').value;
+    setStatus('Loading roles...');
+    clearPanel('permissionlists', 'Select a role.');
+    clearPanel('menus', 'Select a permission list.');
+    clearPanel('components', 'Select a permission list.');
+    clearPanel('pages', 'Select a component.');
+    state.role = null;
+    state.classid = null;
+    state.component = null;
+    document.getElementById('accessSummary').className = 'muted';
+    document.getElementById('accessSummary').textContent = 'Role browsing mode.';
+
+    const roles = await api(`/api/peoplesoft/roles?env=${ENV}&q=${encodeURIComponent(q)}`);
+    renderList('roles', roles, 'No roles found.', row => {
+        const role = label(row, ['rolename']);
+        const subtitle = detail(row, ['descr', 'rolestatus']);
+        return rowButton(role, subtitle, () => selectRole(role), state.role === role);
+    });
+    setStatus(`Loaded ${roles.length} roles.`);
+}
+
+function renderSummary(title, counts) {
+    const el = document.getElementById('accessSummary');
+    el.className = '';
+    el.innerHTML = '';
+
+    const heading = document.createElement('h3');
+    heading.textContent = title;
+    el.appendChild(heading);
+
+    const grid = document.createElement('div');
+    grid.className = 'summary';
+
+    Object.keys(counts).forEach(key => {
+        const metric = document.createElement('div');
+        metric.className = 'metric';
+        metric.innerHTML = `
+            <span class="item-title">${counts[key]}</span>
+            <span class="item-detail">${key}</span>
+        `;
+        grid.appendChild(metric);
+    });
+
+    el.appendChild(grid);
+}
+
+async function analyzeOperator() {
+    const oprid = document.getElementById('operatorSearch').value.trim();
+
+    if (!oprid) {
+        setStatus('Enter an OPRID.');
+        return;
+    }
+
+    setStatus(`Analyzing operator ${oprid}...`);
+    clearPanel('pages', 'Select a component.');
+    state.role = null;
+    state.classid = null;
+    state.component = null;
+
+    const data = await api(`/api/peoplesoft/security/operators/${encodeURIComponent(oprid)}?env=${ENV}`);
+    renderSummary(`Operator ${data.operator.oprid}`, data.counts);
+
+    renderList('roles', data.roles, 'No roles found.', row => {
+        const role = label(row, ['rolename']);
+        const subtitle = detail(row, ['dynamic_sw']);
+        return rowButton(role, subtitle, () => selectRole(role), false);
+    });
+
+    renderList('permissionlists', data.permissionlists, 'No permission lists found.', row => {
+        const classid = label(row, ['classid']);
+        const subtitle = detail(row, ['rolename', 'roleclass_dynamic_sw']);
+        return rowButton(classid, subtitle, () => selectPermissionList(classid), false);
+    });
+
+    renderList('menus', data.menus, 'No menus found.', row => {
+        const menu = label(row, ['menuname']);
+        const subtitle = detail(row, ['rolename', 'classid', 'barname', 'baritemname']);
+        return rowButton(menu, subtitle, () => {}, false);
+    });
+
+    renderList('components', data.components, 'No components found.', row => {
+        const component = label(row, ['pnlgrpname']);
+        const subtitle = detail(row, ['rolename', 'classid', 'menuname', 'component_descr']);
+        return rowButton(component, subtitle, () => selectComponent(component), false);
+    });
+
+    setStatus(`Operator ${data.operator.oprid}: ${data.counts.roles} roles, ${data.counts.components} components.`);
+}
+
+async function analyzeComponentAccess() {
+    const component = document.getElementById('componentAccessSearch').value.trim();
+
+    if (!component) {
+        setStatus('Enter a component.');
+        return;
+    }
+
+    setStatus(`Analyzing access for component ${component}...`);
+    clearPanel('menus', 'Component access mode.');
+    clearPanel('pages', 'Select the component below to view pages.');
+
+    const data = await api(`/api/peoplesoft/security/components/${encodeURIComponent(component)}/access?env=${ENV}`);
+    renderSummary(`Component ${data.component.pnlgrpname}`, data.counts);
+
+    renderList('roles', data.roles.map(rolename => ({rolename})), 'No roles found.', row => {
+        const role = label(row, ['rolename']);
+        return rowButton(role, '', () => selectRole(role), false);
+    });
+
+    renderList('permissionlists', data.permissionlists.map(classid => ({classid})), 'No permission lists found.', row => {
+        const classid = label(row, ['classid']);
+        return rowButton(classid, '', () => selectPermissionList(classid), false);
+    });
+
+    renderList('components', [data.component], 'No component found.', row => {
+        const componentName = label(row, ['pnlgrpname']);
+        const subtitle = detail(row, ['descr', 'searchrecname', 'addsearchrecname']);
+        return rowButton(componentName, subtitle, () => selectComponent(componentName), false);
+    });
+
+    setStatus(`Component ${data.component.pnlgrpname}: ${data.counts.users} users through ${data.counts.access_paths} access paths.`);
+}
+
+async function explainAccess() {
+    const oprid = document.getElementById('operatorSearch').value.trim();
+    const component = document.getElementById('componentAccessSearch').value.trim();
+
+    if (!oprid || !component) {
+        setStatus('Enter both an OPRID and a component.');
+        return;
+    }
+
+    setStatus(`Explaining ${oprid} access to ${component}...`);
+    clearPanel('menus', 'Access explanation mode.');
+    clearPanel('pages', 'Select a component to view pages.');
+
+    const data = await api(`/api/peoplesoft/security/explain?env=${ENV}&oprid=${encodeURIComponent(oprid)}&component=${encodeURIComponent(component)}`);
+    renderSummary(data.explanation, data.counts);
+
+    renderList('roles', data.operator_roles || [], 'No operator roles found.', row => {
+        const role = label(row, ['rolename']);
+        const subtitle = detail(row, ['descr', 'dynamic_sw']);
+        return rowButton(role, subtitle, () => selectRole(role), false);
+    });
+
+    const plRows = data.has_access ? (data.grant_paths || []) : (data.component_permissionlists || []);
+    renderList('permissionlists', plRows, 'No matching permission lists found.', row => {
+        const classid = label(row, ['classid']);
+        const subtitle = data.has_access
+            ? detail(row, ['rolename', 'menuname', 'decoded_actions'])
+            : detail(row, ['pnlgrpname', 'class_classdefndesc']);
+        return rowButton(classid, subtitle, () => selectPermissionList(classid), false);
+    });
+
+    renderList('components', [data.component_row], 'No component found.', row => {
+        const componentName = label(row, ['pnlgrpname']);
+        const subtitle = detail(row, ['descr', 'searchrecname', 'addsearchrecname']);
+        return rowButton(componentName, subtitle, () => selectComponent(componentName), false);
+    });
+
+    if (data.has_access) {
+        renderList('menus', data.grant_paths || [], 'No access paths found.', row => {
+            const title = `${label(row, ['rolename'])} → ${label(row, ['classid'])}`;
+            const subtitle = detail(row, ['menuname', 'pnlitemname', 'decoded_actions']);
+            return rowButton(title, subtitle, () => {}, false);
+        });
+    } else {
+        renderList('menus', (data.operator_permissionlists || []).map(row => ({...row})), 'No operator permission lists found.', row => {
+            const classid = label(row, ['classid']);
+            const subtitle = detail(row, ['rolename']);
+            return rowButton(classid, subtitle, () => selectPermissionList(classid), false);
+        });
+    }
+
+    setStatus(data.explanation);
+}
+
+async function explainPageAccess() {
+    const oprid = document.getElementById('operatorSearch').value.trim();
+    const page = document.getElementById('componentAccessSearch').value.trim();
+
+    if (!oprid || !page) {
+        setStatus('Enter both an OPRID and a page name.');
+        return;
+    }
+
+    setStatus(`Explaining ${oprid} access to page ${page}...`);
+    clearPanel('menus', 'Page access explanation mode.');
+    clearPanel('pages', 'Page explanation result.');
+
+    const data = await api(`/api/peoplesoft/security/explain-page?env=${ENV}&oprid=${encodeURIComponent(oprid)}&page=${encodeURIComponent(page)}`);
+    renderSummary(data.explanation, data.counts);
+
+    renderList('components', data.components || [], 'No components found for page.', row => {
+        const component = label(row, ['pnlgrpname']);
+        const subtitle = detail(row, ['pnlname', 'market', 'itemnum']);
+        return rowButton(component, subtitle, () => selectComponent(component), (data.matching_components || []).includes(component));
+    });
+
+    renderList('permissionlists', data.grant_paths || [], 'No grant paths found.', row => {
+        const classid = label(row, ['classid']);
+        const subtitle = detail(row, ['rolename', 'pnlgrpname', 'decoded_actions']);
+        return rowButton(classid, subtitle, () => selectPermissionList(classid), false);
+    });
+
+    renderList('menus', data.grant_paths || [], 'No menu/action paths found.', row => {
+        const title = `${label(row, ['rolename'])} → ${label(row, ['classid'])}`;
+        const subtitle = detail(row, ['menuname', 'pnlitemname', 'pnlgrpname', 'decoded_actions']);
+        return rowButton(title, subtitle, () => {}, false);
+    });
+
+    const pageRows = [data.page_row, ...(data.fields || []).slice(0, 30)];
+    renderList('pages', pageRows, 'No page found.', row => {
+        const pageName = label(row, ['pnlname']) || `${label(row, ['recname'])}.${label(row, ['fieldname'])}`;
+        const flags = [];
+        if (String(row.invisible || '0') === '1') flags.push('Invisible');
+        if (String(row.displayonly || '0') === '1') flags.push('Display Only');
+        const subtitle = detail(row, ['descr', 'pnltype', 'recname', 'fieldname', 'lbltext']) + (flags.length ? ` | ${flags.join(', ')}` : '');
+        return rowButton(pageName, subtitle, () => {}, false);
+    });
+
+    setStatus(data.explanation);
+}
+
+async function explainMenuAccess() {
+    const oprid = document.getElementById('operatorSearch').value.trim();
+    const menu = document.getElementById('componentAccessSearch').value.trim();
+
+    if (!oprid || !menu) {
+        setStatus('Enter both an OPRID and a menu name.');
+        return;
+    }
+
+    setStatus(`Explaining ${oprid} access to menu ${menu}...`);
+    clearPanel('components', 'Menu access explanation mode.');
+    clearPanel('pages', 'Select a component to view pages.');
+
+    const data = await api(`/api/peoplesoft/security/explain-menu?env=${ENV}&oprid=${encodeURIComponent(oprid)}&menu=${encodeURIComponent(menu)}`);
+    renderSummary(data.explanation, data.counts);
+
+    renderList('menus', data.grant_paths || [], 'No menu grant paths found.', row => {
+        const title = label(row, ['menuname']);
+        const subtitle = detail(row, ['rolename', 'classid', 'barname', 'baritemname']);
+        return rowButton(title, subtitle, () => {}, false);
+    });
+
+    renderList('permissionlists', data.grant_paths || [], 'No permission lists found.', row => {
+        const classid = label(row, ['classid']);
+        const subtitle = detail(row, ['rolename']);
+        return rowButton(classid, subtitle, () => selectPermissionList(classid), false);
+    });
+
+    setStatus(data.explanation);
+}
+
+async function compareOperators() {
+    const oprid1 = document.getElementById('operatorSearch').value.trim();
+    const oprid2 = document.getElementById('compareOprid').value.trim();
+    if (!oprid1 || !oprid2) {
+        setStatus('Enter both an OPRID (Analyze field) and a comparison OPRID (Compare field).');
+        return;
+    }
+    setStatus(`Comparing ${oprid1} vs ${oprid2}...`);
+
+    const d = await api(`/api/peoplesoft/security/compare-operators?env=${ENV}&oprid1=${encodeURIComponent(oprid1)}&oprid2=${encodeURIComponent(oprid2)}`);
+    const r = d.roles || {}, pl = d.permission_lists || {}, co = d.components || {};
+
+    function diffSection(title, data, key1, key2) {
+        const only1 = data[key1] || [], only2 = data[key2] || [], shared = data.shared || [], counts = data.counts || {};
+        let html = `<div style="margin-bottom:12px"><b style="color:#00e5ff">${title}</b>`;
+        html += ` <span class="subtitle">${counts.oprid1||0} vs ${counts.oprid2||0} (${counts.shared||0} shared)</span>`;
+        if (only1.length) html += `<div style="margin-top:4px"><span class="role-chip" style="background:#2a1200;border:1px solid #ff8800;color:#ff8800">Only ${oprid1}</span> ${only1.slice(0,20).map(n=>`<a href="/admin/object/${title==='Roles'?'role':'permissionlist'}/${n}" style="color:#ff8800">${n}</a>`).join(', ')}${only1.length>20?` +${only1.length-20} more`:''}</div>`;
+        if (only2.length) html += `<div style="margin-top:2px"><span class="role-chip" style="background:#001a2a;border:1px solid #44aaff;color:#44aaff">Only ${oprid2}</span> ${only2.slice(0,20).map(n=>`<a href="/admin/object/${title==='Roles'?'role':'permissionlist'}/${n}" style="color:#44aaff">${n}</a>`).join(', ')}${only2.length>20?` +${only2.length-20} more`:''}</div>`;
+        if (!only1.length && !only2.length) html += ' <span style="color:#00cc66">&#x2714; Identical</span>';
+        html += '</div>';
+        return html;
+    }
+
+    let html = `<div style="border:1px solid #00e5ff22;padding:12px;background:rgba(0,20,30,.6);margin-top:8px">`;
+    html += `<b style="font-size:13px">&#9878; Security Comparison: <a href="/admin/object/operator/${oprid1}">${oprid1}</a> vs <a href="/admin/object/operator/${oprid2}">${oprid2}</a></b>`;
+    html += `<hr style="border-color:#00e5ff22;margin:8px 0">`;
+    html += diffSection('Roles', r, 'only_in_oprid1', 'only_in_oprid2');
+    html += diffSection('Permission Lists', pl, 'only_in_oprid1', 'only_in_oprid2');
+    const compMsg = co.counts ? `${co.counts.oprid1||0} vs ${co.counts.oprid2||0} (${co.counts.shared||0} shared)` : '';
+    html += `<div><b style="color:#00e5ff">Components</b> <span class="subtitle">${compMsg}</span>`;
+    const onlyC1 = co.only_in_oprid1 || [], onlyC2 = co.only_in_oprid2 || [];
+    if (onlyC1.length) html += `<div style="margin-top:4px"><span class="role-chip" style="background:#2a1200;border:1px solid #ff8800;color:#ff8800">Only ${oprid1}</span> ${onlyC1.slice(0,10).map(n=>`<a href="/admin/object/component/${n}" style="color:#ff8800">${n}</a>`).join(', ')}${onlyC1.length>10?` +${onlyC1.length-10} more`:''}</div>`;
+    if (onlyC2.length) html += `<div style="margin-top:2px"><span class="role-chip" style="background:#001a2a;border:1px solid #44aaff;color:#44aaff">Only ${oprid2}</span> ${onlyC2.slice(0,10).map(n=>`<a href="/admin/object/component/${n}" style="color:#44aaff">${n}</a>`).join(', ')}${onlyC2.length>10?` +${onlyC2.length-10} more`:''}</div>`;
+    if (!onlyC1.length && !onlyC2.length) html += ' <span style="color:#00cc66">&#x2714; Identical</span>';
+    html += '</div></div>';
+
+    document.getElementById('accessSummary').innerHTML = html;
+    setStatus(`Compared ${oprid1} vs ${oprid2} — ${r.counts?.oprid1||0} vs ${r.counts?.oprid2||0} roles, ${pl.counts?.oprid1||0} vs ${pl.counts?.oprid2||0} permission lists.`);
+}
+
+async function selectRole(rolename) {
+    state.role = rolename;
+    state.classid = null;
+    state.component = null;
+    setStatus(`Loading permission lists for ${rolename}...`);
+    clearPanel('menus', 'Select a permission list.');
+    clearPanel('components', 'Select a permission list.');
+    clearPanel('pages', 'Select a component.');
+
+    const rows = await api(`/api/peoplesoft/roles/${encodeURIComponent(rolename)}/permissionlists?env=${ENV}`);
+    renderList('permissionlists', rows, 'No permission lists found.', row => {
+        const classid = label(row, ['classid']);
+        const subtitle = detail(row, ['dynamic_sw']);
+        return rowButton(classid, subtitle, () => selectPermissionList(classid), state.classid === classid);
+    });
+    setStatus(`Role ${rolename} has ${rows.length} permission lists.`);
+}
+
+async function selectPermissionList(classid) {
+    state.classid = classid;
+    state.component = null;
+    setStatus(`Loading menus and components for ${classid}...`);
+    clearPanel('pages', 'Select a component.');
+
+    const [menus, components] = await Promise.all([
+        api(`/api/peoplesoft/permissionlists/${encodeURIComponent(classid)}/menus?env=${ENV}`),
+        api(`/api/peoplesoft/permissionlists/${encodeURIComponent(classid)}/components?env=${ENV}`)
+    ]);
+
+    renderList('menus', menus, 'No menus found.', row => {
+        const menu = label(row, ['menuname']);
+        const subtitle = detail(row, ['barname', 'baritemname']);
+        return rowButton(menu, subtitle, () => {}, false);
+    });
+
+    renderList('components', components, 'No components found.', row => {
+        const component = label(row, ['pnlgrpname']);
+        const subtitle = detail(row, ['menuname', 'component_descr', 'component_searchrecname', 'market']);
+        return rowButton(component, subtitle, () => selectComponent(component), state.component === component);
+    });
+
+    setStatus(`Permission list ${classid}: ${menus.length} menus, ${components.length} components.`);
+}
+
+async function selectComponent(component) {
+    state.component = component;
+    setStatus(`Loading pages for ${component}...`);
+
+    const pages = await api(`/api/peoplesoft/components/${encodeURIComponent(component)}/pages?env=${ENV}`);
+    renderList('pages', pages, 'No pages found.', row => {
+        const page = label(row, ['pnlname']);
+        const subtitle = detail(row, ['itemnum', 'market', 'page_descr', 'page_pnltype', 'pnlgrpitemtype']);
+        return rowButton(page, subtitle, () => {}, false);
+    });
+
+    setStatus(`Component ${component} has ${pages.length} pages.`);
+}
+
+document.getElementById('roleSearch').addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+        loadRoles();
+    }
+});
+
+document.getElementById('operatorSearch').addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+        analyzeOperator();
+    }
+});
+
+document.getElementById('componentAccessSearch').addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+        analyzeComponentAccess();
+    }
+});
+
+loadRoles();
+</script>
+
+<div class="card" style="margin-top:24px">
+    <h2>Security Reports</h2>
+    <div class="toolbar">
+        <select id="reportType" style="background:#0b1b24;color:white;border:1px solid #00e5ff;padding:8px">
+            <option value="empty_roles">Roles with No Users</option>
+            <option value="unused_permission_lists">Unused Permission Lists</option>
+            <option value="top_operators_by_roles">Top Operators by Role Count</option>
+            <option value="top_roles_by_users">Top Roles by User Count</option>
+            <option value="permission_list_role_coverage">Permission Lists by Role Coverage</option>
+            <option value="locked_operators">Locked Operator Accounts</option>
+        </select>
+        <input id="reportLimit" type="number" value="50" min="1" max="500" style="width:70px">
+        <button onclick="loadReport()">Run Report</button>
+    </div>
+    <div id="reportNote" class="muted" style="margin-top:8px"></div>
+    <div id="reportTable" style="margin-top:12px;overflow-x:auto"></div>
+</div>
+
+<script>
+async function loadReport() {
+    const rtype = document.getElementById('reportType').value;
+    const limit = parseInt(document.getElementById('reportLimit').value) || 50;
+    document.getElementById('reportNote').textContent = 'Loading...';
+    document.getElementById('reportTable').innerHTML = '';
+    try {
+        const d = await api(`/api/peoplesoft/security/reports?env=${ENV}&report=${encodeURIComponent(rtype)}&limit=${limit}`);
+        document.getElementById('reportNote').textContent = d.note || '';
+        if (!d.rows || !d.rows.length) {
+            document.getElementById('reportTable').innerHTML = '<p class="muted">No rows returned.</p>';
+            return;
+        }
+        const cols = d.columns || Object.keys(d.rows[0]);
+        let h = `<table style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr>`;
+        for (const c of cols) h += `<th style="border:1px solid #1e5b66;padding:6px 10px;color:#00e5ff;text-align:left">${c}</th>`;
+        h += '</tr></thead><tbody>';
+        for (const row of d.rows) {
+            h += '<tr>';
+            for (const c of cols) {
+                const val = row[c] == null ? '' : String(row[c]);
+                const isLink = (c === 'rolename' || c === 'roleuser') && val;
+                const isPlLink = (c === 'classid') && val;
+                const isOpLink = (c === 'oprid') && val;
+                let cell = val;
+                if (isLink) cell = `<a href="/admin/object/role/${encodeURIComponent(val)}">${val}</a>`;
+                else if (isPlLink) cell = `<a href="/admin/object/permission_list/${encodeURIComponent(val)}">${val}</a>`;
+                else if (isOpLink) cell = `<a href="/admin/object/operator/${encodeURIComponent(val)}">${val}</a>`;
+                h += `<td style="border:1px solid #1e5b66;padding:6px 10px">${cell}</td>`;
+            }
+            h += '</tr>';
+        }
+        h += '</tbody></table>';
+        document.getElementById('reportTable').innerHTML = h;
+    } catch (e) {
+        document.getElementById('reportNote').textContent = 'Error: ' + e.message;
+    }
+}
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/graph", response_class=HTMLResponse)
+def admin_graph():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DeathStar Graph Explorer</title>
+    <style>
+        body {
+            background: #050b12;
+            color: #d7faff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #00e5ff;
+            text-shadow: 0 0 12px #00e5ff;
+            letter-spacing: 4px;
+        }
+
+        a {
+            color: #00e5ff;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .card {
+            border: 1px solid #00e5ff;
+            box-shadow: 0 0 12px rgba(0,229,255,.4);
+            padding: 20px;
+            margin-top: 20px;
+            background: rgba(0, 20, 30, .75);
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        input, select {
+            padding: 8px;
+            background: #0b1b24;
+            color: white;
+            border: 1px solid #00e5ff;
+        }
+
+        button {
+            background: #00e5ff;
+            border: none;
+            padding: 8px 14px;
+            cursor: pointer;
+        }
+
+        .graph {
+            display: grid;
+            grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr);
+            gap: 16px;
+        }
+
+        .node, .edge {
+            border: 1px solid #1e5b66;
+            padding: 10px;
+            margin: 8px 0;
+            background: rgba(5, 18, 28, .85);
+        }
+
+        .node {
+            cursor: pointer;
+        }
+
+        .node:hover {
+            border-color: #00e5ff;
+            box-shadow: 0 0 10px rgba(0,229,255,.3);
+        }
+
+        .title {
+            color: #00e5ff;
+            font-weight: bold;
+        }
+
+        .detail {
+            display: block;
+            color: #b8dce2;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .muted {
+            color: #7faab2;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            color: #b8dce2;
+        }
+
+        @media (max-width: 800px) {
+            body {
+                padding: 20px;
+            }
+
+            .graph {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .tab-btn {
+            background: #0b1b24;
+            border: 1px solid #1e5b66;
+            color: #7faab2;
+            padding: 6px 18px;
+            cursor: pointer;
+            letter-spacing: 1px;
+            font-size: 12px;
+        }
+
+        .tab-btn.active {
+            background: #00e5ff;
+            border-color: #00e5ff;
+            color: #050b12;
+            font-weight: bold;
+        }
+
+        #kgLegend {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+            font-size: 11px;
+        }
+
+        #kgDetail {
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px solid #1e3040;
+            background: #030d14;
+            font-size: 12px;
+            min-height: 36px;
+        }
+    </style>
+</head>
+<body>
+    <h1>GRAPH EXPLORER</h1>
+    <a href="/admin/">Back to Admin</a>
+
+    <div class="card">
+        <div class="toolbar">
+            <select id="objectType">
+                <option value="operator">Operator</option>
+                <option value="role">Role</option>
+                <option value="permissionlist">Permission List</option>
+                <option value="component">Component</option>
+                <option value="page">Page</option>
+                <option value="record">Record</option>
+                <option value="field">Field</option>
+                <option value="portal_registry">Portal Registry</option>
+                <option value="application_engine">Application Engine</option>
+                <option value="peoplecode">PeopleCode</option>
+                <option value="service_operation">IB Service</option>
+                <option value="node">IB Node</option>
+                <option value="queue">IB Queue</option>
+                <option value="routing">IB Routing</option>
+                <option value="sql_definition">SQL Definition</option>
+            </select>
+            <input id="objectName" placeholder="Object name">
+            <button onclick="loadGraph()">Explore</button>
+        </div>
+        <div id="status" class="muted">Enter an object and explore its relationships.</div>
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" id="tabList" onclick="showTab('list')">LIST</button>
+        <button class="tab-btn" id="tabVisual" onclick="showTab('visual')">VISUAL</button>
+    </div>
+
+    <div id="listView">
+        <div class="graph">
+            <div class="card">
+                <h2>Nodes</h2>
+                <div id="nodes" class="muted">No graph loaded.</div>
+            </div>
+
+            <div class="card">
+                <h2>Edges</h2>
+                <div id="edges" class="muted">No graph loaded.</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Selected Node</h2>
+            <pre id="details">Select a node.</pre>
+        </div>
+    </div>
+
+    <div id="visualView" style="display:none">
+        <div class="card" style="padding:12px">
+            <svg id="kgSvg" width="100%" height="580" style="display:block;background:#030d14;border:1px solid #1e3040"></svg>
+            <div id="kgLegend"></div>
+            <div id="kgDetail" class="muted">Load a graph then switch to Visual to explore.</div>
+        </div>
+    </div>
+
+<script>
+const ENV = 'HCM';
+
+async function api(path) {
+    const res = await fetch(path);
+
+    if (res.status === 401) {
+        window.location.reload();
+        return;
+    }
+
+    if (!res.ok) {
+        const msg = await res.text();
+        setStatus(msg);
+        throw new Error(msg);
+    }
+
+    return res.json();
+}
+
+function setStatus(message) {
+    document.getElementById('status').textContent = message;
+}
+
+function setObject(type, name) {
+    document.getElementById('objectType').value = type;
+    document.getElementById('objectName').value = name;
+    loadGraph();
+}
+
+function objectUrl(type, name) {
+    return `/admin/object/${encodeURIComponent(type)}/${encodeURIComponent(name)}`;
+}
+
+function nodeTitle(node) {
+    return `${node.type}: ${node.name}`;
+}
+
+function renderGraph(graph) {
+    const nodes = document.getElementById('nodes');
+    const edges = document.getElementById('edges');
+    nodes.className = '';
+    edges.className = '';
+    nodes.innerHTML = '';
+    edges.innerHTML = '';
+
+    if (!graph.nodes.length) {
+        nodes.className = 'muted';
+        nodes.textContent = 'No nodes returned.';
+    }
+
+    graph.nodes.forEach(node => {
+        const div = document.createElement('div');
+        div.className = 'node';
+        div.onclick = () => {
+            document.getElementById('details').textContent = JSON.stringify(node, null, 2);
+            window.location.href = objectUrl(node.type, node.name);
+        };
+
+        const title = document.createElement('span');
+        title.className = 'title';
+        title.textContent = nodeTitle(node);
+        div.appendChild(title);
+
+        const detail = document.createElement('span');
+        detail.className = 'detail';
+        detail.textContent = Object.keys(node.data || {}).slice(0, 5).map(k => `${k}=${node.data[k]}`).join(' | ');
+        div.appendChild(detail);
+
+        nodes.appendChild(div);
+    });
+
+    if (!graph.edges.length) {
+        edges.className = 'muted';
+        edges.textContent = 'No edges returned.';
+    }
+
+    graph.edges.forEach(edge => {
+        const div = document.createElement('div');
+        div.className = 'edge';
+        div.innerHTML = `
+            <span class="title">${edge.relationship}</span>
+            <span class="detail">${edge.source} -> ${edge.target}</span>
+        `;
+        edges.appendChild(div);
+    });
+
+    kgRenderForce(graph);
+}
+
+async function loadGraph() {
+    const type = document.getElementById('objectType').value;
+    const name = document.getElementById('objectName').value.trim();
+
+    if (!name) {
+        setStatus('Enter an object name.');
+        return;
+    }
+
+    setStatus(`Loading ${type}:${name}...`);
+    const graph = await api(`/api/peoplesoft/graph/${encodeURIComponent(type)}/${encodeURIComponent(name)}?env=${ENV}`);
+    renderGraph(graph);
+    setStatus(`Loaded ${graph.nodes.length} nodes and ${graph.edges.length} edges.`);
+}
+
+document.getElementById('objectName').addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+        loadGraph();
+    }
+});
+
+// ── Knowledge Graph Force Visualization ─────────────────
+const KG_COLORS = {
+  operator:'#4488ff', role:'#00cc66', permission_list:'#ff8800',
+  component:'#00e5ff', page:'#44ffcc', record:'#ffdd00', field:'#ff88ff',
+  portal_registry:'#aa44ff', application_engine:'#ff4488', peoplecode:'#ff6644',
+  service_operation:'#88ccff', node:'#ff88aa', queue:'#88ff44',
+  routing:'#cc88ff', process:'#55ff88', process_server:'#ffaa44',
+};
+function kgColor(t) { return KG_COLORS[t] || '#556677'; }
+
+function kgForce(nodes, edges, w, h, ticks) {
+  const k = Math.sqrt((w * h) / Math.max(nodes.length, 1));
+  for (let t = 0; t < ticks; t++) {
+    for (let i = 0; i < nodes.length; i++) { nodes[i].fx = 0; nodes[i].fy = 0; }
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i+1; j < nodes.length; j++) {
+        const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
+        const d2 = dx*dx + dy*dy || 0.001;
+        const f = k*k / d2;
+        nodes[i].fx += dx*f; nodes[i].fy += dy*f;
+        nodes[j].fx -= dx*f; nodes[j].fy -= dy*f;
+      }
+    }
+    for (const e of edges) {
+      const s = nodes[e.si], tgt = nodes[e.ti];
+      if (!s || !tgt) continue;
+      const dx = tgt.x-s.x, dy = tgt.y-s.y, d = Math.sqrt(dx*dx+dy*dy)||1;
+      const f = d*d/(k*3), fx = dx/d*f, fy = dy/d*f;
+      s.fx += fx; s.fy += fy; tgt.fx -= fx; tgt.fy -= fy;
+    }
+    const temp = k*(1-t/ticks);
+    for (const n of nodes) {
+      n.fx += (w/2-n.x)*0.012; n.fy += (h/2-n.y)*0.012;
+      const d = Math.sqrt(n.fx*n.fx+n.fy*n.fy)||1;
+      n.x += n.fx/d*Math.min(d,temp); n.y += n.fy/d*Math.min(d,temp);
+      n.x = Math.max(24,Math.min(w-24,n.x)); n.y = Math.max(24,Math.min(h-24,n.y));
+    }
+  }
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+let _kgNodes = [], _kgEdges = [], _kgFocalId = '';
+
+function kgDrawSvg() {
+  const svg = document.getElementById('kgSvg');
+  const ns = 'http://www.w3.org/2000/svg';
+  svg.innerHTML = '';
+  const w = svg.clientWidth || 900, h = parseInt(svg.getAttribute('height')) || 580;
+  for (const e of _kgEdges) {
+    const s = _kgNodes[e.si], t = _kgNodes[e.ti]; if (!s||!t) continue;
+    const line = document.createElementNS(ns,'line');
+    line.setAttribute('x1',s.x); line.setAttribute('y1',s.y);
+    line.setAttribute('x2',t.x); line.setAttribute('y2',t.y);
+    line.setAttribute('stroke','#1e3040'); line.setAttribute('stroke-width','1');
+    svg.appendChild(line);
+    if (e.rel) {
+      const tx = document.createElementNS(ns,'text');
+      tx.setAttribute('x',(s.x+t.x)/2); tx.setAttribute('y',(s.y+t.y)/2-2);
+      tx.setAttribute('fill','#2a4050'); tx.setAttribute('font-size','7');
+      tx.setAttribute('text-anchor','middle'); tx.textContent = e.rel;
+      svg.appendChild(tx);
+    }
+  }
+  for (const n of _kgNodes) {
+    const g = document.createElementNS(ns,'g');
+    g.style.cursor = 'pointer';
+    g.onclick = () => kgShowDetail(n);
+    const focal = n.id === _kgFocalId;
+    const r = focal ? 16 : 9;
+    const c = document.createElementNS(ns,'circle');
+    c.setAttribute('cx',n.x); c.setAttribute('cy',n.y); c.setAttribute('r',r);
+    c.setAttribute('fill',kgColor(n.type));
+    c.setAttribute('fill-opacity', focal ? '0.5' : '0.22');
+    c.setAttribute('stroke',kgColor(n.type));
+    c.setAttribute('stroke-width', focal ? '2.5' : '1.5');
+    g.appendChild(c);
+    const lbl = (n.label || n.name || n.id || '');
+    const tx = document.createElementNS(ns,'text');
+    tx.setAttribute('x',n.x); tx.setAttribute('y',n.y+r+11);
+    tx.setAttribute('fill',kgColor(n.type)); tx.setAttribute('font-size','9');
+    tx.setAttribute('text-anchor','middle');
+    tx.textContent = lbl.length>20 ? lbl.slice(0,18)+'…' : lbl;
+    g.appendChild(tx);
+    svg.appendChild(g);
+  }
+}
+
+function kgShowDetail(n) {
+  const el = document.getElementById('kgDetail');
+  const lbl = n.label || n.name || n.id || '';
+  const href = objectUrl(n.type, n.name || n.id);
+  el.className = '';
+  el.innerHTML = `<b style="color:${kgColor(n.type)}">[${n.type}]</b> `+
+    `<b style="color:#d7faff">${escHtml(lbl)}</b>`+
+    ` <a href="${escHtml(href)}" style="color:#00e5ff;font-size:10px;margin-left:6px;">&#x2197; explore</a>`+
+    '<br>'+Object.entries(n.data||{}).slice(0,12)
+      .map(([k,v])=>`<span style="color:#445566">${escHtml(k)}:</span> <span style="color:#9ab">${escHtml(String(v??''))}</span>`)
+      .join(' &nbsp; ');
+}
+
+function kgRenderForce(graph) {
+  const svg = document.getElementById('kgSvg');
+  const w = svg.clientWidth || 900, h = parseInt(svg.getAttribute('height')) || 580;
+  const nodeMap = {};
+  _kgFocalId = ((graph.nodes||[])[0]||{}).id || '';
+  _kgNodes = (graph.nodes||[]).map((n,i) => {
+    nodeMap[n.id] = i;
+    return {...n, x:24+Math.random()*(w-48), y:24+Math.random()*(h-48), fx:0, fy:0};
+  });
+  _kgEdges = (graph.edges||[]).map(e=>({
+    si:nodeMap[e.source], ti:nodeMap[e.target], rel:e.relationship||''
+  })).filter(e=>e.si!==undefined&&e.ti!==undefined);
+  kgForce(_kgNodes, _kgEdges, w, h, 400);
+  if (_activeTab === 'visual') kgDrawSvg();
+  const types = [...new Set(_kgNodes.map(n=>n.type))].sort();
+  document.getElementById('kgLegend').innerHTML = types.map(t =>
+    `<span style="color:${kgColor(t)};background:#0a1820;border:1px solid ${kgColor(t)}44;padding:2px 8px;border-radius:2px;">`+
+    `${t} <b>${_kgNodes.filter(n=>n.type===t).length}</b></span>`
+  ).join('');
+  document.getElementById('kgDetail').className = 'muted';
+  document.getElementById('kgDetail').textContent = 'Click a node to see details.';
+}
+
+let _activeTab = 'list';
+function showTab(name) {
+  _activeTab = name;
+  document.getElementById('listView').style.display = name==='list' ? '' : 'none';
+  document.getElementById('visualView').style.display = name==='visual' ? '' : 'none';
+  document.getElementById('tabList').classList.toggle('active', name==='list');
+  document.getElementById('tabVisual').classList.toggle('active', name==='visual');
+  if (name==='visual' && _kgNodes.length) kgDrawSvg();
+}
+</script>
+</body>
+</html>
+"""
+
+
+def object_explorer_page(object_type="", object_name=""):
+    html = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DeathStar Object Explorer</title>
+    <style>
+        body {
+            background: #050b12;
+            color: #d7faff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #00e5ff;
+            text-shadow: 0 0 12px #00e5ff;
+            letter-spacing: 4px;
+        }
+
+        a {
+            color: #00e5ff;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .card {
+            border: 1px solid #00e5ff;
+            box-shadow: 0 0 12px rgba(0,229,255,.4);
+            padding: 20px;
+            margin-top: 20px;
+            background: rgba(0, 20, 30, .75);
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(280px, 360px) 1fr;
+            gap: 18px;
+            align-items: start;
+        }
+
+        .sections {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(260px, 1fr));
+            gap: 16px;
+        }
+
+        input, select {
+            padding: 8px;
+            background: #0b1b24;
+            color: white;
+            border: 1px solid #00e5ff;
+        }
+
+        button {
+            background: #00e5ff;
+            border: none;
+            padding: 8px 14px;
+            cursor: pointer;
+        }
+
+        .result, .row {
+            border: 1px solid #1e5b66;
+            padding: 10px;
+            margin: 8px 0;
+            background: rgba(5, 18, 28, .85);
+        }
+
+        .result, .clickable {
+            cursor: pointer;
+        }
+
+        .result:hover, .clickable:hover {
+            border-color: #00e5ff;
+            box-shadow: 0 0 10px rgba(0,229,255,.3);
+        }
+
+        .title {
+            color: #00e5ff;
+            font-weight: bold;
+        }
+
+        .detail {
+            display: block;
+            color: #b8dce2;
+            font-size: 12px;
+            margin-top: 4px;
+            overflow-wrap: anywhere;
+        }
+
+        .muted {
+            color: #7faab2;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            color: #b8dce2;
+        }
+
+        dl {
+            display: grid;
+            grid-template-columns: minmax(120px, 180px) 1fr;
+            gap: 8px 12px;
+        }
+
+        dt {
+            color: #7faab2;
+        }
+
+        dd {
+            margin: 0;
+            overflow-wrap: anywhere;
+        }
+
+        @media (max-width: 1000px) {
+            .layout, .sections {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>OBJECT EXPLORER</h1>
+    <a href="/admin/">Back to Admin</a>
+
+    <div class="card">
+        <div class="toolbar">
+            <input id="globalSearch" placeholder="Search PeopleSoft objects">
+            <button onclick="globalSearch()">Search</button>
+            <select id="objectType">
+                <option value="operator">Operator</option>
+                <option value="role">Role</option>
+                <option value="permissionlist">Permission List</option>
+                <option value="component">Component</option>
+                <option value="page">Page</option>
+                <option value="record">Record</option>
+                <option value="field">Field</option>
+                <option value="portal_registry">Portal Registry</option>
+                <option value="application_engine">Application Engine</option>
+                <option value="peoplecode">PeopleCode</option>
+                <option value="service_operation">IB Service</option>
+                <option value="node">IB Node</option>
+                <option value="queue">IB Queue</option>
+                <option value="routing">IB Routing</option>
+                <option value="sql_definition">SQL Definition</option>
+            </select>
+            <input id="objectName" placeholder="Object name">
+            <button onclick="openTypedObject()">Open</button>
+            <select id="sqlTypeFilter" style="display:none;background:#0b1b24;color:white;border:1px solid #00e5ff;padding:8px">
+                <option value="">All SQL types</option>
+                <option value="0">Standalone SQL (0)</option>
+                <option value="1">AE SQL Action (1)</option>
+                <option value="2">AE PeopleCode SQL (2)</option>
+                <option value="6">Trigger (6)</option>
+            </select>
+            <button id="sqlSearchBtn" onclick="searchSqlDefinitions()" style="display:none">Search SQL</button>
+        </div>
+        <div id="status" class="muted">Search for an object or open a known type/name.</div>
+    </div>
+
+    <div class="layout">
+        <div>
+            <div class="card">
+                <h2>Search Results</h2>
+                <div id="results" class="muted">No search run.</div>
+            </div>
+
+            <div class="card">
+                <h2 style="display:flex;justify-content:space-between;align-items:center;">
+                  Recently Viewed
+                  <button onclick="clearRecent()" style="font-size:10px;padding:2px 8px;background:transparent;border:1px solid #00e5ff33;color:#445;cursor:pointer;">Clear</button>
+                </h2>
+                <div id="recentList" class="muted">No objects viewed yet.</div>
+            </div>
+
+            <div class="card">
+                <h2>Overview</h2>
+                <div id="overview" class="muted">No object loaded.</div>
+            </div>
+
+            <div class="card">
+                <h2>Actions</h2>
+                <div id="actions" class="muted">No object loaded.</div>
+            </div>
+        </div>
+
+        <div>
+            <div class="card">
+                <nav id="breadcrumb" style="font-size:12px;color:#7faab2;margin-bottom:8px;display:none"></nav>
+                <h2 id="objectTitle">Object</h2>
+                <div id="objectMeta" class="muted">Load an object to view canonical sections.</div>
+            </div>
+
+            <div id="sections" class="sections"></div>
+        </div>
+    </div>
+
+<script>
+const ENV = 'HCM';
+const INITIAL_TYPE = __OBJECT_TYPE__;
+const INITIAL_NAME = __OBJECT_NAME__;
+
+async function api(path) {
+    const res = await fetch(path);
+
+    if (res.status === 401) {
+        window.location.reload();
+        return;
+    }
+
+    if (!res.ok) {
+        const msg = await res.text();
+        setStatus(msg);
+        throw new Error(msg);
+    }
+
+    return res.json();
+}
+
+function setStatus(message) {
+    document.getElementById('status').textContent = message;
+}
+
+function objectUrl(type, name) {
+    if (type === 'operator')          return `/admin/operator/${encodeURIComponent(name)}`;
+    if (type === 'role')              return `/admin/role/${encodeURIComponent(name)}`;
+    if (type === 'record')            return `/admin/record/${encodeURIComponent(name)}`;
+    if (type === 'service_operation') return `/admin/object/service_operation/${encodeURIComponent(name)}`;
+    if (type === 'node')              return `/admin/object/node/${encodeURIComponent(name)}`;
+    if (type === 'queue')             return `/admin/object/queue/${encodeURIComponent(name)}`;
+    if (type === 'routing')           return `/admin/object/routing/${encodeURIComponent(name)}`;
+    return `/admin/object/${encodeURIComponent(type)}/${encodeURIComponent(name)}`;
+}
+
+function inferObject(row) {
+    if (row._links && row._links.admin) {
+        return row._links.admin;
+    }
+    if (row._links && row._links.peoplecode) {
+        return row._links.peoplecode;
+    }
+
+    if (row.recname && row.fieldname) return objectUrl('field', `${row.recname}.${row.fieldname}`);
+    if (row.oprid) return objectUrl('operator', row.oprid);
+    if (row.roleuser) return objectUrl('operator', row.roleuser);
+    if (row.rolename) return objectUrl('role', row.rolename);
+    if (row.classid) return objectUrl('permissionlist', row.classid);
+    if (row.pnlgrpname) return objectUrl('component', row.pnlgrpname);
+    if (row.pnlname) return objectUrl('page', row.pnlname);
+    if (row.recname) return objectUrl('record', row.recname);
+    if (row.searchrecname) return objectUrl('record', row.searchrecname);
+    if (row.addsearchrecname) return objectUrl('record', row.addsearchrecname);
+    if (row.ptibapplname) return objectUrl('service_operation', row.ptibapplname);
+    if (row.ib_operationname) return objectUrl('service_operation', row.ib_operationname);
+    if (row.routingdefnname) return objectUrl('routing', row.routingdefnname);
+    if (row.msgnodename) return objectUrl('node', row.msgnodename);
+    if (row.queuename) return objectUrl('queue', row.queuename);
+    if (row.portal_objname) return objectUrl('portal_registry', row.portal_objname);
+    return null;
+}
+
+function labelFor(row) {
+    return row.name || row.oprid || row.roleuser || row.rolename || row.classid ||
+        row.pnlgrpname || row.pnlname || row.recname || row.fieldname || row.portal_objname || row.menuname ||
+        row.reference || row.ae_step || row.ae_section || row.ae_applid ||
+        row.routingdefnname || row.msgnodename || row.queuename || row.ptibapplname ||
+        row.ib_operationname || row.ae_step ||
+        row.objectvalue1 || '(item)';
+}
+
+const _DETAIL_SKIP = new Set([
+    '_links','name','reference','oprid','roleuser','rolename','classid','pnlgrpname','pnlname',
+    'recname','fieldname','portal_objname','menuname','routingdefnname','msgnodename','queuename','ptibapplname',
+    'ib_operationname','ae_step','ae_section','ae_applid','objectvalue1',
+    'has_peoplecode','encoded_reference','source','progseq','objectid1',
+]);
+
+function detailFor(row) {
+    const skip = row.relationship ? _DETAIL_SKIP : new Set([..._DETAIL_SKIP, 'relationship']);
+    return Object.keys(row)
+        .filter(key => !key.startsWith('_') && !skip.has(key) && row[key] !== null && row[key] !== undefined && row[key] !== '' && row[key] !== ' ')
+        .slice(0, 5)
+        .map(key => `${key}=${row[key]}`)
+        .join(' | ');
+}
+
+function highlightPeopleCode(source) {
+    if (!source) return '';
+    function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    const tokens = [];
+    let pos = 0;
+    while (pos < source.length) {
+        if (source.startsWith('/*', pos)) {
+            const end = source.indexOf('*/', pos + 2);
+            const closePos = end === -1 ? source.length : end + 2;
+            tokens.push({type:'comment', text: source.slice(pos, closePos)});
+            pos = closePos;
+        } else if (source[pos] === '"') {
+            let i = pos + 1;
+            while (i < source.length && source[i] !== '"') i++;
+            tokens.push({type:'string', text: source.slice(pos, i + 1)});
+            pos = i + 1;
+        } else {
+            let i = pos + 1;
+            while (i < source.length && source[i] !== '/' && source[i] !== '"') i++;
+            tokens.push({type:'code', text: source.slice(pos, i)});
+            pos = i;
+        }
+    }
+
+    const KW  = /\b(If|Else|ElseIf|End-If|For|End-For|While|End-While|Evaluate|When|When-Other|End-Evaluate|Function|End-Function|Return|Local|Global|Component|Object|Constant|CreateObject|import|class|method|property|get|set|readonly|abstract|extends|Array|of|As|By|Step|Break|Continue|try|catch|throw|end-try)\b/g;
+    const BIN = /\b(SQLExec|CreateSQL|GetSQL|CreateRecord|GetRecord|GetField|GetRowset|GetLevel0|GetComponent|CallAppEngine|Transfer|DoSave|DoModal|CommitWork|RollbackWork|MessageBox|WinMessage|Error|Warning|CreateMessage|GetMessage|CreateObject)\b/g;
+    const NUM = /\b\d+(\.\d+)?\b/g;
+
+    function colorCode(text) {
+        let h = esc(text);
+        h = h.replace(KW,  m => `<span style="color:#569cd6">${m}</span>`);
+        h = h.replace(BIN, m => `<span style="color:#dcdcaa">${m}</span>`);
+        h = h.replace(NUM, m => `<span style="color:#b5cea8">${m}</span>`);
+        return h;
+    }
+
+    return tokens.map(t => {
+        if (t.type === 'comment') return `<span style="color:#6a9955">${esc(t.text)}</span>`;
+        if (t.type === 'string')  return `<span style="color:#ce9178">${esc(t.text)}</span>`;
+        return colorCode(t.text);
+    }).join('');
+}
+
+function renderKeyValues(target, data) {
+    target.innerHTML = '';
+    const dl = document.createElement('dl');
+
+    Object.keys(data || {}).filter(key => !key.startsWith('_') && key !== 'ddl' && key !== 'source').forEach(key => {
+        const dt = document.createElement('dt');
+        dt.textContent = key;
+        const dd = document.createElement('dd');
+        const value = data[key];
+        const url = typeof value === 'string' ? inferObject({[key]: value}) : null;
+
+        if (url) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.textContent = value;
+            dd.appendChild(a);
+        } else {
+            dd.textContent = typeof value === 'object' ? JSON.stringify(value) : value;
+        }
+
+        dl.appendChild(dt);
+        dl.appendChild(dd);
+    });
+
+    target.appendChild(dl);
+}
+
+function renderRows(target, rows) {
+    target.innerHTML = '';
+
+    if (!rows.length) {
+        target.className = 'muted';
+        target.textContent = 'No items.';
+        return;
+    }
+
+    target.className = '';
+    rows.forEach(row => {
+        const div = document.createElement('div');
+        const url = inferObject(row);
+        div.className = url ? 'row clickable' : 'row';
+        if (row.level !== undefined && row.level !== null) {
+            div.style.marginLeft = `${Math.min(Number(row.level) || 0, 4) * 18}px`;
+        }
+        if (url) {
+            div.onclick = () => window.location.href = url;
+        }
+
+        const title = document.createElement('span');
+        title.className = 'title';
+        title.textContent = row.relationship ? `${row.relationship}: ${labelFor(row)}` : labelFor(row);
+        div.appendChild(title);
+
+        const detail = document.createElement('span');
+        detail.className = 'detail';
+        detail.textContent = detailFor(row);
+        div.appendChild(detail);
+
+        target.appendChild(div);
+    });
+}
+
+function renderActions(object) {
+    const actions = document.getElementById('actions');
+    actions.className = '';
+    actions.innerHTML = '';
+
+    Object.keys(object._links || {}).forEach(name => {
+        const a = document.createElement('a');
+        a.href = object._links[name];
+        a.textContent = name;
+        actions.appendChild(a);
+        actions.appendChild(document.createElement('br'));
+    });
+
+    if (!actions.innerHTML) {
+        actions.className = 'muted';
+        actions.textContent = 'No actions.';
+    }
+}
+
+function buildBreadcrumbs(type, name) {
+    const crumb = (label, href) => href
+        ? `<a href="${href}" style="color:#7faab2">${label}</a>`
+        : `<span style="color:#d7faff">${label}</span>`;
+    const sep = ' <span style="color:#1e5b66">›</span> ';
+
+    const adminLink = crumb('Admin', '/admin/');
+    const objLink   = crumb('Object Explorer', '/admin/search');
+
+    const TYPE_TRAILS = {
+        record:             ['Records', '/admin/search'],
+        field:              ['Fields',  null],
+        component:          ['Components', '/admin/search'],
+        page:               ['Pages', null],
+        application_engine: ['AE Programs', '/admin/ae'],
+        sql_definition:     ['SQL Definitions', null],
+        peoplecode:         ['PeopleCode', null],
+        operator:           ['Security', '/admin/security'],
+        role:               ['Security', '/admin/security'],
+        permission_list:    ['Security', '/admin/security'],
+        permissionlist:     ['Security', '/admin/security'],
+        portal_registry:    ['Portal Registry', '/admin/portal'],
+        service_operation:  ['Integration Broker', '/admin/ib'],
+        node:               ['Integration Broker', '/admin/ib'],
+        queue:              ['Integration Broker', '/admin/ib'],
+        routing:            ['Integration Broker', '/admin/ib'],
+    };
+
+    const SECOND_CRUMB = {
+        operator:       'Operators',
+        role:           'Roles',
+        permission_list:'Permission Lists',
+        permissionlist: 'Permission Lists',
+        service_operation: 'Services',
+        node:           'Nodes',
+        queue:          'Queues',
+        routing:        'Routings',
+    };
+
+    const trail = TYPE_TRAILS[type];
+    if (!trail) return adminLink + sep + objLink + sep + crumb(name, null);
+
+    const [groupLabel, groupHref] = trail;
+    let parts = [adminLink, crumb(groupLabel, groupHref)];
+
+    const second = SECOND_CRUMB[type];
+    if (second) parts.push(crumb(second, null));
+
+    // For field names like "JOB.EMPLID", show parent record as intermediate breadcrumb
+    if (type === 'field' && name.includes('.')) {
+        const [rec, fld] = name.split('.', 2);
+        parts.push(crumb(rec, `/admin/object/record/${encodeURIComponent(rec)}`));
+        parts.push(crumb(fld, null));
+    } else {
+        parts.push(crumb(name, null));
+    }
+
+    return parts.join(sep);
+}
+
+function renderObject(object) {
+    document.getElementById('objectTitle').textContent = `${object.type}: ${object.name}`;
+    document.getElementById('objectMeta').textContent = `${object.sections.length} sections`;
+    renderKeyValues(document.getElementById('overview'), object.overview || {});
+    renderActions(object);
+
+    const bc = document.getElementById('breadcrumb');
+    bc.innerHTML = buildBreadcrumbs(object.type, object.name);
+    bc.style.display = '';
+
+    const sections = document.getElementById('sections');
+    sections.innerHTML = '';
+
+    object.sections.forEach(section => {
+        const card = document.createElement('div');
+        card.className = 'card';
+
+        const h = document.createElement('h2');
+        h.textContent = section.name;
+        card.appendChild(h);
+
+        if (section.data && Object.keys(section.data).length) {
+            const data = document.createElement('div');
+            renderKeyValues(data, section.data);
+            card.appendChild(data);
+        }
+
+        if (section.data && section.data.ddl) {
+            const pre = document.createElement('pre');
+            pre.textContent = section.data.ddl;
+            card.appendChild(pre);
+        }
+
+        if (section.data && section.data.source) {
+            const pre = document.createElement('pre');
+            pre.innerHTML = highlightPeopleCode(section.data.source);
+            card.appendChild(pre);
+        }
+
+        if (section.items && section.items.length) {
+            const rows = document.createElement('div');
+            renderRows(rows, section.items);
+            card.appendChild(rows);
+        } else if (!section.data || !Object.keys(section.data).length) {
+            const empty = document.createElement('div');
+            empty.className = 'muted';
+            empty.textContent = 'No data.';
+            card.appendChild(empty);
+        }
+
+        sections.appendChild(card);
+    });
+}
+
+const RECENT_KEY = 'ds_recent_objects';
+const RECENT_MAX = 12;
+
+const TYPE_CHIP_CFG = {
+    operator:           {label:'Operator',     bg:'#001830',border:'#00e5ff44',color:'#00e5ff'},
+    role:               {label:'Role',          bg:'#180030',border:'#aa55ff',  color:'#aa55ff'},
+    record:             {label:'Record',        bg:'#001830',border:'#00e5ff22',color:'#8ab'},
+    field:              {label:'Field',         bg:'#0d1a0d',border:'#00aa6644',color:'#00aa66'},
+    component:          {label:'Component',     bg:'#1a1800',border:'#aaaa00',  color:'#aaaa00'},
+    page:               {label:'Page',          bg:'#001a18',border:'#00aaaa',  color:'#00aaaa'},
+    permissionlist:     {label:'Perm List',     bg:'#1a0000',border:'#ff4444',  color:'#ff8888'},
+    application_engine: {label:'App Engine',    bg:'#1a0a00',border:'#ff8800',  color:'#ff8800'},
+    peoplecode:         {label:'PeopleCode',    bg:'#001018',border:'#0088cc',  color:'#55aaff'},
+    service_operation:  {label:'IB Service',    bg:'#001a14',border:'#00cc8844',color:'#00cc88'},
+    node:               {label:'IB Node',       bg:'#1a1800',border:'#ccaa0044',color:'#ccaa00'},
+    queue:              {label:'IB Queue',       bg:'#180018',border:'#cc66ff44',color:'#cc66ff'},
+    routing:            {label:'IB Routing',    bg:'#001818',border:'#00aabb44',color:'#00aabb'},
+};
+
+function typeChipHtml(type) {
+    const c = TYPE_CHIP_CFG[type] || {label: type, bg:'#111', border:'#334', color:'#778'};
+    return `<span style="display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;background:${c.bg};border:1px solid ${c.border};color:${c.color};margin-right:6px;white-space:nowrap;">${c.label}</span>`;
+}
+
+function loadRecent() {
+    try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch(e) { return []; }
+}
+function saveRecent(list) { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); }
+
+function relativeTime(ts) {
+    const sec = Math.floor((Date.now() - ts) / 1000);
+    if (sec < 60)   return 'just now';
+    if (sec < 3600) return `${Math.floor(sec/60)}m ago`;
+    if (sec < 86400) return `${Math.floor(sec/3600)}h ago`;
+    return `${Math.floor(sec/86400)}d ago`;
+}
+
+function pushRecent(type, name, title, description) {
+    const list = loadRecent().filter(r => !(r.type === type && r.name === name));
+    list.unshift({type, name, title: title || name, description: description || '', ts: Date.now()});
+    saveRecent(list.slice(0, RECENT_MAX));
+    renderRecentList();
+}
+
+function removeRecent(type, name, event) {
+    event.stopPropagation();
+    saveRecent(loadRecent().filter(r => !(r.type === type && r.name === name)));
+    renderRecentList();
+}
+
+function renderRecentList() {
+    const el = document.getElementById('recentList');
+    const list = loadRecent();
+    if (!list.length) { el.className = 'muted'; el.textContent = 'No objects viewed yet.'; return; }
+    el.className = '';
+    el.innerHTML = list.map((r, i) => {
+        const url = objectUrl(r.type, r.name);
+        const ago = r.ts ? relativeTime(r.ts) : '';
+        const desc = r.description && r.description !== r.name && r.description !== r.title
+            ? `<span style="display:block;color:#667;font-size:10px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px">${r.description}</span>`
+            : '';
+        return `<div class="result" style="padding:6px 8px;margin:3px 0;display:flex;justify-content:space-between;align-items:flex-start;" onclick="window.location.href='${url}'">
+          <div style="overflow:hidden;flex:1">
+            <div style="display:flex;align-items:center;gap:6px">
+              ${typeChipHtml(r.type)}
+              <span style="font-family:monospace;font-size:12px">${r.name}</span>
+              ${ago ? `<span style="color:#446;font-size:10px">${ago}</span>` : ''}
+            </div>
+            ${desc}
+          </div>
+          <button onclick="removeRecent(${JSON.stringify(r.type)},${JSON.stringify(r.name)},event)"
+                  style="background:transparent;border:none;color:#334;cursor:pointer;font-size:14px;padding:0 2px;line-height:1;flex-shrink:0" title="Remove">×</button>
+        </div>`;
+    }).join('');
+}
+
+function clearRecent() { saveRecent([]); renderRecentList(); }
+
+async function loadObject(type, name) {
+    if (!type || !name) return;
+
+    document.getElementById('objectType').value = type;
+    document.getElementById('objectName').value = name;
+    setStatus(`Loading ${type}:${name}...`);
+
+    const object = await api(`/api/peoplesoft/object/${encodeURIComponent(type)}/${encodeURIComponent(name)}?env=${ENV}`);
+    renderObject(object);
+    const desc = (object.overview || {}).description || object.description || '';
+    pushRecent(object.type, object.name, object.title || object.name, desc);
+    setStatus(`Loaded ${object.type}:${object.name}.`);
+}
+
+async function globalSearch() {
+    const q = document.getElementById('globalSearch').value.trim();
+
+    if (!q) {
+        setStatus('Enter search text.');
+        return;
+    }
+
+    setStatus(`Searching for ${q}...`);
+    const rows = await api(`/api/peoplesoft/search?env=${ENV}&q=${encodeURIComponent(q)}`);
+    const results = document.getElementById('results');
+    results.innerHTML = '';
+    results.className = '';
+
+    if (!rows.length) {
+        results.className = 'muted';
+        results.textContent = 'No results.';
+        return;
+    }
+
+    const valid = rows.filter(r => !r.error && r.name);
+    valid.forEach(row => {
+        const url = (row._links && row._links.admin) ? row._links.admin : objectUrl(row.type, row.name);
+        const chipHtml = typeChipHtml(row.type);
+        const div = document.createElement('div');
+        div.className = 'result';
+        div.onclick = () => window.location.href = url;
+        div.innerHTML = `<span class="title">${chipHtml}<span style="font-family:monospace;">${row.name}</span></span>`
+            + (row.description ? `<span class="detail">${row.description}</span>` : '');
+        results.appendChild(div);
+    });
+
+    const errCount = rows.length - valid.length;
+    setStatus(`Found ${valid.length} object${valid.length===1?'':'s'}${errCount > 0 ? ` (${errCount} types not accessible in ${ENV})` : ''}.`);
+}
+
+function openTypedObject() {
+    const type = document.getElementById('objectType').value;
+    const name = document.getElementById('objectName').value.trim();
+
+    if (!name) {
+        setStatus('Enter an object name.');
+        return;
+    }
+
+    window.location.href = objectUrl(type, name);
+}
+
+document.getElementById('globalSearch').addEventListener('keydown', event => {
+    if (event.key === 'Enter') globalSearch();
+});
+
+document.getElementById('objectName').addEventListener('keydown', event => {
+    if (event.key === 'Enter') openTypedObject();
+});
+
+// Show/hide SQL type filter based on selected object type
+document.getElementById('objectType').addEventListener('change', () => {
+    const isSql = document.getElementById('objectType').value === 'sql_definition';
+    document.getElementById('sqlTypeFilter').style.display = isSql ? '' : 'none';
+    document.getElementById('sqlSearchBtn').style.display  = isSql ? '' : 'none';
+});
+
+async function searchSqlDefinitions() {
+    const q       = document.getElementById('objectName').value.trim();
+    const sqltype = document.getElementById('sqlTypeFilter').value;
+    setStatus('Searching SQL Definitions...');
+    const params = new URLSearchParams({env: ENV, q, limit: 50});
+    if (sqltype !== '') params.set('sqltype', sqltype);
+    const rows = await api(`/api/peoplesoft/sql_definitions?${params}`);
+    const results = document.getElementById('results');
+    if (!rows.length) {
+        results.className = 'muted';
+        results.textContent = 'No SQL definitions found.';
+        setStatus('No results.');
+        return;
+    }
+    results.className = '';
+    results.innerHTML = rows.map(row => {
+        const sid  = row.sqlid || '';
+        const lbl  = row.sqltype_label || '';
+        const own  = row.objectownerid || '';
+        const url  = (row._links || {}).admin || '';
+        return `<div class="result" onclick="window.location.href='${url}'">
+            <span class="title">${sid}</span>
+            <span class="detail">${lbl}${own ? ' · ' + own : ''}</span>
+        </div>`;
+    }).join('');
+    setStatus(`${rows.length} SQL definition(s) found.`);
+}
+
+renderRecentList();
+
+if (INITIAL_TYPE && INITIAL_NAME) {
+    loadObject(INITIAL_TYPE, INITIAL_NAME);
+}
+</script>
+</body>
+</html>
+"""
+    return (
+        html
+        .replace("__OBJECT_TYPE__", json.dumps(object_type))
+        .replace("__OBJECT_NAME__", json.dumps(object_name))
+    )
+
+
+@router.get("/object", response_class=HTMLResponse)
+def admin_object_search():
+    return object_explorer_page()
+
+
+@router.get("/object/{object_type}/{object_name}", response_class=HTMLResponse)
+def admin_object(object_type: str, object_name: str):
+    return object_explorer_page(object_type, object_name)
+
+
+@router.get("/portal", response_class=HTMLResponse)
+def admin_portal():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DeathStar Portal Explorer</title>
+    <style>
+        body {
+            background: #050b12;
+            color: #d7faff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 32px;
+        }
+
+        h1 {
+            color: #00e5ff;
+            text-shadow: 0 0 12px #00e5ff;
+            letter-spacing: 3px;
+            margin-bottom: 10px;
+        }
+
+        h2 {
+            color: #00e5ff;
+            margin: 0 0 12px;
+        }
+
+        a {
+            color: #00e5ff;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .card {
+            border: 1px solid #00e5ff;
+            box-shadow: 0 0 12px rgba(0,229,255,.35);
+            padding: 16px;
+            background: rgba(0, 20, 30, .75);
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-top: 18px;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(280px, 360px) 1fr;
+            gap: 16px;
+            align-items: start;
+            margin-top: 16px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(240px, 1fr));
+            gap: 16px;
+        }
+
+        input {
+            padding: 8px;
+            background: #0b1b24;
+            color: white;
+            border: 1px solid #00e5ff;
+            min-width: 220px;
+        }
+
+        button {
+            background: #00e5ff;
+            border: none;
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+
+        .muted {
+            color: #7faab2;
+        }
+
+        .row {
+            border: 1px solid #1e5b66;
+            padding: 10px;
+            margin: 8px 0;
+            background: rgba(5, 18, 28, .85);
+            overflow-wrap: anywhere;
+        }
+
+        .clickable {
+            cursor: pointer;
+        }
+
+        .clickable:hover {
+            border-color: #00e5ff;
+            box-shadow: 0 0 10px rgba(0,229,255,.25);
+        }
+
+        .title {
+            color: #00e5ff;
+            font-weight: bold;
+            font-family: monospace;
+        }
+
+        .detail {
+            display: block;
+            color: #b8dce2;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .crumbs {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            font-size: 12px;
+        }
+
+        .crumb {
+            border: 1px solid #1e5b66;
+            padding: 4px 6px;
+            background: rgba(5,18,28,.85);
+        }
+
+        .counts {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(90px, 1fr));
+            gap: 8px;
+        }
+
+        .count {
+            border: 1px solid #1e5b66;
+            padding: 10px;
+            background: rgba(5,18,28,.85);
+        }
+
+        .num {
+            display: block;
+            color: #00e5ff;
+            font-size: 22px;
+            font-weight: bold;
+        }
+
+        @media (max-width: 1000px) {
+            .layout, .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>PORTAL EXPLORER</h1>
+    <a href="/admin/">Back to Admin</a>
+    &nbsp;|&nbsp;
+    <a id="objectLink" href="/admin/object">Open in Object Explorer</a>
+
+    <div class="card toolbar">
+        <input id="searchText" placeholder="Search content references">
+        <button onclick="searchPortal()">Search</button>
+        <input id="portalName" placeholder="PORTAL_OBJNAME">
+        <button onclick="loadPortal()">Open</button>
+        <input id="oprid" placeholder="Explain OPRID">
+        <button onclick="explainPortal()">Explain Access</button>
+    </div>
+
+    <div id="status" class="muted" style="margin-top:12px;">Search or open a Portal Registry content reference.</div>
+
+    <div class="layout">
+        <div class="card">
+            <h2>Search Results</h2>
+            <div id="results" class="muted">No search run.</div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>Definition</h2>
+                <div id="definition" class="muted">No content reference loaded.</div>
+            </div>
+
+            <div class="card">
+                <h2>Counts</h2>
+                <div id="counts" class="muted">No content reference loaded.</div>
+            </div>
+
+            <div class="card">
+                <h2>Breadcrumbs</h2>
+                <div id="breadcrumbs" class="muted">No content reference loaded.</div>
+            </div>
+
+            <div class="card">
+                <h2>Target Components</h2>
+                <div id="targets" class="muted">No content reference loaded.</div>
+            </div>
+
+            <div class="card">
+                <h2>Children</h2>
+                <div id="children" class="muted">No content reference loaded.</div>
+            </div>
+
+            <div class="card">
+                <h2>Portal Security</h2>
+                <div id="security" class="muted">No content reference loaded.</div>
+            </div>
+
+            <div class="card">
+                <h2>Access Paths</h2>
+                <div id="accessPaths" class="muted">No content reference loaded.</div>
+            </div>
+
+            <div class="card">
+                <h2>Explain Result</h2>
+                <div id="explain" class="muted">No explanation run.</div>
+            </div>
+        </div>
+    </div>
+
+<script>
+const ENV = 'HCM';
+let currentPortal = '';
+
+function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+}
+
+async function api(path) {
+    const res = await fetch(path);
+    if (!res.ok) {
+        const text = await res.text();
+        setStatus(text || `Request failed with ${res.status}`);
+        throw new Error(text);
+    }
+    return res.json();
+}
+
+function setStatus(message) {
+    document.getElementById('status').textContent = message;
+}
+
+function section(payload, name) {
+    return (payload.sections || []).find(s => s.name === name) || {items: [], data: {}};
+}
+
+function firstValue(obj, keys) {
+    for (const key of keys) {
+        if (obj && obj[key] !== undefined && obj[key] !== null && String(obj[key]).trim() !== '') {
+            return obj[key];
+        }
+    }
+    return '';
+}
+
+function rowHtml(row, titleKeys, detailKeys, url) {
+    const title = firstValue(row, titleKeys) || '(item)';
+    const details = detailKeys
+        .map(key => row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== '' ? `${key}=${row[key]}` : '')
+        .filter(Boolean)
+        .join(' | ');
+    const cls = url ? 'row clickable' : 'row';
+    const click = url ? ` onclick="window.location.href='${url}'"` : '';
+    return `<div class="${cls}"${click}><span class="title">${esc(title)}</span>${details ? `<span class="detail">${esc(details)}</span>` : ''}</div>`;
+}
+
+function adminUrl(type, name) {
+    return `/admin/object/${encodeURIComponent(type)}/${encodeURIComponent(name)}`;
+}
+
+async function searchPortal() {
+    const q = document.getElementById('searchText').value.trim();
+    if (!q) {
+        setStatus('Enter portal search text.');
+        return;
+    }
+    setStatus(`Searching for ${q}...`);
+    const rows = await api(`/api/peoplesoft/search?env=${ENV}&q=${encodeURIComponent(q)}&limit=30`);
+    const portals = rows.filter(row => row.type === 'portal_registry');
+    const target = document.getElementById('results');
+    if (!portals.length) {
+        target.className = 'muted';
+        target.textContent = 'No Portal Registry matches.';
+        setStatus('No Portal Registry matches.');
+        return;
+    }
+    target.className = '';
+    target.innerHTML = portals.map(row =>
+        rowHtml(row, ['name'], ['description'], `/admin/portal?portal=${encodeURIComponent(row.name)}`)
+    ).join('');
+    setStatus(`Found ${portals.length} Portal Registry object${portals.length === 1 ? '' : 's'}.`);
+}
+
+async function loadPortal(name) {
+    const portal = (name || document.getElementById('portalName').value || '').trim();
+    if (!portal) {
+        setStatus('Enter PORTAL_OBJNAME.');
+        return;
+    }
+
+    currentPortal = portal.toUpperCase();
+    document.getElementById('portalName').value = currentPortal;
+    document.getElementById('objectLink').href = adminUrl('portal_registry', currentPortal);
+    setStatus(`Loading ${currentPortal}...`);
+
+    const payload = await api(`/api/peoplesoft/object/portal_registry/${encodeURIComponent(currentPortal)}?env=${ENV}`);
+    const overview = payload.overview || {};
+    const def = section(payload, 'Definition').data || {};
+    const crumbs = section(payload, 'Breadcrumbs').items || [];
+    const children = section(payload, 'Children').items || [];
+    const targets = section(payload, 'Target Components').items || [];
+    const grants = section(payload, 'Portal Security').items || [];
+    const paths = section(payload, 'Access Paths').items || [];
+
+    document.getElementById('definition').innerHTML =
+        rowHtml(def, ['portal_label', 'portal_objname'], ['portal_name', 'reference_type_label', 'uri', 'url', 'owner', 'lastupdoprid']);
+
+    document.getElementById('counts').innerHTML = `
+        <div class="counts">
+            <div class="count"><span class="num">${esc(overview.children || 0)}</span>Children</div>
+            <div class="count"><span class="num">${esc(overview.permissions || 0)}</span>Grants</div>
+            <div class="count"><span class="num">${esc(overview.access_paths || 0)}</span>Access Paths</div>
+            <div class="count"><span class="num">${esc(overview.permissionlists || 0)}</span>Permission Lists</div>
+            <div class="count"><span class="num">${esc(overview.roles || 0)}</span>Roles</div>
+            <div class="count"><span class="num">${esc(overview.operators || 0)}</span>Operators</div>
+        </div>`;
+
+    document.getElementById('breadcrumbs').innerHTML = crumbs.length
+        ? `<div class="crumbs">${crumbs.map(row => `<span class="crumb"><a href="/admin/portal?portal=${encodeURIComponent(row.portal_objname)}">${esc(row.portal_label || row.portal_objname)}</a></span>`).join('')}</div>`
+        : '<span class="muted">No breadcrumbs.</span>';
+
+    document.getElementById('targets').innerHTML = targets.length
+        ? targets.map(row => rowHtml(row, ['pnlgrpname'], ['descr', 'menu', 'market'], adminUrl('component', row.pnlgrpname))).join('')
+        : '<span class="muted">No component target inferred.</span>';
+
+    document.getElementById('children').innerHTML = children.length
+        ? children.slice(0, 80).map(row => rowHtml(row, ['portal_label', 'portal_objname'], ['portal_reftype_label', 'portal_urltext'], `/admin/portal?portal=${encodeURIComponent(row.portal_objname)}`)).join('')
+        : '<span class="muted">No children.</span>';
+
+    document.getElementById('security').innerHTML = grants.length
+        ? grants.map(row => rowHtml(row, ['portal_permname'], ['portal_permtype_label', 'portal_iscascade', 'inherited_from'], row.classid ? adminUrl('permissionlist', row.classid) : (row.rolename ? adminUrl('role', row.rolename) : null))).join('')
+        : '<span class="muted">No portal grants.</span>';
+
+    document.getElementById('accessPaths').innerHTML = paths.length
+        ? paths.slice(0, 80).map(row => rowHtml(row, ['roleuser'], ['rolename', 'classid', 'path_type'], row.roleuser ? adminUrl('operator', row.roleuser) : null)).join('')
+        : '<span class="muted">No expanded access paths.</span>';
+
+    setStatus(`Loaded ${currentPortal}.`);
+}
+
+async function explainPortal() {
+    const oprid = document.getElementById('oprid').value.trim();
+    const portal = currentPortal || document.getElementById('portalName').value.trim();
+    if (!oprid || !portal) {
+        setStatus('Enter an OPRID and load a portal object.');
+        return;
+    }
+
+    setStatus(`Explaining ${oprid} -> ${portal}...`);
+    const result = await api(`/api/peoplesoft/security/explain-portal?env=${ENV}&oprid=${encodeURIComponent(oprid)}&portal=${encodeURIComponent(portal)}`);
+    const target = document.getElementById('explain');
+    const grants = result.grant_paths || [];
+    target.className = '';
+    target.innerHTML = `
+        <div class="row">
+            <span class="title">${result.has_access ? 'ACCESS GRANTED' : 'NO ACCESS'}</span>
+            <span class="detail">${esc(result.oprid)} -> ${esc(result.portal_objname)} | matching grants=${grants.length}</span>
+        </div>
+        ${grants.length ? grants.map(row => rowHtml(row, ['portal_permname'], ['matched_by', 'portal_permtype_label', 'classid', 'rolename'])).join('') : ''}
+    `;
+    setStatus(`Explain complete: ${result.has_access ? 'access granted' : 'no access'}.`);
+}
+
+document.getElementById('searchText').addEventListener('keydown', event => {
+    if (event.key === 'Enter') searchPortal();
+});
+document.getElementById('portalName').addEventListener('keydown', event => {
+    if (event.key === 'Enter') loadPortal();
+});
+document.getElementById('oprid').addEventListener('keydown', event => {
+    if (event.key === 'Enter') explainPortal();
+});
+
+const params = new URLSearchParams(window.location.search);
+if (params.get('portal')) {
+    loadPortal(params.get('portal'));
+}
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/metadata", response_class=HTMLResponse)
+def admin_metadata():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DeathStar Metadata Engine</title>
+    <style>
+        body {
+            background: #050b12;
+            color: #d7faff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #00e5ff;
+            text-shadow: 0 0 12px #00e5ff;
+            letter-spacing: 4px;
+        }
+
+        a {
+            color: #00e5ff;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(300px, 1fr));
+            gap: 16px;
+            align-items: start;
+        }
+
+        .card {
+            border: 1px solid #00e5ff;
+            box-shadow: 0 0 12px rgba(0,229,255,.4);
+            padding: 20px;
+            margin-top: 20px;
+            background: rgba(0, 20, 30, .75);
+        }
+
+        button {
+            background: #00e5ff;
+            border: none;
+            padding: 8px 14px;
+            cursor: pointer;
+            margin-right: 8px;
+        }
+
+        .row {
+            border: 1px solid #1e5b66;
+            padding: 10px;
+            margin: 8px 0;
+            background: rgba(5, 18, 28, .85);
+        }
+
+        .ok {
+            color: #9ef7bd;
+        }
+
+        .warn {
+            color: #ffd27d;
+        }
+
+        .bad {
+            color: #ff8f8f;
+        }
+
+        .title {
+            color: #00e5ff;
+            font-weight: bold;
+        }
+
+        .detail {
+            display: block;
+            color: #b8dce2;
+            font-size: 12px;
+            margin-top: 4px;
+            overflow-wrap: anywhere;
+        }
+
+        .muted {
+            color: #7faab2;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            color: #b8dce2;
+        }
+
+        @media (max-width: 900px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>METADATA ENGINE</h1>
+    <a href="/admin/">Back to Admin</a>
+
+    <div class="card">
+        <button onclick="loadMetadata()">Refresh</button>
+        <button onclick="clearCache()">Clear Cache</button>
+        <span id="status" class="muted">Loading metadata diagnostics...</span>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h2>Version</h2>
+            <div id="version" class="muted">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Cache</h2>
+            <div id="cache" class="muted">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Capabilities</h2>
+            <div id="capabilities" class="muted">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Warnings</h2>
+            <div id="warnings" class="muted">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Object Types</h2>
+            <div id="objectTypes" class="muted">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Discovery</h2>
+            <pre id="discovery">Loading...</pre>
+        </div>
+    </div>
+
+<script>
+const ENV = 'HCM';
+
+async function api(path, options = {}) {
+    const res = await fetch(path, options);
+
+    if (res.status === 401) {
+        window.location.reload();
+        return;
+    }
+
+    if (!res.ok) {
+        const msg = await res.text();
+        setStatus(msg);
+        throw new Error(msg);
+    }
+
+    return res.json();
+}
+
+function setStatus(message) {
+    document.getElementById('status').textContent = message;
+}
+
+function row(title, detail, cls = '') {
+    const div = document.createElement('div');
+    div.className = 'row';
+    div.innerHTML = `
+        <span class="title ${cls}">${title}</span>
+        <span class="detail">${detail || ''}</span>
+    `;
+    return div;
+}
+
+function renderVersion(data) {
+    const el = document.getElementById('version');
+    el.innerHTML = '';
+    el.appendChild(row('Oracle', data.oracle_version || 'Unavailable'));
+    el.appendChild(row('PeopleTools', data.peopletools_version || 'Unavailable'));
+    el.appendChild(row('Schema', JSON.stringify(data.schema || {})));
+    el.appendChild(row('Adapter', `${data.version_adapter.adapter_key}: ${data.version_adapter.adapter.notes}`));
+}
+
+function renderCache(data) {
+    const el = document.getElementById('cache');
+    el.innerHTML = '';
+    el.appendChild(row('TTL', `${data.ttl_seconds} seconds`));
+    el.appendChild(row('Entries', data.entries.length));
+    data.entries.forEach(entry => {
+        el.appendChild(row(entry.key, `age=${entry.age_seconds}s expires=${entry.expires_in_seconds}s`));
+    });
+}
+
+function renderCapabilities(data) {
+    const el = document.getElementById('capabilities');
+    el.innerHTML = '';
+    data.capabilities.forEach(cap => {
+        const cls = cap.supported ? 'ok' : 'bad';
+        const detail = `table=${cap.table || 'n/a'} name_column=${cap.name_column || 'n/a'} page=${cap.object_page || 'n/a'}`;
+        el.appendChild(row(`${cap.type}: ${cap.supported ? 'available' : 'missing'}`, detail, cls));
+    });
+}
+
+function renderWarnings(warnings) {
+    const el = document.getElementById('warnings');
+    el.innerHTML = '';
+
+    if (!warnings.length) {
+        el.className = 'muted';
+        el.textContent = 'No warnings.';
+        return;
+    }
+
+    el.className = '';
+    warnings.forEach(w => {
+        el.appendChild(row(w.code || 'warning', w.message || JSON.stringify(w), 'warn'));
+    });
+}
+
+function renderObjectTypes(data) {
+    const el = document.getElementById('objectTypes');
+    el.innerHTML = '';
+    Object.keys(data).sort().forEach(type => {
+        const item = data[type];
+        el.appendChild(row(type, `${item.display_title} | ${item.graph_node_type} | ${item.object_page}`));
+    });
+}
+
+async function clearCache() {
+    await api('/api/metadata/cache/clear', {method: 'POST'});
+    await loadMetadata();
+}
+
+async function loadMetadata() {
+    setStatus('Loading metadata diagnostics...');
+    const [version, capabilities, cache, objectTypes, discovery] = await Promise.all([
+        api(`/api/metadata/version?env=${ENV}`),
+        api(`/api/metadata/capabilities?env=${ENV}`),
+        api('/api/metadata/cache'),
+        api('/api/metadata/object-types'),
+        api(`/api/metadata/discovery?env=${ENV}`)
+    ]);
+
+    renderVersion(version);
+    renderCapabilities(capabilities);
+    renderCache(cache);
+    renderObjectTypes(objectTypes);
+    renderWarnings([...(version.warnings || []), ...(capabilities.warnings || []), ...(discovery.warnings || [])]);
+    document.getElementById('discovery').textContent = JSON.stringify(discovery, null, 2);
+    setStatus('Metadata diagnostics loaded.');
+}
+
+loadMetadata();
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/graphdb", response_class=HTMLResponse)
+def admin_graphdb():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DeathStar Knowledge Graph</title>
+    <style>
+        body {
+            background: #050b12;
+            color: #d7faff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #00e5ff;
+            text-shadow: 0 0 12px #00e5ff;
+            letter-spacing: 4px;
+        }
+
+        a {
+            color: #00e5ff;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        button, select, input {
+            padding: 8px 12px;
+            margin: 4px;
+            border: 1px solid #00e5ff;
+        }
+
+        button {
+            background: #00e5ff;
+            cursor: pointer;
+        }
+
+        select, input {
+            background: #0b1b24;
+            color: white;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(300px, 1fr));
+            gap: 16px;
+            align-items: start;
+        }
+
+        .card {
+            border: 1px solid #00e5ff;
+            box-shadow: 0 0 12px rgba(0,229,255,.4);
+            padding: 20px;
+            margin-top: 20px;
+            background: rgba(0, 20, 30, .75);
+        }
+
+        .row {
+            border: 1px solid #1e5b66;
+            padding: 10px;
+            margin: 8px 0;
+            background: rgba(5, 18, 28, .85);
+        }
+
+        .title {
+            color: #00e5ff;
+            font-weight: bold;
+        }
+
+        .detail {
+            display: block;
+            color: #b8dce2;
+            font-size: 12px;
+            margin-top: 4px;
+            overflow-wrap: anywhere;
+        }
+
+        .ok {
+            color: #9ef7bd;
+        }
+
+        .warn {
+            color: #ffd27d;
+        }
+
+        .muted {
+            color: #7faab2;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            color: #b8dce2;
+        }
+
+        @media (max-width: 900px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>KNOWLEDGE GRAPH</h1>
+    <a href="/admin/">Back to Admin</a>
+
+    <div class="card">
+        <button onclick="buildGraph()">Rebuild Graph</button>
+        <button onclick="clearGraph()">Clear Graph</button>
+        <button onclick="loadStats()">Refresh</button>
+        <select id="exportFormat">
+            <option value="json">JSON</option>
+            <option value="graphml">GraphML</option>
+            <option value="dot">DOT</option>
+        </select>
+        <button onclick="exportGraph()">Export</button>
+        <span id="status" class="muted">Loading graph status...</span>
+    </div>
+
+    <div class="card">
+        <h2>Snapshots</h2>
+        <input id="snapshotName" placeholder="Snapshot name">
+        <input id="snapshotNote" placeholder="Note" style="min-width:280px;">
+        <button onclick="createSnapshot()">Create Snapshot</button>
+        <button onclick="loadSnapshots()">Refresh Snapshots</button>
+        <br>
+        <select id="snapshotLeft" style="min-width:260px;"></select>
+        <select id="snapshotRight" style="min-width:260px;"></select>
+        <input id="snapshotTypes" placeholder="Node types filter" style="min-width:220px;">
+        <button onclick="compareSnapshots()">Compare Snapshots</button>
+        <div id="snapshots" class="muted">Loading snapshots...</div>
+        <div id="snapshotDiff" class="muted">Select two snapshots to compare.</div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h2>Stats</h2>
+            <div id="stats" class="muted">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Object Counts</h2>
+            <div id="counts" class="muted">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Providers</h2>
+            <div id="providers" class="muted">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Health</h2>
+            <div id="health" class="muted">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Graph Search</h2>
+            <input id="searchText" placeholder="Search graph nodes">
+            <button onclick="searchGraph()">Search</button>
+            <div id="searchResults" class="muted">No search run.</div>
+        </div>
+
+        <div class="card">
+            <h2>Raw Snapshot</h2>
+            <pre id="raw">Loading...</pre>
+        </div>
+    </div>
+
+<script>
+const ENV = 'HCM';
+
+async function api(path, options = {}) {
+    const res = await fetch(path, options);
+
+    if (res.status === 401) {
+        window.location.reload();
+        return;
+    }
+
+    if (!res.ok) {
+        const msg = await res.text();
+        setStatus(msg);
+        throw new Error(msg);
+    }
+
+    return res.json();
+}
+
+function setStatus(message) {
+    document.getElementById('status').textContent = message;
+}
+
+function row(title, detail, cls = '') {
+    const div = document.createElement('div');
+    div.className = 'row';
+    div.innerHTML = `<span class="title ${cls}">${title}</span><span class="detail">${detail || ''}</span>`;
+    return div;
+}
+
+function renderStats(data) {
+    const stats = document.getElementById('stats');
+    stats.innerHTML = '';
+    stats.className = '';
+    stats.appendChild(row('Nodes', data.node_count));
+    stats.appendChild(row('Edges', data.edge_count));
+    stats.appendChild(row('Health', data.graph_health, data.graph_health === 'ok' ? 'ok' : 'warn'));
+    stats.appendChild(row('Built At', data.built_at || 'Not built'));
+    stats.appendChild(row('Build Time', `${data.build_seconds || 0}s`));
+    stats.appendChild(row('Cache', JSON.stringify(data.cache_status || {})));
+
+    const counts = document.getElementById('counts');
+    counts.innerHTML = '';
+    counts.className = '';
+    Object.keys(data.object_counts || {}).sort().forEach(type => {
+        counts.appendChild(row(type, data.object_counts[type]));
+    });
+    if (!counts.innerHTML) {
+        counts.className = 'muted';
+        counts.textContent = 'No object counts yet.';
+    }
+
+    const providers = document.getElementById('providers');
+    providers.innerHTML = '';
+    providers.className = '';
+    (data.providers || []).forEach(provider => {
+        providers.appendChild(row(provider.name, `${provider.status} | items=${provider.items} | ${provider.seconds}s ${provider.warning || ''}`, provider.status === 'ok' ? 'ok' : 'warn'));
+    });
+    if (!providers.innerHTML) {
+        providers.className = 'muted';
+        providers.textContent = 'No providers have run.';
+    }
+
+    const health = document.getElementById('health');
+    health.innerHTML = '';
+    health.className = '';
+    health.appendChild(row('Warnings', data.warning_count));
+    health.appendChild(row('Disconnected', data.disconnected_count, data.disconnected_count ? 'warn' : 'ok'));
+    health.appendChild(row('Orphaned', data.orphaned_count, data.orphaned_count ? 'warn' : 'ok'));
+    (data.warnings || []).slice(0, 20).forEach(w => {
+        health.appendChild(row(w.code || 'warning', w.message || JSON.stringify(w), 'warn'));
+    });
+
+    document.getElementById('raw').textContent = JSON.stringify(data, null, 2);
+}
+
+async function loadStats() {
+    setStatus('Loading graph stats...');
+    const data = await api(`/api/graph/stats?env=${ENV}`);
+    renderStats(data);
+    setStatus('Graph stats loaded.');
+}
+
+async function buildGraph() {
+    setStatus('Building graph...');
+    const data = await api(`/api/graph/build?env=${ENV}&limit=50&persist=true`);
+    renderStats(data);
+    setStatus('Graph build complete.');
+}
+
+async function clearGraph() {
+    setStatus('Clearing graph...');
+    const data = await api(`/api/graph/clear?env=${ENV}`, {method: 'POST'});
+    renderStats(data);
+    setStatus('Graph cleared.');
+}
+
+async function createSnapshot() {
+    const name = document.getElementById('snapshotName').value.trim();
+    const note = document.getElementById('snapshotNote').value.trim();
+    setStatus('Creating graph snapshot...');
+    const snap = await api(`/api/graph/snapshots?env=${ENV}&name=${encodeURIComponent(name)}&note=${encodeURIComponent(note)}`, {method: 'POST'});
+    setStatus(`Snapshot created: ${snap.id}`);
+    await loadSnapshots();
+}
+
+async function loadSnapshots() {
+    const el = document.getElementById('snapshots');
+    const left = document.getElementById('snapshotLeft');
+    const right = document.getElementById('snapshotRight');
+    el.innerHTML = '';
+    el.className = '';
+    const data = await api(`/api/graph/snapshots?env=${ENV}`);
+    const snaps = data.snapshots || [];
+    left.innerHTML = snaps.map(s => `<option value="${s.id}">${s.name} · ${s.created_at}</option>`).join('');
+    right.innerHTML = snaps.map(s => `<option value="${s.id}">${s.name} · ${s.created_at}</option>`).join('');
+    if (snaps.length > 1) {
+        right.selectedIndex = 1;
+    }
+    if (!snaps.length) {
+        el.className = 'muted';
+        el.textContent = 'No snapshots yet.';
+        return;
+    }
+    snaps.forEach(s => {
+        const div = row(
+            `${s.name} (${s.node_count} nodes / ${s.edge_count} edges)`,
+            `${s.id} | created=${s.created_at || 'unknown'} | built=${s.built_at || 'not built'} | ${s.note || ''}`
+        );
+        const links = document.createElement('div');
+        links.className = 'detail';
+        links.innerHTML = `<a href="/api/graph/snapshots/${encodeURIComponent(s.id)}" target="_blank">Open JSON</a>
+            &nbsp;·&nbsp; <a href="#" data-id="${s.id}">Delete</a>`;
+        links.querySelector('a[data-id]').onclick = async event => {
+            event.preventDefault();
+            await deleteSnapshot(s.id);
+        };
+        div.appendChild(links);
+        el.appendChild(div);
+    });
+}
+
+async function compareSnapshots() {
+    const left = document.getElementById('snapshotLeft').value;
+    const right = document.getElementById('snapshotRight').value;
+    const types = document.getElementById('snapshotTypes').value.trim();
+    const target = document.getElementById('snapshotDiff');
+    if (!left || !right) {
+        target.className = 'muted';
+        target.textContent = 'Create or select two snapshots first.';
+        return;
+    }
+    setStatus('Comparing snapshots...');
+    const data = await api(`/api/graph/snapshot-diff?snapshot1=${encodeURIComponent(left)}&snapshot2=${encodeURIComponent(right)}&node_types=${encodeURIComponent(types)}&limit=25`);
+    const s = data.summary || {};
+    target.className = '';
+    target.innerHTML = '';
+    [
+        ['Nodes only left', s.only_in_env1_nodes || 0],
+        ['Changed nodes', s.changed_nodes || 0],
+        ['Nodes only right', s.only_in_env2_nodes || 0],
+        ['Edges only left', s.only_in_env1_edges || 0],
+        ['Changed edges', s.changed_edges || 0],
+        ['Edges only right', s.only_in_env2_edges || 0],
+    ].forEach(([title, detail]) => target.appendChild(row(title, detail)));
+    [...(data.only_in_env1_nodes || []), ...(data.only_in_env2_nodes || [])].slice(0, 12).forEach(node => {
+        target.appendChild(row(`${node.type}: ${node.name}`, node.id));
+    });
+    setStatus('Snapshot comparison complete.');
+}
+
+async function deleteSnapshot(id) {
+    setStatus(`Deleting snapshot ${id}...`);
+    await api(`/api/graph/snapshots/${encodeURIComponent(id)}`, {method: 'DELETE'});
+    setStatus(`Snapshot deleted: ${id}`);
+    await loadSnapshots();
+}
+
+function exportGraph() {
+    const format = document.getElementById('exportFormat').value;
+    window.location.href = `/api/graph/export?env=${ENV}&format=${encodeURIComponent(format)}`;
+}
+
+async function searchGraph() {
+    const q = document.getElementById('searchText').value.trim();
+    const target = document.getElementById('searchResults');
+
+    if (!q) {
+        target.className = 'muted';
+        target.textContent = 'Enter search text.';
+        return;
+    }
+
+    const rows = await api(`/api/graph/search?env=${ENV}&q=${encodeURIComponent(q)}`);
+    target.innerHTML = '';
+    target.className = '';
+
+    if (!rows.length) {
+        target.className = 'muted';
+        target.textContent = 'No graph nodes found.';
+        return;
+    }
+
+    rows.forEach(node => {
+        const div = row(`${node.type}: ${node.name}`, node.id);
+        div.onclick = () => window.location.href = node.canonical_url;
+        target.appendChild(div);
+    });
+}
+
+document.getElementById('searchText').addEventListener('keydown', event => {
+    if (event.key === 'Enter') searchGraph();
+});
+
+loadStats();
+loadSnapshots();
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/runtime", response_class=HTMLResponse)
+def admin_runtime():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+<title>DeathStar Runtime Monitor</title>
+<style>
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:20px;}
+h1{color:#00e5ff;text-shadow:0 0 12px #00e5ff;letter-spacing:4px;margin-bottom:4px;}
+h2{color:#00e5ff;border-bottom:1px solid #00e5ff33;padding-bottom:6px;font-size:13px;
+   letter-spacing:2px;text-transform:uppercase;margin:20px 0 10px;}
+.card{border:1px solid #00e5ff44;box-shadow:0 0 10px rgba(0,229,255,.2);
+      padding:16px;margin-top:16px;background:rgba(0,20,30,.75);}
+table{border-collapse:collapse;width:100%;font-size:12px;margin-top:8px;}
+th{border-bottom:1px solid #00e5ff44;padding:5px 8px;text-align:left;color:#00e5ff;
+   font-size:10px;text-transform:uppercase;letter-spacing:1px;}
+td{border-bottom:1px solid #1e3040;padding:5px 8px;}
+tr:hover td{background:rgba(0,229,255,.04);}
+.status-bar{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;}
+.chip{padding:5px 12px;border-radius:3px;font-size:12px;font-weight:bold;white-space:nowrap;}
+.chip-active{background:#003040;border:1px solid #00e5ff;color:#00e5ff;}
+.chip-error{background:#3a0000;border:1px solid #ff4444;color:#ff4444;}
+.chip-success{background:#002800;border:1px solid #00cc66;color:#00cc66;}
+.chip-warn{background:#2a1800;border:1px solid #ffaa00;color:#ffaa00;}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778;}
+.s-run{color:#00e5ff;} .s-que{color:#ffaa00;} .s-err{color:#ff4444;}
+.s-ok{color:#00cc66;} .s-hold{color:#778;}
+.alert-box{background:#2a0000;border:1px solid #ff4444;
+           padding:8px 14px;color:#ff8888;margin:8px 0;font-size:12px;}
+button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;
+       font-size:11px;color:#000;margin:2px;}
+button.sec{background:transparent;border:1px solid #00e5ff33;color:#00e5ff;}
+select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
+       padding:5px 8px;font-size:12px;}
+.ctrl{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+.lbl{font-size:10px;color:#667;text-transform:uppercase;letter-spacing:1px;
+     display:block;margin-bottom:3px;}
+nav{font-size:12px;margin-bottom:16px;color:#445;}
+nav a{color:#00e5ff;text-decoration:none;} nav a:hover{text-decoration:underline;}
+.mono{font-family:monospace;}
+.empty{color:#445;font-style:italic;padding:10px 0;font-size:12px;}
+.warn-msg{color:#ffaa00;font-size:11px;margin:2px 0;}
+.tab-row{display:flex;gap:0;margin:10px 0 0;border-bottom:1px solid #00e5ff22;}
+.tab{padding:5px 14px;cursor:pointer;font-size:11px;color:#556;
+     border-bottom:2px solid transparent;margin-bottom:-1px;}
+.tab.on{color:#00e5ff;border-bottom-color:#00e5ff;}
+.pane{display:none;} .pane.on{display:block;}
+.sql-cell{font-family:monospace;font-size:10px;color:#9ab;max-width:360px;
+          overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pct-bar{display:inline-block;background:#0b2030;width:70px;height:8px;
+         border-radius:2px;vertical-align:middle;overflow:hidden;}
+.pct-fill{height:100%;background:#00e5ff;}
+.ts{font-size:10px;color:#446;}
+/* ── process detail panel ── */
+#procPanel{position:fixed;top:0;right:-520px;width:520px;height:100%;
+  background:#070e14;border-left:1px solid #00e5ff44;overflow-y:auto;
+  padding:20px;transition:right .25s ease;z-index:1000;box-shadow:-4px 0 24px rgba(0,0,0,.6);}
+#procPanel.open{right:0;}
+#procPanel h2{color:#00e5ff;font-size:12px;letter-spacing:2px;text-transform:uppercase;
+  border-bottom:1px solid #00e5ff33;padding-bottom:6px;margin:16px 0 8px;}
+#procPanel .close-btn{float:right;background:transparent;border:none;color:#778;
+  font-size:18px;cursor:pointer;padding:0;}
+#procPanel .close-btn:hover{color:#fff;}
+.p-field{display:flex;margin:4px 0;font-size:12px;}
+.p-label{color:#445;min-width:130px;flex-shrink:0;font-size:11px;text-transform:uppercase;letter-spacing:.5px;}
+.p-value{color:#d7faff;font-family:monospace;word-break:break-all;}
+.p-value a{color:#00e5ff;text-decoration:none;} .p-value a:hover{text-decoration:underline;}
+.timeline-bar{display:flex;height:6px;border-radius:3px;overflow:hidden;margin:10px 0;background:#0b1b24;}
+.tl-seg{height:100%;}
+.tl-queued{background:#ffaa00;}
+.tl-init{background:#00e5ff;}
+.tl-proc{background:#00cc66;}
+.tl-done{background:#556677;}
+.tl-err{background:#ff4444;}
+.proc-badge{display:inline-block;padding:2px 10px;border-radius:2px;font-size:11px;font-weight:bold;margin-left:8px;}
+.pb-run{background:#001828;border:1px solid #00e5ff;color:#00e5ff;}
+.pb-ok{background:#002800;border:1px solid #00cc66;color:#00cc66;}
+.pb-err{background:#3a0000;border:1px solid #ff4444;color:#ff4444;}
+.pb-hold{background:#1a1a00;border:1px solid #778;color:#778;}
+.pb-que{background:#2a1800;border:1px solid #ffaa00;color:#ffaa00;}
+.overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+  background:rgba(0,0,0,.5);z-index:999;}
+.overlay.open{display:block;}
+</style>
+</head>
+<body>
+<div class="overlay" id="overlay" onclick="closeProc()"></div>
+<div id="procPanel">
+  <button class="close-btn" onclick="closeProc()">&#x2715;</button>
+  <h1 style="font-size:14px;margin:0 0 4px;color:#00e5ff;">PROCESS DETAIL</h1>
+  <div id="procPanelBody"></div>
+</div>
+<h1>&#9889; RUNTIME MONITOR</h1>
+<nav>
+  <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
+  <a href="/admin/object">Objects</a> &nbsp;&middot;&nbsp;
+  <a href="/admin/security">Security</a> &nbsp;&middot;&nbsp;
+  <a href="/admin/graphdb">Knowledge Graph</a>
+</nav>
+
+<div class="ctrl">
+  <div><span class="lbl">Environment</span><select id="envSel" onchange="refresh()"></select></div>
+  <div><span class="lbl">Oracle DB</span><select id="dbSel" onchange="refresh()"></select></div>
+  <div>
+    <button onclick="refresh()">&#8635; Refresh</button>
+    <button class="sec" id="arBtn" onclick="toggleAR()">Auto: ON</button>
+    <span class="ts" id="lastTs"></span>
+  </div>
+</div>
+
+<!-- ── Process Scheduler ── -->
+<div class="card">
+  <h2>Process Scheduler</h2>
+  <div id="procBar" class="status-bar"></div>
+  <div class="tab-row">
+    <div class="tab on"  onclick="procTab('active')">Active / Queued</div>
+    <div class="tab"     onclick="procTab('errors')">Errors</div>
+    <div class="tab"     onclick="procTab('ae')">App Engine</div>
+    <div class="tab"     onclick="procTab('all')">All Recent</div>
+  </div>
+  <div id="paneActive" class="pane on"><div id="tblActive"></div></div>
+  <div id="paneErrors" class="pane"><div id="tblErrors"></div></div>
+  <div id="paneAe"     class="pane"><div id="tblAe"></div></div>
+  <div id="paneAll"    class="pane"><div id="tblAll"></div></div>
+</div>
+
+<!-- ── Integration Broker ── -->
+<div class="card">
+  <h2>Integration Broker</h2>
+  <div id="ibArea"></div>
+</div>
+
+<!-- ── Oracle ── -->
+<div class="card">
+  <h2>Oracle DB &mdash; <span id="dbLabel"></span></h2>
+  <div id="oraBar" class="status-bar"></div>
+  <div id="blockAlert"></div>
+  <div class="tab-row">
+    <div class="tab on" onclick="oraTab('sessions')">Active Sessions</div>
+    <div class="tab"    onclick="oraTab('blocking')">Blocking</div>
+    <div class="tab"    onclick="oraTab('longops')">Long Ops</div>
+    <div class="tab"    onclick="oraTab('topsql')">Top SQL</div>
+  </div>
+  <div id="paneSessions" class="pane on"><div id="tblSessions"></div></div>
+  <div id="paneBlocking" class="pane"><div id="tblBlocking"></div></div>
+  <div id="paneLongops"  class="pane"><div id="tblLongops"></div></div>
+  <div id="paneTopsql"   class="pane"><div id="tblTopsql"></div></div>
+</div>
+
+<!-- ── Runtime Graph ── -->
+<div class="card">
+  <h2>Runtime Graph</h2>
+  <div class="ctrl">
+    <button onclick="loadRtGraph()">&#x2B58; Build Runtime Graph</button>
+    <span id="graphStatus" class="ts"></span>
+  </div>
+  <div id="rtGraphArea" style="display:none;margin-top:10px;">
+    <svg id="rtGraphSvg" width="100%" height="560"
+         style="background:#030d16;border:1px solid #00e5ff22;display:block;cursor:grab;border-radius:3px;"></svg>
+    <div id="rtGraphLegend" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;font-size:11px;"></div>
+    <div id="rtGraphDetail" style="margin-top:6px;font-size:11px;color:#445;font-style:italic;min-height:18px;">
+      Click a node to see details.
+    </div>
+  </div>
+</div>
+
+<script>
+const RS = {
+  '0':'s-err','1':'s-que','2':'s-run','3':'s-err',
+  '4':'s-err','5':'s-hold','6':'s-que','7':'s-run',
+  '8':'s-err','9':'s-ok'
+};
+let autoR = true, arTimer = null;
+const INTERVAL = 30000;
+
+const $ = id => document.getElementById(id);
+
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+function chip(label, val, cls) {
+  return `<div class="chip ${cls}">${label}: <b>${val}</b></div>`;
+}
+
+function empty(msg) { return `<div class="empty">${msg || 'No data.'}</div>`; }
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s ?? '');
+  return d.innerHTML;
+}
+
+// ── tab switching ──────────────────────────────────────
+function procTab(name) {
+  ['active','errors','ae','all'].forEach((n,i) => {
+    const tabs = document.querySelectorAll('.card:nth-child(3) .tab');
+    if (tabs[i]) tabs[i].classList.toggle('on', n === name);
+    const p = $(`pane${n.charAt(0).toUpperCase()+n.slice(1)}`);
+    if (p) p.classList.toggle('on', n === name);
+  });
+}
+
+function oraTab(name) {
+  ['sessions','blocking','longops','topsql'].forEach((n,i) => {
+    const tabs = document.querySelectorAll('.card:nth-child(5) .tab');
+    if (tabs[i]) tabs[i].classList.toggle('on', n === name);
+    const cap = n.charAt(0).toUpperCase()+n.slice(1);
+    const p = $(`pane${cap}`);
+    if (p) p.classList.toggle('on', n === name);
+  });
+}
+
+// ── process table ──────────────────────────────────────
+function procTable(items) {
+  if (!items || !items.length) return empty('No processes found.');
+  const rows = items.map(r => {
+    const cls = RS[r.runstatus] || '';
+    const dt = (r.begindttm || '').replace('T',' ').substr(0,19);
+    const tp = (r.prcstype||'').replace('Application Engine','AE').replace(/ (Process|Report)$/,'');
+    return `<tr>
+      <td><a class="mono" href="#" onclick="showProc(${r.prcsinstance});return false;">${r.prcsinstance}</a></td>
+      <td class="mono" style="font-size:10px">${tp}</td>
+      <td class="mono">${r.prcsname||''}</td>
+      <td>${r.oprid||''}</td>
+      <td class="mono" style="font-size:10px">${r.runcntlid||''}</td>
+      <td style="font-size:10px">${r.serverbatch||''}</td>
+      <td class="${cls}">${r.runstatus_label||r.runstatus}</td>
+      <td class="ts">${dt}</td>
+    </tr>`;
+  }).join('');
+  return `<table>
+    <thead><tr>
+      <th>Instance</th><th>Type</th><th>Program</th><th>Operator</th>
+      <th>Run Control</th><th>Server</th><th>Status</th><th>Started</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+// ── IB rendering ───────────────────────────────────────
+function renderIB(data) {
+  const el = $('ibArea');
+  if (!data) { el.innerHTML = empty('IB data unavailable.'); return; }
+  const pub = data.ib?.published || [];
+  const sub = data.ib?.subscribed || [];
+  const warn = data.warnings || [];
+  let html = '<div class="status-bar">';
+  if (pub.length) {
+    pub.forEach(r => {
+      const label = r.status_label || `Pub ${r.pub_status}`;
+      const cnt = r.cnt || 0;
+      const cls = r.pub_status === '5' ? 'chip-error' : cnt > 0 ? 'chip-warn' : 'chip-muted';
+      html += chip(label, cnt, cls);
+    });
+  } else {
+    html += chip('Published', 0, 'chip-muted');
+  }
+  html += '<span style="color:#334;padding:0 6px">|</span>';
+  if (sub.length) {
+    sub.forEach(r => {
+      const label = r.status_label || `Sub ${r.sub_status}`;
+      const cnt = r.cnt || 0;
+      const cls = r.sub_status === '5' ? 'chip-error' : cnt > 0 ? 'chip-warn' : 'chip-muted';
+      html += chip(label, cnt, cls);
+    });
+  } else {
+    html += chip('Subscribed', 0, 'chip-muted');
+  }
+  html += '</div>';
+  warn.forEach(w => { html += `<div class="warn-msg">&#9888; ${w.message}</div>`; });
+  el.innerHTML = html;
+}
+
+// ── Oracle rendering ───────────────────────────────────
+function renderOraBar(counts) {
+  let active=0, inactive=0, bg=0;
+  counts.forEach(r => {
+    if (r.type === 'BACKGROUND') bg += r.cnt;
+    else if (r.status === 'ACTIVE') active += r.cnt;
+    else inactive += r.cnt;
+  });
+  $('oraBar').innerHTML = [
+    chip('Active', active, active>0 ? 'chip-active' : 'chip-muted'),
+    chip('Inactive', inactive, 'chip-muted'),
+    chip('Background', bg, 'chip-muted'),
+  ].join('');
+}
+
+function renderBlocking(data) {
+  const chains = data?.chains || [];
+  const alertEl = $('blockAlert');
+  const tblEl   = $('tblBlocking');
+  if (!chains.length) {
+    alertEl.innerHTML = '';
+    if (tblEl) tblEl.innerHTML = empty('No blocking sessions detected.');
+    return;
+  }
+  const waiterCount = chains.reduce((s,c) => s+(c.waiters?.length||0), 0);
+  alertEl.innerHTML = `<div class="alert-box">
+    &#9888; ${chains.length} blocking chain(s) &mdash; ${waiterCount} session(s) waiting
+  </div>`;
+  if (!tblEl) return;
+  let html = '';
+  chains.forEach(chain => {
+    const b = chain.blocker || {};
+    html += `<div style="margin:12px 0">
+      <div style="color:#ff8888;font-size:11px;margin-bottom:4px">
+        Blocker SID <b>${b.sid ?? chain.blocker_sid ?? '?'}</b>
+        ${b.username ? `&mdash; ${b.username}` : ''}
+        ${b.program  ? `(${(b.program||'').substr(0,30)})` : ''}
+        ${b.event    ? `&mdash; event: ${b.event}` : ''}
+      </div>
+      <table><thead><tr>
+        <th>Waiting SID</th><th>User</th><th>Program</th><th>Event</th><th>Wait (s)</th>
+      </tr></thead><tbody>
+      ${(chain.waiters||[]).map(w=>`<tr>
+        <td class="mono">${w.sid}</td>
+        <td>${w.username||''}</td>
+        <td class="mono" style="font-size:10px">${(w.program||'').substr(0,30)}</td>
+        <td style="font-size:10px">${w.event||''}</td>
+        <td style="color:#ff4444">${w.seconds_in_wait??''}</td>
+      </tr>`).join('')}
+      </tbody></table>
+    </div>`;
+  });
+  tblEl.innerHTML = html;
+}
+
+function renderSessions(items) {
+  if (!items || !items.length) return empty('No active sessions.');
+  return `<table><thead><tr>
+    <th>SID</th><th>User</th><th>Program</th><th>Module</th>
+    <th>Event</th><th>Wait (s)</th><th>SQL</th>
+  </tr></thead><tbody>
+  ${items.map(r => {
+    const wc = r.seconds_in_wait > 30 ? '#ff4444' : '#778';
+    const prog = (r.program||'').replace(/@[\\w.]+$/,'').substr(0,22);
+    return `<tr>
+      <td class="mono">${r.sid}</td>
+      <td>${r.username||''}</td>
+      <td class="mono" style="font-size:10px">${prog}</td>
+      <td style="font-size:10px">${r.module||''}</td>
+      <td style="font-size:10px;color:#778">${r.event||''}</td>
+      <td style="color:${wc}">${r.seconds_in_wait??''}</td>
+      <td class="sql-cell" title="${(r.sql_text||'').replace(/"/g,'&quot;')}">${r.sql_text||''}</td>
+    </tr>`;
+  }).join('')}
+  </tbody></table>`;
+}
+
+function renderLongops(items) {
+  if (!items || !items.length) return empty('No long-running operations in progress.');
+  return `<table><thead><tr>
+    <th>SID</th><th>Operation</th><th>Target</th>
+    <th>Progress</th><th>Elapsed (s)</th><th>Remaining (s)</th>
+  </tr></thead><tbody>
+  ${items.map(r => {
+    const pct = r.pct_done ?? 0;
+    return `<tr>
+      <td class="mono">${r.sid}</td>
+      <td>${r.opname||''}</td>
+      <td style="font-size:10px">${r.target||''}</td>
+      <td>
+        <span class="pct-bar"><span class="pct-fill" style="width:${pct}%"></span></span>
+        &nbsp;${pct}%
+      </td>
+      <td>${r.elapsed_seconds??''}</td>
+      <td style="color:#ffaa00">${r.time_remaining??''}</td>
+    </tr>`;
+  }).join('')}
+  </tbody></table>`;
+}
+
+function renderTopSql(items) {
+  if (!items || !items.length) return empty('No SQL statements in V$SQL cursor cache.');
+  return `<table><thead><tr>
+    <th>SQL ID</th><th>Schema</th><th>Execs</th>
+    <th>Elapsed (s)</th><th>Elapsed/Exec</th><th>Buffer Gets</th><th>Last Active</th><th>SQL</th>
+  </tr></thead><tbody>
+  ${items.map(r => {
+    const epx = r.elapsed_per_exec??0;
+    const eColor = epx > 1 ? '#ff4444' : epx > 0.1 ? '#ffaa00' : 'inherit';
+    return `<tr>
+      <td class="mono" style="font-size:10px">${r.sql_id||''}</td>
+      <td style="font-size:10px">${r.parsing_schema_name||''}</td>
+      <td style="text-align:right">${r.executions??0}</td>
+      <td style="text-align:right">${r.elapsed_secs??0}</td>
+      <td style="text-align:right;color:${eColor}">${epx}</td>
+      <td style="text-align:right">${r.buffer_gets??0}</td>
+      <td class="ts">${r.last_active||''}</td>
+      <td class="sql-cell" title="${(r.sql_text||'').replace(/"/g,'&quot;')}">${r.sql_text||''}</td>
+    </tr>`;
+  }).join('')}
+  </tbody></table>`;
+}
+
+// ── data loaders ───────────────────────────────────────
+async function loadStatus() {
+  const env = $('envSel').value;
+  const db  = $('dbSel').value;
+  if (!env) return;
+  try {
+    const s = await api(`/api/runtime/status?env=${env}${db ? '&db='+db : ''}`);
+
+    // Process summary bar
+    const t = s.process_summary?.totals || {};
+    $('procBar').innerHTML = [
+      chip('Running', t.active||0,   t.active  > 0 ? 'chip-active'  : 'chip-muted'),
+      chip('Error',   t.error||0,    t.error   > 0 ? 'chip-error'   : 'chip-muted'),
+      chip('Success', t.success||0,  t.success > 0 ? 'chip-success' : 'chip-muted'),
+      chip('Other',   t.other||0,    'chip-muted'),
+      chip('Recent Total', t.total||0, 'chip-muted'),
+    ].join('');
+
+    // AE tab
+    $('tblAe').innerHTML = procTable(s.ae_running?.items || []);
+
+    // IB
+    renderIB(s.ib_summary);
+
+    // Oracle from status (if db was provided)
+    if (db && s.oracle_sessions) renderOraBar(s.oracle_sessions.counts || []);
+    if (db && s.blocking)        renderBlocking(s.blocking);
+  } catch(e) {
+    $('procBar').innerHTML = `<span class="warn-msg">Status error: ${e.message}</span>`;
+  }
+}
+
+async function loadProcesses() {
+  const env = $('envSel').value;
+  if (!env) return;
+  const [active, errors, all] = await Promise.allSettled([
+    api(`/api/runtime/processes?env=${env}&status=1,2,6,7&limit=50`),
+    api(`/api/runtime/processes?env=${env}&status=0,3,4,8&limit=50`),
+    api(`/api/runtime/processes?env=${env}&limit=100`),
+  ]);
+  $('tblActive').innerHTML = procTable(active.value?.items || []);
+  $('tblErrors').innerHTML = procTable(errors.value?.items || []);
+  $('tblAll').innerHTML    = procTable(all.value?.items    || []);
+}
+
+async function loadOracle() {
+  const db = $('dbSel').value;
+  if (!db) {
+    $('tblSessions').innerHTML = empty('Select an Oracle database above.');
+    return;
+  }
+  $('dbLabel').textContent = db;
+
+  const [sessions, counts, blocking, longops, topsql] = await Promise.allSettled([
+    api(`/api/runtime/oracle?db=${db}&limit=50`),
+    api(`/api/runtime/sessions?db=${db}`),
+    api(`/api/runtime/blocking?db=${db}`),
+    api(`/api/runtime/longops?db=${db}`),
+    api(`/api/runtime/sql?db=${db}&limit=20`),
+  ]);
+
+  $('tblSessions').innerHTML = renderSessions(sessions.value?.items || []);
+  if (counts.value) renderOraBar(counts.value.counts || []);
+  renderBlocking(blocking.value || {chains:[]});
+  $('tblLongops').innerHTML = renderLongops(longops.value?.items || []);
+  $('tblTopsql').innerHTML  = renderTopSql(topsql.value?.items   || []);
+}
+
+function closeProc() {
+  $('procPanel').classList.remove('open');
+  $('overlay').classList.remove('open');
+}
+
+function _fmtDt(s) { return s ? s.replace('T',' ').substr(0,19) : '—'; }
+
+function _procBadge(row) {
+  const s = String(row.runstatus||'');
+  const label = row.runstatus_label || `Status ${s}`;
+  const cls = {'2':'pb-run','6':'pb-que','7':'pb-run','9':'pb-ok',
+    '0':'pb-err','3':'pb-err','4':'pb-err','8':'pb-err','5':'pb-hold'}[s] || 'pb-hold';
+  return `<span class="proc-badge ${cls}">${esc(label)}</span>`;
+}
+
+function _timelineBar(row) {
+  const req = row.rqstdttm, beg = row.begindttm, end = row.enddttm;
+  if (!req && !beg) return '';
+  const t0 = req ? new Date(req) : new Date(beg);
+  const t1 = end ? new Date(end) : new Date();
+  const total = Math.max(t1 - t0, 1000);
+  const segs = [];
+  if (req && beg) {
+    const wait = new Date(beg) - new Date(req);
+    segs.push({cls:'tl-queued', pct: wait/total*100, label:'Queued'});
+  }
+  if (beg) {
+    const run = (end ? new Date(end) : new Date()) - new Date(beg);
+    const s = String(row.runstatus||'');
+    const cls = ({'4':'tl-err','8':'tl-err','3':'tl-err','0':'tl-err'}[s]) ||
+                ({'9':'tl-done'}[s]) || 'tl-proc';
+    segs.push({cls, pct: run/total*100, label: row.runstatus_label||'Run'});
+  }
+  const bars = segs.map(s => `<div class="tl-seg ${s.cls}" style="width:${Math.max(s.pct,2).toFixed(1)}%" title="${s.label}"></div>`).join('');
+  return `<div class="timeline-bar">${bars}</div>
+  <div style="display:flex;gap:16px;font-size:10px;color:#445;margin-bottom:8px;">
+    <span>Requested: ${_fmtDt(req)}</span>
+    <span>Started: ${_fmtDt(beg)}</span>
+    <span>Ended: ${_fmtDt(end)}</span>
+  </div>`;
+}
+
+async function showProc(instance) {
+  const env = $('envSel').value;
+  $('procPanelBody').innerHTML = '<div style="color:#445;padding:20px 0">Loading&#8230;</div>';
+  $('procPanel').classList.add('open');
+  $('overlay').classList.add('open');
+  try {
+    const data = await api(`/api/runtime/process/${instance}?env=${env}`);
+    if (!data.item) {
+      $('procPanelBody').innerHTML = '<div class="warn-msg">Process not found.</div>';
+      return;
+    }
+    const d = data.item;
+    const warns = (data.warnings||[]).map(w => `<div class="warn-msg">&#9888; ${esc(w.message)}</div>`).join('');
+    const aeLink = d.prcstype && d.prcstype.includes('Engine')
+      ? `<a href="/admin/object/application_engine/${esc(d.prcsname)}" target="_blank">&#8599; AE Explorer</a>`
+      : '';
+    const traceLink = d.oprid
+      ? `<a href="/admin/tracing?oprid=${esc(d.oprid)}&env=${esc(env)}" target="_blank">&#8599; Trace ${esc(d.oprid)}</a>`
+      : '';
+    const loc = {'1':'Client','2':'Server','3':'Default','4':'PS/nVision'}[String(d.runlocation||'')] || d.runlocation || '—';
+    const orig = {'1':'Online','2':'Batch','3':'Default','4':'Daemon','5':'App Engine','6':'CI/IB'}[String(d.origination||'')] || d.origination || '—';
+    const dist = {'0':'N/A','1':'Generated','2':'Posted','3':'Not Posted','4':'Content Deleted','5':'Distributed','6':'Error'}[String(d.diststatus||'')] || d.diststatus || '—';
+
+    $('procPanelBody').innerHTML = `
+${warns}
+<div style="margin:8px 0 12px;">
+  <span style="font-size:22px;font-weight:bold;color:#00e5ff;">#${esc(String(d.prcsinstance))}</span>
+  ${_procBadge(d)}
+</div>
+${_timelineBar(d)}
+<h2>Identity</h2>
+<div class="p-field"><span class="p-label">Process Type</span><span class="p-value">${esc(d.prcstype||'—')}</span></div>
+<div class="p-field"><span class="p-label">Program</span><span class="p-value">${esc(d.prcsname||'—')} ${aeLink}</span></div>
+<div class="p-field"><span class="p-label">Operator</span><span class="p-value">${esc(d.oprid||'—')} ${traceLink}</span></div>
+<div class="p-field"><span class="p-label">Run Control</span><span class="p-value">${esc(d.runcntlid||'—')}</span></div>
+<div class="p-field"><span class="p-label">Server</span><span class="p-value">${esc(d.serverbatch||'—')}</span></div>
+<div class="p-field"><span class="p-label">Run Location</span><span class="p-value">${esc(loc)}</span></div>
+<div class="p-field"><span class="p-label">Origination</span><span class="p-value">${esc(orig)}</span></div>
+<h2>Output</h2>
+<div class="p-field"><span class="p-label">Dest Type</span><span class="p-value">${esc(d.outdest_label||d.outdesttype||'—')}</span></div>
+${d.outdestformat ? `<div class="p-field"><span class="p-label">Format</span><span class="p-value">${esc(String(d.outdestformat))}</span></div>` : ''}
+${d.outdest ? `<div class="p-field"><span class="p-label">Destination</span><span class="p-value" style="font-size:10px">${esc(d.outdest)}</span></div>` : ''}
+<div class="p-field"><span class="p-label">Dist Status</span><span class="p-value">${esc(dist)}</span></div>
+<h2>Job / Session</h2>
+${d.jobinstance > 0 ? `<div class="p-field"><span class="p-label">Job Instance</span><span class="p-value">${esc(String(d.jobinstance))}</span></div>` : ''}
+${d.jobname ? `<div class="p-field"><span class="p-label">Job Name</span><span class="p-value">${esc(d.jobname)}</span></div>` : ''}
+${d.sessionidnum ? `<div class="p-field"><span class="p-label">Session ID</span><span class="p-value">${esc(String(d.sessionidnum))}</span></div>` : ''}
+${d.prcsservername ? `<div class="p-field"><span class="p-label">Process Server</span><span class="p-value">${esc(d.prcsservername)}</span></div>` : ''}
+`;
+  } catch(e) {
+    $('procPanelBody').innerHTML = `<div class="warn-msg">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+async function refresh() {
+  $('lastTs').textContent = 'Refreshing…';
+  await Promise.allSettled([loadStatus(), loadProcesses(), loadOracle()]);
+  $('lastTs').textContent = 'Last: ' + new Date().toLocaleTimeString();
+  if (autoR) {
+    clearTimeout(arTimer);
+    arTimer = setTimeout(refresh, INTERVAL);
+  }
+}
+
+function toggleAR() {
+  autoR = !autoR;
+  $('arBtn').textContent = `Auto: ${autoR ? 'ON' : 'OFF'}`;
+  if (autoR) { arTimer = setTimeout(refresh, INTERVAL); }
+  else { clearTimeout(arTimer); }
+}
+
+// ── Runtime Graph Visualization ─────────────────────────
+const RT_COLORS = {
+  environment:'#00e5ff', operator:'#4488ff', process:'#00cc66',
+  application_engine:'#ff8800', oracle_session:'#ffdd00',
+  oracle_database:'#ff4488', service_operation:'#aa44ff',
+  process_server:'#44ffcc', sql_id:'#ff6644', ib_status:'#ff88ff',
+};
+function rtColor(t) { return RT_COLORS[t] || '#556677'; }
+
+function rtForce(nodes, edges, w, h, ticks) {
+  const k = Math.sqrt((w * h) / Math.max(nodes.length, 1));
+  for (let t = 0; t < ticks; t++) {
+    for (let i = 0; i < nodes.length; i++) { nodes[i].fx = 0; nodes[i].fy = 0; }
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i+1; j < nodes.length; j++) {
+        const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
+        const d2 = dx*dx + dy*dy || 0.001;
+        const f = k*k / d2;
+        nodes[i].fx += dx*f; nodes[i].fy += dy*f;
+        nodes[j].fx -= dx*f; nodes[j].fy -= dy*f;
+      }
+    }
+    for (const e of edges) {
+      const s = nodes[e.si], tgt = nodes[e.ti];
+      if (!s || !tgt) continue;
+      const dx = tgt.x-s.x, dy = tgt.y-s.y, d = Math.sqrt(dx*dx+dy*dy)||1;
+      const f = d*d/(k*3), fx = dx/d*f, fy = dy/d*f;
+      s.fx += fx; s.fy += fy; tgt.fx -= fx; tgt.fy -= fy;
+    }
+    const temp = k*(1-t/ticks);
+    for (const n of nodes) {
+      n.fx += (w/2-n.x)*0.012; n.fy += (h/2-n.y)*0.012;
+      const d = Math.sqrt(n.fx*n.fx+n.fy*n.fy)||1;
+      n.x += n.fx/d*Math.min(d,temp); n.y += n.fy/d*Math.min(d,temp);
+      n.x = Math.max(24,Math.min(w-24,n.x)); n.y = Math.max(24,Math.min(h-24,n.y));
+    }
+  }
+}
+
+function rtRender(svg, nodes, edges) {
+  const ns = 'http://www.w3.org/2000/svg';
+  svg.innerHTML = '';
+  for (const e of edges) {
+    const s = nodes[e.si], t = nodes[e.ti]; if(!s||!t) continue;
+    const line = document.createElementNS(ns,'line');
+    line.setAttribute('x1',s.x); line.setAttribute('y1',s.y);
+    line.setAttribute('x2',t.x); line.setAttribute('y2',t.y);
+    line.setAttribute('stroke','#1e3040'); line.setAttribute('stroke-width','1');
+    svg.appendChild(line);
+    if (e.rel) {
+      const tx = document.createElementNS(ns,'text');
+      tx.setAttribute('x',(s.x+t.x)/2); tx.setAttribute('y',(s.y+t.y)/2);
+      tx.setAttribute('fill','#1e3848'); tx.setAttribute('font-size','7');
+      tx.setAttribute('text-anchor','middle'); tx.textContent = e.rel;
+      svg.appendChild(tx);
+    }
+  }
+  for (const n of nodes) {
+    const g = document.createElementNS(ns,'g');
+    g.style.cursor = 'pointer';
+    g.onclick = () => rtShowDetail(n);
+    const r = n.type==='environment'?18:n.type==='oracle_database'?14:9;
+    const c = document.createElementNS(ns,'circle');
+    c.setAttribute('cx',n.x); c.setAttribute('cy',n.y); c.setAttribute('r',r);
+    c.setAttribute('fill',rtColor(n.type)); c.setAttribute('fill-opacity','0.22');
+    c.setAttribute('stroke',rtColor(n.type)); c.setAttribute('stroke-width','1.5');
+    g.appendChild(c);
+    const lbl = (n.label||n.id||'').replace(/^[^:]+:/,'');
+    const tx = document.createElementNS(ns,'text');
+    tx.setAttribute('x',n.x); tx.setAttribute('y',n.y+r+11);
+    tx.setAttribute('fill',rtColor(n.type)); tx.setAttribute('font-size','9');
+    tx.setAttribute('text-anchor','middle');
+    tx.textContent = lbl.length>18?lbl.slice(0,16)+'…':lbl;
+    g.appendChild(tx);
+    svg.appendChild(g);
+  }
+}
+
+function rtShowDetail(n) {
+  const el = $('rtGraphDetail');
+  const lbl = (n.label||n.id||'');
+  el.innerHTML = `<b style="color:${rtColor(n.type)}">[${n.type}]</b> `+
+    `<b style="color:#d7faff">${esc(lbl)}</b>`+
+    (n._links&&n._links.admin ? ` <a href="${esc(n._links.admin)}" style="color:#00e5ff;font-size:10px;margin-left:6px;">&#x2197; open</a>` : '')+
+    '<br>'+Object.entries(n.data||{}).slice(0,10)
+      .map(([k,v])=>`<span style="color:#445">${esc(k)}:</span> <span style="color:#9ab">${esc(String(v??''))}</span>`)
+      .join(' &nbsp; ');
+}
+
+async function loadRtGraph() {
+  const env = $('envSel')?.value || 'HCM';
+  $('graphStatus').textContent = 'Building graph…';
+  $('rtGraphArea').style.display = 'none';
+  try {
+    const data = await api(`/api/runtime/graph?env=${encodeURIComponent(env)}&process_limit=60&session_limit=60`);
+    const svg = $('rtGraphSvg');
+    const w = svg.clientWidth || 900, h = parseInt(svg.getAttribute('height'))||560;
+    const nodeMap = {};
+    const nodes = (data.nodes||[]).map((n,i) => {
+      nodeMap[n.id] = i;
+      return {...n, x:24+Math.random()*(w-48), y:24+Math.random()*(h-48), fx:0, fy:0};
+    });
+    const edges = (data.edges||[]).map(e=>({
+      si:nodeMap[e.source], ti:nodeMap[e.target], rel:e.relationship||''
+    })).filter(e=>e.si!==undefined&&e.ti!==undefined);
+    rtForce(nodes, edges, w, h, 350);
+    rtRender(svg, nodes, edges);
+    const types = [...new Set(nodes.map(n=>n.type))].sort();
+    $('rtGraphLegend').innerHTML = types.map(t=>`<span style="color:${rtColor(t)};` +
+      `background:#0a1820;border:1px solid ${rtColor(t)}44;padding:2px 8px;border-radius:2px;">` +
+      `${t} <b>${nodes.filter(n=>n.type===t).length}</b></span>`).join('');
+    $('rtGraphDetail').textContent = 'Click a node to see details.';
+    $('rtGraphArea').style.display = 'block';
+    $('graphStatus').textContent = `${nodes.length} nodes · ${edges.length} edges`;
+  } catch(e) {
+    $('graphStatus').textContent = 'Error: '+esc(e.message);
+  }
+}
+
+// ── init ────────────────────────────────────────────────
+(async () => {
+  const cfg = await api('/api/runtime/config').catch(() => ({envs:[], dbs:[]}));
+  $('envSel').innerHTML = cfg.envs.map(e => `<option value="${e}">${e}</option>`).join('');
+  $('dbSel').innerHTML  = cfg.dbs.map(d  => `<option value="${d}">${d}</option>`).join('');
+  await refresh();
+  arTimer = setTimeout(refresh, INTERVAL);
+})();
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/sqlws", response_class=HTMLResponse)
+def admin_sqlws():
+    return """<!DOCTYPE html>
+<html>
+<head>
+<title>DeathStar SQL Workspace</title>
+<style>
+*{box-sizing:border-box;}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;height:100vh;display:flex;flex-direction:column;}
+h1{color:#00e5ff;text-shadow:0 0 12px #00e5ff;letter-spacing:4px;margin:0;font-size:18px;}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;
+   border-bottom:1px solid #00e5ff33;padding-bottom:5px;margin:14px 0 8px;}
+nav{font-size:12px;color:#445;}
+nav a{color:#00e5ff;text-decoration:none;} nav a:hover{text-decoration:underline;}
+.topbar{padding:12px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+.main{display:flex;flex:1;overflow:hidden;}
+.sidebar{width:280px;min-width:220px;border-right:1px solid #00e5ff22;overflow-y:auto;padding:12px;flex-shrink:0;}
+.editor-area{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.editor-panel{padding:12px;border-bottom:1px solid #00e5ff22;}
+.results-panel{flex:1;overflow:auto;padding:12px;}
+select,input[type=text],input[type=number]{background:#0b1b24;color:#d7faff;
+  border:1px solid #00e5ff44;padding:4px 8px;font-size:12px;}
+select:focus,input:focus{outline:none;border-color:#00e5ff;}
+textarea{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
+  font-family:monospace;font-size:12px;padding:8px;width:100%;resize:vertical;}
+textarea:focus{outline:none;border-color:#00e5ff;}
+button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;}
+button:hover{background:#33eeff;}
+button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;}
+button.sec:hover{border-color:#00e5ff;background:#00e5ff11;}
+button.danger{background:#ff4444;color:#fff;}
+button.danger:hover{background:#ff6666;}
+button.warn{background:#ffaa00;color:#000;}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;}
+.ctrl-row{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:8px;}
+.lbl{font-size:10px;color:#667;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:3px;}
+.chip{display:inline-block;padding:2px 8px;border-radius:2px;font-size:11px;font-weight:bold;}
+.chip-ok{background:#002800;border:1px solid #00cc66;color:#00cc66;}
+.chip-err{background:#3a0000;border:1px solid #ff4444;color:#ff4444;}
+.chip-warn{background:#2a1800;border:1px solid #ffaa00;color:#ffaa00;}
+.chip-block{background:#3a0000;border:1px solid #ff6600;color:#ff6600;}
+.chip-info{background:#001830;border:1px solid #00e5ff44;color:#00e5ff;}
+table{border-collapse:collapse;width:100%;font-size:11px;margin-top:4px;}
+th{border-bottom:1px solid #00e5ff33;padding:4px 8px;text-align:left;color:#00e5ff;
+   font-size:10px;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;position:sticky;top:0;background:#050b12;}
+td{border-bottom:1px solid #0e2030;padding:4px 8px;vertical-align:top;max-width:320px;
+   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+td.wrap{white-space:normal;word-break:break-all;}
+tr:hover td{background:rgba(0,229,255,.04);}
+.mono{font-family:monospace;font-size:11px;}
+.empty{color:#445;font-style:italic;font-size:12px;padding:8px 0;}
+.warn-msg{color:#ffaa00;font-size:11px;margin:2px 0;}
+.err-msg{color:#ff6666;font-size:11px;margin:2px 0;}
+.ok-msg{color:#00cc66;font-size:11px;margin:2px 0;}
+.ts{font-size:10px;color:#446;}
+.timing{font-size:11px;color:#667;margin:4px 0;}
+.section-toggle{cursor:pointer;user-select:none;}
+.section-toggle:hover{color:#00e5ff;}
+.sql-preview{font-family:monospace;font-size:10px;color:#6ab;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;display:block;}
+.pin-btn{font-size:10px;padding:1px 5px;}
+.pagination{display:flex;gap:6px;align-items:center;margin-top:8px;}
+.col-type{color:#445;font-size:10px;}
+.schema-item{padding:4px 6px;cursor:pointer;border-radius:2px;font-size:11px;
+  display:flex;justify-content:space-between;align-items:center;}
+.schema-item:hover{background:#0b2030;}
+.schema-item .obj-type{font-size:9px;color:#445;text-transform:uppercase;}
+.schema-cols{display:none;padding:4px 0 4px 16px;}
+.schema-cols.open{display:block;}
+.schema-col{font-size:10px;color:#778;padding:1px 4px;font-family:monospace;}
+.tab-row{display:flex;gap:0;border-bottom:1px solid #00e5ff22;margin:8px 0 0;}
+.tab{padding:5px 12px;cursor:pointer;font-size:11px;color:#556;
+     border-bottom:2px solid transparent;margin-bottom:-1px;}
+.tab.on{color:#00e5ff;border-bottom-color:#00e5ff;}
+.pane{display:none;} .pane.on{display:block;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>&#9889; SQL WORKSPACE</h1>
+  <nav><a href="/admin">Home</a> &nbsp;&middot;&nbsp; <a href="/admin/runtime">Runtime</a> &nbsp;&middot;&nbsp; <a href="/admin/object">Objects</a></nav>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+    <span class="lbl" style="margin:0;">Env</span>
+    <select id="envSel" style="width:90px;"></select>
+  </div>
+</div>
+
+<div class="main">
+
+<!-- ═══════════════════════════════════════════════════════ SIDEBAR ═══ -->
+<div class="sidebar">
+
+  <div class="tab-row">
+    <div class="tab on" onclick="showTab('schema')">Schema</div>
+    <div class="tab"    onclick="showTab('history')">History</div>
+    <div class="tab"    onclick="showTab('pinned')">Pinned</div>
+  </div>
+
+  <!-- Schema browser -->
+  <div id="pane-schema" class="pane on">
+    <h2>Schema Browser</h2>
+    <div style="display:flex;gap:4px;margin-bottom:4px;">
+      <input id="schemaQ" type="text" placeholder="Search tables/records…" style="flex:1;" onkeydown="if(event.key==='Enter')searchSchema()">
+      <button onclick="searchSchema()">Go</button>
+    </div>
+    <div style="display:flex;gap:4px;margin-bottom:8px;">
+      <button class="sec" style="font-size:9px;padding:2px 6px;" onclick="schemaPrefix('')">All</button>
+      <button class="sec" style="font-size:9px;padding:2px 6px;" onclick="schemaPrefix('PS_')">PS_</button>
+      <button class="sec" style="font-size:9px;padding:2px 6px;" onclick="schemaPrefix('SYSADM.')">SYSADM.</button>
+    </div>
+    <div id="schemaResults"><span class="empty">Type to search</span></div>
+  </div>
+
+  <!-- History -->
+  <div id="pane-history" class="pane">
+    <div style="display:flex;align-items:center;gap:4px;margin-bottom:6px;">
+      <h2 style="margin:0;flex:1;">Query History</h2>
+      <button class="sec" style="font-size:9px;padding:2px 6px;" onclick="loadHistory()">Refresh</button>
+    </div>
+    <input id="historyQ" type="text" placeholder="Filter by SQL or env…" style="width:100%;margin-bottom:6px;" oninput="applyHistoryFilter()">
+    <div id="historyList"><span class="empty">Loading…</span></div>
+  </div>
+
+  <!-- Pinned -->
+  <div id="pane-pinned" class="pane">
+    <h2>Pinned Queries <button class="sec" style="font-size:9px;padding:2px 6px;" onclick="loadPinned()">Refresh</button></h2>
+    <div id="pinnedList"><span class="empty">No pinned queries</span></div>
+  </div>
+
+</div>
+<!-- ══════════════════════════════════════════════════ EDITOR AREA ════ -->
+<div class="editor-area">
+
+  <div class="editor-panel">
+    <div style="display:flex;gap:8px;align-items:flex-start;">
+      <div style="flex:1;">
+        <label class="lbl">SQL Query</label>
+        <textarea id="sqlInput" rows="8" placeholder="SELECT * FROM SYSADM.PSOPRDEFN FETCH FIRST 10 ROWS ONLY"></textarea>
+      </div>
+      <div style="width:200px;">
+        <label class="lbl">Bind Parameters (JSON)</label>
+        <textarea id="bindsInput" rows="8" placeholder='{"oprid": "VP1"}'>{}</textarea>
+      </div>
+    </div>
+
+    <div class="ctrl-row">
+      <div>
+        <label class="lbl">Page</label>
+        <input id="pageInput" type="number" value="1" min="1" style="width:60px;">
+      </div>
+      <div>
+        <label class="lbl">Page Size</label>
+        <input id="pageSizeInput" type="number" value="100" min="1" max="1000" style="width:70px;">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button onclick="validateSQL()">Validate</button>
+      <button onclick="executeSQL()">Execute</button>
+      <button class="sec" onclick="explainSQL()">Explain Plan</button>
+      <button class="sec" onclick="exportCSV()">Export CSV</button>
+      <button class="sec" onclick="exportJSON()">Export JSON</button>
+      <button class="sec" onclick="clearResults()">Clear</button>
+    </div>
+
+    <div id="validationBox" style="margin-top:8px;display:none;"></div>
+  </div>
+
+  <div class="results-panel">
+    <div id="timingBox" style="display:none;" class="timing"></div>
+    <div id="warningBox"></div>
+    <div id="resultsBox"></div>
+    <div id="paginationBox" class="pagination" style="display:none;">
+      <button class="sec" onclick="prevPage()" id="prevBtn">&#8592; Prev</button>
+      <span id="pageLabel" style="font-size:11px;color:#667;"></span>
+      <button class="sec" onclick="nextPage()" id="nextBtn">Next &#8594;</button>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+// ── state ──────────────────────────────────────────────────────────────
+let lastSQL   = '';
+let lastBinds = {};
+let currentPage = 1;
+let lastPageSize = 100;
+let lastResult = null;
+
+// ── helpers ────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function env()      { return $('envSel').value || 'HCM'; }
+function sqlText()  { return $('sqlInput').value.trim(); }
+function bindsObj() {
+  const raw = $('bindsInput').value.trim();
+  if (!raw || raw === '{}') return {};
+  try { return JSON.parse(raw); }
+  catch(e) { alert('Bind parameters are not valid JSON: ' + e.message); throw e; }
+}
+
+function showTab(name) {
+  ['schema','history','pinned'].forEach(t => {
+    document.querySelectorAll('.tab').forEach((el,i) => {
+      if (['schema','history','pinned'][i] === t)
+        el.classList.toggle('on', t === name);
+    });
+    $(`pane-${t}`).classList.toggle('on', t === name);
+  });
+  if (name === 'history') loadHistory();
+  if (name === 'pinned')  loadPinned();
+}
+
+// tab selection uses index — re-wire correctly
+document.querySelectorAll('.tab').forEach((el, i) => {
+  const names = ['schema','history','pinned'];
+  el.onclick = () => showTab(names[i]);
+});
+
+async function api(path, options={}) {
+  const res = await fetch(path, options);
+  if (res.status === 401) { window.location.reload(); return; }
+  return res;
+}
+
+function setValidationBox(result) {
+  const box = $('validationBox');
+  box.style.display = 'block';
+  if (result.allowed) {
+    box.innerHTML = `<span class="chip chip-ok">&#10003; Allowed — ${esc(result.statement_type)}</span>`;
+  } else {
+    box.innerHTML = `<span class="chip chip-block">&#10007; Blocked — ${esc(result.blocked_reason)}</span>`;
+  }
+  (result.warnings || []).forEach(w => {
+    box.innerHTML += `<div class="warn-msg">&#9888; ${esc(w)}</div>`;
+  });
+}
+
+function setWarnings(warnings, errors) {
+  const box = $('warningBox');
+  box.innerHTML = '';
+  (warnings || []).forEach(w => {
+    box.innerHTML += `<div class="warn-msg">&#9888; ${esc(w)}</div>`;
+  });
+  (errors || []).forEach(e => {
+    box.innerHTML += `<div class="err-msg">&#10007; ${esc(e)}</div>`;
+  });
+}
+
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+function clearResults() {
+  $('resultsBox').innerHTML = '';
+  $('timingBox').style.display = 'none';
+  $('warningBox').innerHTML = '';
+  $('validationBox').style.display = 'none';
+  $('paginationBox').style.display = 'none';
+}
+
+// ── validate ───────────────────────────────────────────────────────────
+async function validateSQL() {
+  const sql = sqlText();
+  if (!sql) { alert('Enter a SQL query first.'); return; }
+  const res = await api('/api/sqlws/validate', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({sql}),
+  });
+  const data = await res.json();
+  setValidationBox(data);
+  $('warningBox').innerHTML = '';
+}
+
+// ── execute ────────────────────────────────────────────────────────────
+async function executeSQL(page) {
+  const sql = sqlText();
+  if (!sql) { alert('Enter a SQL query first.'); return; }
+  const binds    = bindsObj();
+  const pageSize = parseInt($('pageSizeInput').value) || 100;
+  page = page || parseInt($('pageInput').value) || 1;
+
+  lastSQL = sql; lastBinds = binds; lastPageSize = pageSize; currentPage = page;
+  $('pageInput').value = page;
+
+  const res = await api('/api/sqlws/execute', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({env:env(), sql, binds, page, page_size:pageSize}),
+  });
+  const data = await res.json();
+  lastResult = data;
+
+  setValidationBox({
+    allowed: !data.blocked,
+    statement_type: data.statement_type,
+    warnings: data.warnings || [],
+    blocked_reason: data.blocked_reason,
+  });
+
+  const warns = (data.warnings || []).filter(w => !w.startsWith('Execution'));
+  const errs  = data.error ? [data.error] : [];
+  setWarnings(warns, errs);
+
+  const timing = $('timingBox');
+  timing.style.display = 'block';
+  timing.textContent = `${data.row_count} rows · ${data.elapsed_ms} ms · Page ${data.page}${data.truncated ? ' (more rows available)' : ''}`;
+
+  renderTable(data);
+  renderPagination(data);
+  loadHistory();
+}
+
+function renderTable(data) {
+  const box = $('resultsBox');
+  if (data.blocked) {
+    box.innerHTML = `<div class="err-msg">&#10007; ${esc(data.blocked_reason)}</div>`;
+    return;
+  }
+  if (!data.columns || data.columns.length === 0) {
+    box.innerHTML = '<div class="empty">No columns returned.</div>';
+    return;
+  }
+  if (data.rows.length === 0) {
+    box.innerHTML = '<div class="empty">No rows returned.</div>';
+    return;
+  }
+
+  let html = '<div style="overflow-x:auto;"><table><thead><tr>';
+  data.columns.forEach(c => {
+    html += `<th>${esc(c.name)}<br><span class="col-type">${esc(c.type)}</span></th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  data.rows.forEach(row => {
+    html += '<tr>';
+    data.columns.forEach(c => {
+      const v = row[c.name];
+      const display = v === null ? '<span style="color:#334">NULL</span>' : esc(String(v));
+      html += `<td class="mono">${display}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  box.innerHTML = html;
+}
+
+function renderPagination(data) {
+  const box = $('paginationBox');
+  if (!data.columns || data.columns.length === 0 || data.row_count === 0) {
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = 'flex';
+  $('pageLabel').textContent = `Page ${data.page}${data.truncated ? '+' : ''}`;
+  $('prevBtn').disabled = data.page <= 1;
+  $('nextBtn').disabled = !data.truncated;
+}
+
+function prevPage() {
+  if (currentPage > 1) executeSQL(currentPage - 1);
+}
+function nextPage() {
+  executeSQL(currentPage + 1);
+}
+
+// ── explain ─────────────────────────────────────────────────────────────
+async function explainSQL() {
+  const sql = sqlText();
+  if (!sql) { alert('Enter a SQL query first.'); return; }
+  const binds = bindsObj();
+
+  const res = await api('/api/sqlws/explain', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({env:env(), sql, binds}),
+  });
+  const data = await res.json();
+
+  const warns = data.warnings || [];
+  setWarnings(warns, []);
+
+  const box = $('resultsBox');
+  if (!data.allowed) {
+    box.innerHTML = `<div class="err-msg">&#10007; ${esc(data.blocked_reason)}</div>`;
+    return;
+  }
+  if (!data.plan || data.plan.length === 0) {
+    box.innerHTML = '<div class="empty">No plan returned. ' + esc(warns.join(' ')) + '</div>';
+    return;
+  }
+
+  let html = '<pre style="font-family:monospace;font-size:11px;color:#9ab;background:#0b1b24;padding:12px;overflow-x:auto;">';
+  data.plan.forEach(line => { html += esc(line) + '\n'; });
+  html += '</pre>';
+  $('timingBox').style.display = 'block';
+  $('timingBox').textContent = `EXPLAIN PLAN · ${data.elapsed_ms} ms`;
+  box.innerHTML = html;
+  $('paginationBox').style.display = 'none';
+}
+
+// ── export ──────────────────────────────────────────────────────────────
+async function exportCSV() {
+  const sql = sqlText();
+  if (!sql) { alert('Enter a SQL query first.'); return; }
+  const body = JSON.stringify({env:env(), sql, binds:bindsObj(), page_size:1000});
+  const res = await api('/api/sqlws/export/csv', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body
+  });
+  if (!res || !res.ok) { alert('Export failed'); return; }
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'sqlws_export.csv';
+  a.click();
+}
+
+async function exportJSON() {
+  const sql = sqlText();
+  if (!sql) { alert('Enter a SQL query first.'); return; }
+  const body = JSON.stringify({env:env(), sql, binds:bindsObj(), page_size:1000});
+  const res = await api('/api/sqlws/export/json', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body
+  });
+  if (!res || !res.ok) { alert('Export failed'); return; }
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'sqlws_export.json';
+  a.click();
+}
+
+// ── schema browser ─────────────────────────────────────────────────────
+function schemaPrefix(p) {
+  $('schemaQ').value = p;
+  if (p) searchSchema();
+  else $('schemaResults').innerHTML = '<span class="empty">Type to search</span>';
+}
+
+async function searchSchema() {
+  const q = $('schemaQ').value.trim();
+  if (!q) return;
+  $('schemaResults').innerHTML = '<span class="empty">Searching…</span>';
+  const res  = await api(`/api/sqlws/schema/search?env=${encodeURIComponent(env())}&q=${encodeURIComponent(q)}`);
+  const data = await res.json();
+  renderSchemaResults(data.results || [], data.warnings || []);
+}
+
+function renderSchemaResults(results, warnings) {
+  const box = $('schemaResults');
+  if (!results.length) { box.innerHTML = '<span class="empty">No results.</span>'; return; }
+
+  let html = '';
+  warnings.forEach(w => { html += `<div class="warn-msg">${esc(w)}</div>`; });
+
+  results.forEach(obj => {
+    const id = `sc_${btoa(obj.owner + '.' + obj.object_name).replace(/[^a-zA-Z0-9]/g,'')}`;
+    const badge = obj.source === 'peoplesoft'
+      ? `<span class="obj-type" style="color:#00cc66;">PS</span>`
+      : `<span class="obj-type">${esc(obj.object_type)}</span>`;
+    const link = obj.ps_recname
+      ? `<a href="/admin/object/record/${esc(obj.ps_recname)}" style="color:#00e5ff;font-size:9px;" target="_blank">&#8599;</a>`
+      : '';
+    html += `
+      <div class="schema-item" onclick="toggleSchemaItem('${id}','${esc(obj.owner)}','${esc(obj.object_name)}')">
+        <span>
+          <span style="font-family:monospace;">${esc(obj.owner)}.${esc(obj.object_name)}</span>
+          ${link}
+          ${obj.description ? `<br><span style="font-size:9px;color:#556;">${esc(obj.description)}</span>` : ''}
+        </span>
+        ${badge}
+      </div>
+      <div id="${id}" class="schema-cols"></div>`;
+  });
+  box.innerHTML = html;
+}
+
+async function toggleSchemaItem(id, owner, objName) {
+  const el = document.getElementById(id);
+  if (el.classList.contains('open')) { el.classList.remove('open'); return; }
+  el.classList.add('open');
+  el.innerHTML = '<span class="schema-col">Loading columns…</span>';
+  const res  = await api(`/api/sqlws/schema/${encodeURIComponent(owner)}/${encodeURIComponent(objName)}/columns?env=${encodeURIComponent(env())}`);
+  const data = await res.json();
+  if (!data.columns || !data.columns.length) {
+    el.innerHTML = '<span class="schema-col empty">No columns found.</span>';
+    return;
+  }
+  el.innerHTML = data.columns.map(c =>
+    `<div class="schema-col" onclick="insertColumnRef('${esc(owner)}.${esc(objName)}','${esc(c.column_name)}')" style="cursor:pointer;" title="Click to insert">
+       <span style="color:#9ab;">${esc(c.column_name)}</span>
+       <span style="color:#445;"> ${esc(c.data_type)}</span>
+     </div>`
+  ).join('');
+}
+
+function insertColumnRef(table, col) {
+  const ta = $('sqlInput');
+  const sel = ta.selectionStart;
+  const txt = ta.value;
+  ta.value = txt.slice(0, sel) + col + txt.slice(ta.selectionEnd);
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = sel + col.length;
+}
+
+// ── history ─────────────────────────────────────────────────────────────
+let _historyItems = [];
+let _pinnedItems  = [];
+
+async function loadHistory() {
+  const res  = await api('/api/sqlws/history?limit=50');
+  const data = await res.json();
+  _historyItems = data.history || [];
+  applyHistoryFilter();
+}
+
+function applyHistoryFilter() {
+  const q = ($('historyQ') ? $('historyQ').value : '').toLowerCase().trim();
+  const items = q
+    ? _historyItems.filter(h =>
+        (h.sql || '').toLowerCase().includes(q) ||
+        (h.env || '').toLowerCase().includes(q))
+    : _historyItems;
+  renderHistoryList(items, 'historyList', false);
+}
+
+async function loadPinned() {
+  const res  = await api('/api/sqlws/history?pinned=true&limit=50');
+  const data = await res.json();
+  _pinnedItems = data.history || [];
+  renderHistoryList(_pinnedItems, 'pinnedList', true);
+}
+
+function renderHistoryList(items, targetId, pinnedView) {
+  const box = $(targetId);
+  if (!items.length) { box.innerHTML = '<span class="empty">None.</span>'; return; }
+  box.innerHTML = items.map(item => {
+    const ts    = (item.timestamp || '').replace('T',' ').slice(0,19);
+    const status = item.status === 'success' ? '&#10003;'
+                 : item.status === 'blocked' ? '&#9940;' : '&#10007;';
+    const statusColor = item.status === 'success' ? '#00cc66'
+                      : item.status === 'blocked' ? '#ff6600' : '#ff4444';
+    const pinLabel = item.pinned ? '&#9733; Unpin' : '&#9734; Pin';
+    return `
+      <div style="border-bottom:1px solid #0e2030;padding:5px 0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span class="ts">${esc(ts)}</span>
+          <span style="color:${statusColor};font-size:10px;">${status} ${esc(item.env)}</span>
+        </div>
+        <div class="sql-preview" onclick="loadQueryFromHistory(${JSON.stringify(JSON.stringify(item.sql))})"
+             title="${esc(item.sql)}" style="cursor:pointer;">${esc(item.sql)}</div>
+        <div style="display:flex;gap:4px;margin-top:3px;flex-wrap:wrap;">
+          <button class="sec pin-btn" onclick="togglePin('${esc(item.id)}',${!item.pinned})">${pinLabel}</button>
+          <button class="sec pin-btn" onclick="deleteHistory('${esc(item.id)}')">Delete</button>
+          <button class="sec pin-btn" onclick="loadQueryFromHistory(${JSON.stringify(JSON.stringify(item.sql))})">Load</button>
+          ${item.elapsed_ms ? `<span class="ts">${item.elapsed_ms}ms</span>` : ''}
+          ${item.row_count  ? `<span class="ts">${item.row_count}r</span>`   : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function loadQueryFromHistory(sqlJsonStr) {
+  const sql = JSON.parse(sqlJsonStr);
+  $('sqlInput').value = sql;
+}
+
+async function togglePin(id, pin) {
+  await api(`/api/sqlws/history/${id}/pin?pinned=${pin}`, {method:'POST'});
+  loadHistory();
+  loadPinned();
+}
+
+async function deleteHistory(id) {
+  if (!confirm('Delete this history entry?')) return;
+  await api(`/api/sqlws/history/${id}`, {method:'DELETE'});
+  loadHistory();
+  loadPinned();
+}
+
+// ── init ────────────────────────────────────────────────────────────────
+(async () => {
+  const res = await api('/api/sqlws/config').catch(() => null);
+  if (res && res.ok) {
+    const cfg = await res.json();
+    $('envSel').innerHTML = (cfg.envs || ['HCM']).map(e =>
+      `<option value="${e}">${e}</option>`
+    ).join('');
+    $('pageSizeInput').value = cfg.default_page_size || 100;
+  }
+  loadHistory();
+})();
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/ib", response_class=HTMLResponse)
+@router.get("/ib/{section}", response_class=HTMLResponse)
+@router.get("/ib/{section}/{name}", response_class=HTMLResponse)
+def admin_ib(section: str = None, name: str = None):
+    return """<!DOCTYPE html>
+<html>
+<head>
+<title>DeathStar — Integration Broker Explorer</title>
+<style>
+*{box-sizing:border-box;}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;display:flex;flex-direction:column;height:100vh;}
+h1{color:#00e5ff;text-shadow:0 0 12px #00e5ff;letter-spacing:4px;margin:0;font-size:18px;}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:4px;margin:12px 0 8px;}
+nav a{color:#00e5ff;text-decoration:none;font-size:12px;}
+nav a:hover{text-decoration:underline;}
+.topbar{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.main{display:flex;flex:1;overflow:hidden;}
+.sidebar{width:260px;border-right:1px solid #00e5ff22;display:flex;flex-direction:column;overflow:hidden;}
+.content{flex:1;overflow:auto;padding:14px;}
+select,input[type=text]{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px;}
+select:focus,input:focus{outline:none;border-color:#00e5ff;}
+button{background:#00e5ff;border:none;padding:4px 10px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;}
+button:hover{background:#33eeff;}
+button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;}
+button.sec:hover{background:#00e5ff11;border-color:#00e5ff;}
+.tab-row{display:flex;gap:0;border-bottom:1px solid #00e5ff22;}
+.tab{padding:8px 14px;cursor:pointer;font-size:11px;color:#556;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
+.tab.on{color:#00e5ff;border-bottom-color:#00e5ff;}
+.search-bar{padding:8px;border-bottom:1px solid #00e5ff11;display:flex;gap:4px;flex-wrap:wrap;}
+.search-bar input{flex:1;min-width:80px;}
+.list-area{overflow-y:auto;flex:1;}
+.list-item{padding:7px 10px;cursor:pointer;border-bottom:1px solid #0b1b24;font-size:11px;}
+.list-item:hover{background:#0b2030;}
+.list-item.active{background:#0b2030;border-left:2px solid #00e5ff;}
+.item-name{font-family:monospace;color:#d7faff;}
+.item-meta{font-size:10px;color:#445;margin-top:1px;}
+.badge{display:inline-block;font-size:9px;padding:1px 5px;border-radius:2px;float:right;}
+.bd-ok{background:#002800;border:1px solid #00cc66;color:#00cc66;}
+.bd-err{background:#3a0000;border:1px solid #ff4444;color:#ff4444;}
+.bd-warn{background:#2a1800;border:1px solid #ffaa00;color:#ffaa00;}
+.bd-mute{background:#141a20;border:1px solid #334;color:#556;}
+.bd-info{background:#001830;border:1px solid #00e5ff44;color:#00e5ff;}
+.chip{display:inline-block;padding:1px 7px;border-radius:2px;font-size:10px;font-weight:bold;}
+.ch-ok{background:#002800;border:1px solid #00cc66;color:#00cc66;}
+.ch-err{background:#3a0000;border:1px solid #ff4444;color:#ff4444;}
+.ch-warn{background:#2a1800;border:1px solid #ffaa00;color:#ffaa00;}
+.ch-mute{background:#141a20;border:1px solid #334;color:#556;}
+.ch-info{background:#001830;border:1px solid #00e5ff44;color:#00e5ff;}
+table{border-collapse:collapse;width:100%;font-size:11px;}
+th{border-bottom:1px solid #00e5ff33;padding:4px 8px;text-align:left;color:#00e5ff;font-size:10px;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;}
+td{border-bottom:1px solid #0e2030;padding:4px 8px;vertical-align:top;}
+tr:hover td{background:rgba(0,229,255,.04);}
+.mono{font-family:monospace;font-size:11px;}
+.empty{color:#445;font-style:italic;font-size:12px;padding:10px 0;}
+.warn-msg{color:#ffaa00;font-size:11px;padding:3px 8px;background:#1a1000;border-left:2px solid #ffaa00;margin:2px 0;}
+.err-msg{color:#ff6666;font-size:11px;padding:3px 8px;background:#1a0000;border-left:2px solid #ff4444;margin:2px 0;}
+.kv-grid{display:grid;grid-template-columns:160px 1fr;gap:2px 12px;font-size:11px;margin:8px 0;}
+.kv-key{color:#667;text-transform:uppercase;font-size:10px;letter-spacing:1px;padding:3px 0;}
+.kv-val{padding:3px 0;font-family:monospace;}
+.card{border:1px solid #00e5ff22;padding:10px 14px;margin-bottom:12px;background:rgba(0,20,30,.6);}
+.stat-grid{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0;}
+.stat-box{border:1px solid #00e5ff33;padding:10px 16px;min-width:100px;text-align:center;background:rgba(0,20,30,.5);}
+.stat-num{font-size:22px;color:#00e5ff;font-weight:bold;}
+.stat-lbl{font-size:10px;color:#445;text-transform:uppercase;letter-spacing:1px;}
+.ts{font-size:10px;color:#446;}
+.lbl{font-size:10px;color:#667;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:2px;}
+a.obj-link{color:#00e5ff;text-decoration:none;cursor:pointer;}
+a.obj-link:hover{text-decoration:underline;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>&#127760; INTEGRATION BROKER EXPLORER</h1>
+  <nav>
+    <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
+    <a href="/admin/runtime">Runtime</a> &nbsp;&middot;&nbsp;
+    <a href="/admin/object">Objects</a> &nbsp;&middot;&nbsp;
+    <a href="/admin/sqlws">SQL Workspace</a>
+  </nav>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+    <span class="lbl" style="margin:0;">Env</span>
+    <select id="envSel" onchange="reload()"></select>
+  </div>
+</div>
+
+<div class="main">
+
+<!-- ═══════════════════════════════════════════════════════════ SIDEBAR -->
+<div class="sidebar">
+  <div class="tab-row">
+    <div class="tab on"  onclick="switchTab('services')">Services</div>
+    <div class="tab"     onclick="switchTab('routings')">Routings</div>
+    <div class="tab"     onclick="switchTab('nodes')">Nodes</div>
+    <div class="tab"     onclick="switchTab('queues')">Queues</div>
+    <div class="tab"     onclick="switchTab('txns')">Txns</div>
+  </div>
+
+  <div id="tab-services" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+    <div class="search-bar">
+      <input id="svcQ" type="text" placeholder="Search services…" onkeydown="if(event.key==='Enter')loadServices()">
+      <button onclick="loadServices()">Go</button>
+    </div>
+    <div class="list-area" id="svcList"><span class="empty" style="padding:8px;">Loading…</span></div>
+  </div>
+
+  <div id="tab-routings" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+    <div class="search-bar">
+      <input id="rtngQ" type="text" placeholder="Search routings…" onkeydown="if(event.key==='Enter')loadRoutings()">
+      <button onclick="loadRoutings()">Go</button>
+    </div>
+    <div class="list-area" id="rtngList"><span class="empty" style="padding:8px;">Type to search</span></div>
+  </div>
+
+  <div id="tab-nodes" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+    <div class="search-bar">
+      <input id="nodeQ" type="text" placeholder="Search nodes…" onkeydown="if(event.key==='Enter')loadNodes()">
+      <button onclick="loadNodes()">Go</button>
+    </div>
+    <div class="list-area" id="nodeList"><span class="empty" style="padding:8px;">Loading…</span></div>
+  </div>
+
+  <div id="tab-queues" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+    <div class="search-bar">
+      <input id="queueQ" type="text" placeholder="Search queues…" onkeydown="if(event.key==='Enter')loadQueues()">
+      <button onclick="loadQueues()">Go</button>
+    </div>
+    <div class="list-area" id="queueList"><span class="empty" style="padding:8px;">Loading…</span></div>
+  </div>
+
+  <div id="tab-txns" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+    <div class="search-bar">
+      <input id="txQ" type="text" placeholder="Operation / node…" onkeydown="if(event.key==='Enter')loadTxns()" style="width:100%;">
+      <select id="txStatus">
+        <option value="">All Status</option>
+        <option value="1">New</option>
+        <option value="2">Started</option>
+        <option value="3">Done</option>
+        <option value="4">Cancelled</option>
+        <option value="5">Error</option>
+        <option value="6">Retry</option>
+        <option value="7">Timeout</option>
+      </select>
+      <button onclick="loadTxns()">Go</button>
+    </div>
+    <div class="list-area" id="txList"><span class="empty" style="padding:8px;">Loading…</span></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ CONTENT AREA -->
+<div class="content" id="contentArea">
+  <div id="dashboard"></div>
+</div>
+
+</div><!-- .main -->
+
+<script>
+const $ = id => document.getElementById(id);
+let currentTab = 'services';
+
+function env() { return $('envSel').value || 'HCM'; }
+
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts || {});
+  return r.json().catch(() => ({}));
+}
+
+// ─── tabs ──────────────────────────────────────────────────────────────────
+const TABS = ['services','routings','nodes','queues','txns'];
+function switchTab(name) {
+  currentTab = name;
+  TABS.forEach(t => {
+    $(`tab-${t}`).style.display = t === name ? 'flex' : 'none';
+  });
+  document.querySelectorAll('.tab').forEach((el, i) => {
+    el.classList.toggle('on', TABS[i] === name);
+  });
+  if (name === 'routings' && !$('rtngList').querySelector('.list-item')) loadRoutings();
+  if (name === 'txns') loadTxns();
+}
+
+// ─── list loaders ─────────────────────────────────────────────────────────
+async function loadServices() {
+  const q = $('svcQ').value;
+  $('svcList').innerHTML = '<span class="empty" style="padding:8px;">Loading…</span>';
+  const d = await api(`/api/ib/services?env=${env()}&q=${encodeURIComponent(q)}&limit=200`);
+  renderList('svcList', d.items || [], item => {
+    const b = bStatus(item.status_label);
+    return `<div class="list-item" onclick="showService(${JSON.stringify(item.ptibapplname)})">
+      <span class="badge ${b.cls}">${b.text}</span>
+      <span class="item-name">${esc(item.ptibapplname)}</span>
+      <div class="item-meta">${esc(item.descr || '')}</div>
+    </div>`;
+  });
+  warnBox(d.warnings);
+}
+
+async function loadRoutings() {
+  const q = $('rtngQ').value;
+  $('rtngList').innerHTML = '<span class="empty" style="padding:8px;">Loading…</span>';
+  const d = await api(`/api/ib/routings?env=${env()}&q=${encodeURIComponent(q)}&limit=200`);
+  renderList('rtngList', d.items || [], item => {
+    return `<div class="list-item" onclick="showRouting(${JSON.stringify(item.routingdefnname)})">
+      <span class="item-name">${esc(item.routingdefnname)}</span>
+      <div class="item-meta">${esc(item.sendernodename||'*')} → ${esc(item.receivernodename||'*')} &nbsp;·&nbsp; ${esc(item.eff_status_label||'')}</div>
+    </div>`;
+  });
+  warnBox(d.warnings);
+}
+
+async function loadNodes() {
+  const q = $('nodeQ').value;
+  $('nodeList').innerHTML = '<span class="empty" style="padding:8px;">Loading…</span>';
+  const d = await api(`/api/ib/nodes?env=${env()}&q=${encodeURIComponent(q)}&limit=200`);
+  renderList('nodeList', d.items || [], item => {
+    const b = bStatus(item.active_label);
+    const local = item.is_local ? '<span class="badge bd-info" style="float:none;margin-left:4px;">LOCAL</span>' : '';
+    return `<div class="list-item" onclick="showNode(${JSON.stringify(item.msgnodename)})">
+      <span class="badge ${b.cls}">${b.text}</span>
+      <span class="item-name">${esc(item.msgnodename)}</span>${local}
+      <div class="item-meta">${esc(item.node_type_label||'')}${item.toolsrel?' · '+esc(item.toolsrel):''}</div>
+    </div>`;
+  });
+  warnBox(d.warnings);
+}
+
+async function loadQueues() {
+  const q = $('queueQ').value;
+  $('queueList').innerHTML = '<span class="empty" style="padding:8px;">Loading…</span>';
+  const d = await api(`/api/ib/queues?env=${env()}&q=${encodeURIComponent(q)}&limit=200`);
+  renderList('queueList', d.items || [], item => {
+    const b = bQueue(item.queuestatus_label);
+    return `<div class="list-item" onclick="showQueue(${JSON.stringify(item.queuename)})">
+      <span class="badge ${b.cls}">${b.text}</span>
+      <span class="item-name">${esc(item.queuename)}</span>
+      <div class="item-meta">${esc(item.descr||'')}</div>
+    </div>`;
+  });
+  warnBox(d.warnings);
+}
+
+async function loadTxns() {
+  const q  = $('txQ').value;
+  const st = $('txStatus').value;
+  $('txList').innerHTML = '<span class="empty" style="padding:8px;">Loading…</span>';
+  let url = `/api/ib/transactions?env=${env()}&q=${encodeURIComponent(q)}&limit=100`;
+  if (st) url += `&status=${st}`;
+  const d = await api(url);
+  renderList('txList', d.items || [], item => {
+    const b = bTx(item.pubstatus_label);
+    return `<div class="list-item" onclick="showTxn(${JSON.stringify(item.ibtransactionid)})">
+      <span class="badge ${b.cls}">${b.text}</span>
+      <span class="item-name mono" style="font-size:10px;">${esc((item.ibtransactionid||'').substring(0,28))}</span>
+      <div class="item-meta">${esc(item.ib_operationname||'')} &nbsp;·&nbsp; ${esc(item.queuename||'')}</div>
+    </div>`;
+  });
+  warnBox(d.warnings);
+}
+
+function renderList(targetId, items, rowFn) {
+  const box = $(targetId);
+  if (!items.length) { box.innerHTML = '<span class="empty" style="padding:8px;">No results.</span>'; return; }
+  box.innerHTML = items.map(rowFn).join('');
+}
+
+// ─── detail views ──────────────────────────────────────────────────────────
+async function showService(name) {
+  $('contentArea').innerHTML = '<span class="empty">Loading…</span>';
+  const d = await api(`/api/ib/services/${encodeURIComponent(name)}?env=${env()}`);
+  const it = d.item;
+  if (!it) { $('contentArea').innerHTML = `<div class="err-msg">Not found: ${esc(name)}</div>`; return; }
+
+  let h = `<h2>&#127760; Application Service</h2>
+  <div class="card">
+    <div style="font-size:15px;font-family:monospace;color:#00e5ff;margin-bottom:6px;">${esc(it.ptibapplname)}</div>
+    ${it.descr ? `<div style="color:#9ab;margin-bottom:8px;font-size:12px;">${esc(it.descr)}</div>` : ''}
+    <div class="kv-grid">
+      ${kv('Status', chipStatus(it.status_label))}
+      ${kv('Type', esc(it.appltype_label))}
+      ${kv('Service Name', esc(it.ib_servicename))}
+      ${kv('Owner', esc(it.objectownerid))}
+      ${kv('App Server Group', esc(it.ptib_appsrvgrp))}
+      ${kv('Last Updated', esc(it.lastupddttm))} ${kv('Updated By', esc(it.lastupdoprid))}
+    </div>
+  </div>`;
+
+  if ((it.operations||[]).length) {
+    h += `<h2>Operations (${it.operations.length})</h2><div class="card"><table><thead><tr>
+      <th>Operation</th><th>Status</th><th>Action</th><th>URI Template</th>
+    </tr></thead><tbody>`;
+    it.operations.forEach(op => {
+      h += `<tr><td class="mono">${esc(op.ptibapplopr)}</td><td>${chipStatus(op.status_label)}</td>
+        <td>${esc(op.ib_action||'')}</td><td class="mono" style="font-size:10px;">${esc(op.ib_uri_template||'')}</td></tr>`;
+    });
+    h += '</tbody></table></div>';
+  }
+
+  if ((it.routings||[]).length) {
+    h += `<h2>Routings (${it.routings.length})</h2><div class="card"><table><thead><tr>
+      <th>Routing</th><th>From</th><th>To</th><th>Type</th><th>Status</th>
+    </tr></thead><tbody>`;
+    it.routings.forEach(r => {
+      h += `<tr>
+        <td class="mono"><a class="obj-link" onclick="showRouting(${JSON.stringify(r.routingdefnname)})">${esc(r.routingdefnname)}</a></td>
+        <td class="mono">${esc(r.sendernodename||'')}</td><td class="mono">${esc(r.receivernodename||'')}</td>
+        <td>${esc(r.rtngtype_label||'')}</td><td>${chipStatus(r.eff_status_label)}</td></tr>`;
+    });
+    h += '</tbody></table></div>';
+  }
+
+  warnBox(d.warnings);
+  $('contentArea').innerHTML = h;
+}
+
+async function showRouting(name) {
+  $('contentArea').innerHTML = '<span class="empty">Loading…</span>';
+  const d = await api(`/api/ib/routings/${encodeURIComponent(name)}?env=${env()}`);
+  const it = d.item;
+  if (!it) { $('contentArea').innerHTML = `<div class="err-msg">Not found: ${esc(name)}</div>`; return; }
+
+  let h = `<h2>&#8652; Routing Definition</h2>
+  <div class="card">
+    <div style="font-size:15px;font-family:monospace;color:#00e5ff;margin-bottom:6px;">${esc(it.routingdefnname)}</div>
+    ${it.descr ? `<div style="color:#9ab;margin-bottom:8px;font-size:12px;">${esc(it.descr)}</div>` : ''}
+    <div class="kv-grid">
+      ${kv('Status', chipStatus(it.eff_status_label))}
+      ${kv('Type', esc(it.rtngtype_label))}
+      ${kv('Service Operation', `<a class="obj-link" onclick="showService(${JSON.stringify(it.ib_operationname)})">${esc(it.ib_operationname)}</a>`)}
+      ${kv('Sender Node', `<a class="obj-link" onclick="showNode(${JSON.stringify(it.sendernodename)})">${esc(it.sendernodename)}</a>`)}
+      ${kv('Receiver Node', `<a class="obj-link" onclick="showNode(${JSON.stringify(it.receivernodename)})">${esc(it.receivernodename)}</a>`)}
+      ${kv('REST Method', esc(it.ib_restmethod))}
+      ${kv('Delivery Mode', esc(it.ib_deliverymode))}
+      ${kv('Effective Date', esc(it.effdt))}
+      ${kv('Owner', esc(it.objectownerid))} ${kv('Last Updated', esc(it.lastupddttm))}
+    </div>
+  </div>`;
+
+  if ((it.sub_definitions||[]).length) {
+    h += `<h2>Sub-Definitions (${it.sub_definitions.length})</h2><div class="card"><table><thead><tr>
+      <th>Seq</th><th>Direction</th><th>From</th><th>To</th><th>Type</th>
+    </tr></thead><tbody>`;
+    it.sub_definitions.forEach(s => {
+      h += `<tr><td>${esc(s.seqnum)}</td><td>${esc(s.ib_direction)}</td>
+        <td class="mono">${esc(s.sendernodename||'')}</td><td class="mono">${esc(s.receivernodename||'')}</td>
+        <td>${esc(s.rtngtype)}</td></tr>`;
+    });
+    h += '</tbody></table></div>';
+  }
+
+  warnBox(d.warnings);
+  $('contentArea').innerHTML = h;
+}
+
+async function showNode(name) {
+  $('contentArea').innerHTML = '<span class="empty">Loading…</span>';
+  const d = await api(`/api/ib/nodes/${encodeURIComponent(name)}?env=${env()}`);
+  const it = d.item;
+  if (!it) { $('contentArea').innerHTML = `<div class="err-msg">Not found: ${esc(name)}</div>`; return; }
+
+  let h = `<h2>&#128279; Node Definition</h2>
+  <div class="card">
+    <div style="font-size:15px;font-family:monospace;color:#00e5ff;margin-bottom:6px;">
+      ${esc(it.msgnodename)}
+      ${it.is_local ? '<span class="chip ch-info" style="font-size:10px;margin-left:8px;">LOCAL</span>' : ''}
+      ${it.is_default ? '<span class="chip ch-info" style="font-size:10px;margin-left:4px;">DEFAULT</span>' : ''}
+    </div>
+    ${it.descr ? `<div style="color:#9ab;margin-bottom:8px;font-size:12px;">${esc(it.descr)}</div>` : ''}
+    <div class="kv-grid">
+      ${kv('Status', chipActive(it.active_label))}
+      ${kv('Node Type', esc(it.node_type_label))}
+      ${kv('Tools Release', esc(it.toolsrel))}
+      ${kv('App Release', esc(it.apmsgapprel))}
+      ${kv('Target Location', esc(it.ib_tgtlocation))}
+      ${kv('Gateway ID', esc(it.conngatewayid))}
+      ${kv('Network Node', esc(it.networknodename))}
+      ${kv('Hub Node', esc(it.hubnodename))}
+      ${kv('Last Updated', esc(it.lastupddttm))}
+    </div>
+  </div>`;
+
+  if ((it.routings_as_sender||[]).length) h += rtngTable('Sends Via Routings', it.routings_as_sender);
+  if ((it.routings_as_receiver||[]).length) h += rtngTable('Receives Via Routings', it.routings_as_receiver);
+
+  warnBox(d.warnings);
+  $('contentArea').innerHTML = h;
+}
+
+function rtngTable(title, rows) {
+  let h = `<h2>${esc(title)} (${rows.length})</h2><div class="card"><table><thead><tr>
+    <th>Routing</th><th>Operation</th><th>From</th><th>To</th><th>Status</th>
+  </tr></thead><tbody>`;
+  rows.forEach(r => {
+    h += `<tr>
+      <td class="mono"><a class="obj-link" onclick="showRouting(${JSON.stringify(r.routingdefnname)})">${esc(r.routingdefnname)}</a></td>
+      <td class="mono">${esc(r.ib_operationname||'')}</td>
+      <td class="mono">${esc(r.sendernodename||'')}</td><td class="mono">${esc(r.receivernodename||'')}</td>
+      <td>${chipStatus(r.eff_status_label)}</td></tr>`;
+  });
+  return h + '</tbody></table></div>';
+}
+
+async function showQueue(name) {
+  $('contentArea').innerHTML = '<span class="empty">Loading…</span>';
+  const d = await api(`/api/ib/queues/${encodeURIComponent(name)}?env=${env()}`);
+  const it = d.item;
+  if (!it) { $('contentArea').innerHTML = `<div class="err-msg">Not found: ${esc(name)}</div>`; return; }
+
+  let h = `<h2>&#11036; Queue Definition</h2>
+  <div class="card">
+    <div style="font-size:15px;font-family:monospace;color:#00e5ff;margin-bottom:6px;">${esc(it.queuename)}</div>
+    ${it.descr ? `<div style="color:#9ab;margin-bottom:8px;font-size:12px;">${esc(it.descr)}</div>` : ''}
+    <div class="kv-grid">
+      ${kv('Status', chipQueue(it.queuestatus_label))}
+      ${kv('Throughput', esc(it.thruput_label))}
+      ${kv('Priority', esc(it.ptib_queue_pri))}
+      ${kv('Archive', esc(it.archive))}
+      ${kv('Owner', esc(it.objectownerid))} ${kv('Last Updated', esc(it.lastupddttm))}
+    </div>
+  </div>`;
+
+  const rt = it.runtime || {};
+  if ((rt.pub_by_status||[]).length || (rt.sub_by_status||[]).length) {
+    h += `<h2>Runtime Message Counts (24h)</h2><div class="card">`;
+    if (rt.pub_by_status && rt.pub_by_status.length) {
+      h += `<div style="margin-bottom:8px;"><span style="font-size:10px;color:#667;text-transform:uppercase;">Publications: </span>`;
+      rt.pub_by_status.forEach(s => { h += `${chipTx(s.status_label)}&nbsp;<span class="mono">${s.cnt}</span>&ensp;`; });
+      h += '</div>';
+    }
+    if (rt.sub_by_status && rt.sub_by_status.length) {
+      h += `<div><span style="font-size:10px;color:#667;text-transform:uppercase;">Subscriptions: </span>`;
+      rt.sub_by_status.forEach(s => { h += `${chipTx(s.status_label)}&nbsp;<span class="mono">${s.cnt}</span>&ensp;`; });
+      h += '</div>';
+    }
+    h += '</div>';
+  }
+
+  warnBox(d.warnings);
+  $('contentArea').innerHTML = h;
+}
+
+async function showTxn(txid) {
+  $('contentArea').innerHTML = '<span class="empty">Loading…</span>';
+  const d = await api(`/api/ib/transactions/${encodeURIComponent(txid)}?env=${env()}`);
+  const it = d.item;
+  if (!it) { $('contentArea').innerHTML = `<div class="err-msg">Not found.</div>`; return; }
+
+  let h = `<h2>&#8644; IB Transaction</h2>
+  <div class="card">
+    <div style="font-size:11px;font-family:monospace;color:#00e5ff;margin-bottom:6px;">${esc(it.ibtransactionid)}</div>
+    <div class="kv-grid">
+      ${kv('Status', chipTx(it.pubstatus_label))}
+      ${kv('Operation', `<a class="obj-link" onclick="showService(${JSON.stringify(it.ib_operationname)})">${esc(it.ib_operationname)}</a>`)}
+      ${kv('Queue', `<a class="obj-link" onclick="showQueue(${JSON.stringify(it.queuename)})">${esc(it.queuename)}</a>`)}
+      ${kv('Pub Node', `<a class="obj-link" onclick="showNode(${JSON.stringify(it.pubnode)})">${esc(it.pubnode)}</a>`)}
+      ${kv('Dest Node', esc(it.destpubnode))}
+      ${kv('Publisher', esc(it.publisher))}
+      ${kv('Created', esc(it.createdttm))}
+      ${kv('Retry Count', esc(it.retrycount))}
+      ${kv('Machine', esc(it.machinename))}
+    </div>
+    ${it.statusstring ? `<div class="warn-msg">${esc(it.statusstring)}</div>` : ''}
+  </div>`;
+
+  if ((it.pub_contracts||[]).length) {
+    h += `<h2>Publication Contracts (${it.pub_contracts.length})</h2><div class="card"><table><thead><tr>
+      <th>Sub Node</th><th>Routing</th><th>Status</th><th>Retries</th><th>Updated</th>
+    </tr></thead><tbody>`;
+    it.pub_contracts.forEach(c => {
+      h += `<tr><td class="mono">${esc(c.subnode||'')}</td><td class="mono">${esc(c.routingdefnname||'')}</td>
+        <td>${chipTx(c.pubconstatus_label)}</td><td>${esc(c.retrycount)}</td>
+        <td class="ts">${esc(c.lastupddttm||'')}</td></tr>`;
+    });
+    h += '</tbody></table></div>';
+  }
+
+  if ((it.sub_contracts||[]).length) {
+    h += `<h2>Subscription Contracts (${it.sub_contracts.length})</h2><div class="card"><table><thead><tr>
+      <th>Action</th><th>Operation</th><th>Routing</th><th>Status</th><th>Proc Inst</th>
+    </tr></thead><tbody>`;
+    it.sub_contracts.forEach(c => {
+      h += `<tr><td class="mono">${esc(c.actionname||'')}</td><td class="mono">${esc(c.ib_operationname||'')}</td>
+        <td class="mono">${esc(c.routingdefnname||'')}</td><td>${chipTx(c.subconstatus_label)}</td>
+        <td>${esc(c.process_instance||'')}</td></tr>`;
+    });
+    h += '</tbody></table></div>';
+  }
+
+  warnBox(d.warnings);
+  $('contentArea').innerHTML = h;
+}
+
+// ─── dashboard ────────────────────────────────────────────────────────────
+async function loadDashboard() {
+  const d = await api(`/api/ib/dashboard?env=${env()}`);
+  let h = `<h2>&#127760; Integration Broker Overview</h2>`;
+
+  const configured = d.service_count != null || d.node_count != null;
+  if (!configured) {
+    h += `<div class="card"><div class="warn-msg">IB metadata tables are not accessible in this environment.
+      The monitoring account may lack grants to PSIBAPPLDEFN, PSIBRTNGDEFN, PSMSGNODEDEFN and related tables.</div></div>`;
+    (d.warnings||[]).forEach(w => { h += `<div class="warn-msg">${esc(w.message||w)}</div>`; });
+    $('dashboard').innerHTML = h;
+    return;
+  }
+
+  h += `<div class="card"><div class="stat-grid">
+    ${sBox(d.service_count, 'Services')}
+    ${sBox(d.routing_count, 'Routings')}
+    ${sBox(d.node_count, 'Nodes')}
+    ${sBox(d.queue_count, 'Queues')}
+  </div></div>`;
+
+  if ((d.pub_by_status||[]).length) {
+    h += `<h2>Publications — Last 24h</h2><div class="card" style="display:flex;gap:16px;flex-wrap:wrap;">`;
+    d.pub_by_status.forEach(s => {
+      h += `<div style="text-align:center;"><div class="stat-num" style="font-size:18px;">${esc(s.cnt)}</div><div>${chipTx(s.status_label)}</div></div>`;
+    });
+    h += '</div>';
+  }
+
+  if ((d.sub_by_status||[]).length) {
+    h += `<h2>Subscriptions — Last 24h</h2><div class="card" style="display:flex;gap:16px;flex-wrap:wrap;">`;
+    d.sub_by_status.forEach(s => {
+      h += `<div style="text-align:center;"><div class="stat-num" style="font-size:18px;">${esc(s.cnt)}</div><div>${chipTx(s.status_label)}</div></div>`;
+    });
+    h += '</div>';
+  }
+
+  if ((d.domain_status||[]).length) {
+    h += `<h2>Domain Status</h2><div class="card"><table><thead><tr>
+      <th>Domain ID</th><th>Machine</th><th>Server Domain</th><th>Last Updated</th>
+    </tr></thead><tbody>`;
+    d.domain_status.forEach(ds => {
+      h += `<tr><td class="mono">${esc(ds.ibdomainid||'')}</td><td>${esc(ds.machinename||'')}</td>
+        <td>${esc(ds.serverdomainname||'')}</td><td class="ts">${esc(ds.lastupddttm||'')}</td></tr>`;
+    });
+    h += '</tbody></table></div>';
+  }
+
+  (d.warnings||[]).forEach(w => { h += `<div class="warn-msg">${esc(w.message||w)}</div>`; });
+  $('dashboard').innerHTML = h;
+}
+
+// ─── helpers ──────────────────────────────────────────────────────────────
+function kv(label, val) {
+  if (val == null || val === '') return '';
+  return `<div class="kv-key">${esc(label)}</div><div class="kv-val">${val}</div>`;
+}
+function sBox(n, lbl) {
+  return `<div class="stat-box"><div class="stat-num">${n != null ? n : '—'}</div><div class="stat-lbl">${esc(lbl)}</div></div>`;
+}
+function bStatus(l) { return l === 'Active' ? {cls:'bd-ok',text:l||''} : {cls:'bd-mute',text:l||''}; }
+function bQueue(l)  { return l === 'Running' ? {cls:'bd-ok',text:l} : l === 'Halted' ? {cls:'bd-err',text:l} : {cls:'bd-warn',text:l||''}; }
+function bTx(l)     { return (l==='Error'||l==='Timeout') ? {cls:'bd-err',text:l} : l==='Done' ? {cls:'bd-ok',text:l} : {cls:'bd-mute',text:l||''}; }
+function chipStatus(l) { const c=l==='Active'?'ch-ok':'ch-mute'; return `<span class="chip ${c}">${esc(l||'')}</span>`; }
+function chipActive(l) { const c=l==='Active'?'ch-ok':'ch-mute'; return `<span class="chip ${c}">${esc(l||'')}</span>`; }
+function chipQueue(l)  { const c=l==='Running'?'ch-ok':l==='Halted'?'ch-err':'ch-warn'; return `<span class="chip ${c}">${esc(l||'')}</span>`; }
+function chipTx(l)     { const c=(l==='Error'||l==='Timeout')?'ch-err':l==='Done'?'ch-ok':l==='Started'?'ch-warn':'ch-mute'; return `<span class="chip ${c}">${esc(l||'')}</span>`; }
+function warnBox(ws) {
+  if (!ws||!ws.length) return;
+  const box = document.querySelector('#contentArea .warn-container') || (() => {
+    const el = document.createElement('div');
+    el.className = 'warn-container';
+    $('contentArea').appendChild(el);
+    return el;
+  })();
+  box.innerHTML = ws.map(w => `<div class="warn-msg">${esc(w.message||w)}</div>`).join('');
+}
+
+// ─── init ─────────────────────────────────────────────────────────────────
+function reload() {
+  $('dashboard').innerHTML = '';
+  $('contentArea').innerHTML = '<div id="dashboard"></div>';
+  loadDashboard();
+  loadServices();
+  loadNodes();
+  loadQueues();
+}
+
+(async () => {
+  // Reuse sqlws config for env list.
+  try {
+    const cfg = await (await fetch('/api/sqlws/config')).json();
+    if (cfg && cfg.envs) {
+      $('envSel').innerHTML = cfg.envs.map(e => `<option value="${e}">${e}</option>`).join('');
+    }
+  } catch(e) {
+    $('envSel').innerHTML = '<option>HCM</option><option>FSCM</option>';
+  }
+  loadDashboard();
+  loadServices();
+  loadNodes();
+  loadQueues();
+
+  // Deep-link: /admin/ib?tab=services&show=MY_SERVICE  (from Object Explorer global search)
+  const params = new URLSearchParams(location.search);
+  const deepTab  = params.get('tab');
+  const deepShow = params.get('show');
+  if (deepTab && deepShow) {
+    switchTab(deepTab);
+    const tabShowMap = {
+      services: showService, routings: showRouting, nodes: showNode, queues: showQueue, txns: showTxn,
+    };
+    const fn = tabShowMap[deepTab];
+    if (fn) {
+      // Wait for the list to populate first, then show the detail
+      await Promise.all([loadServices(), loadNodes(), loadQueues()]);
+      fn(deepShow);
+    }
+  }
+})();
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/envcompare", response_class=HTMLResponse)
+def admin_envcompare():
+    return """<!DOCTYPE html>
+<html>
+<head>
+<title>DeathStar — Environment Comparison</title>
+<style>
+*{box-sizing:border-box;}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;display:flex;flex-direction:column;min-height:100vh;}
+h1{color:#00e5ff;text-shadow:0 0 12px #00e5ff;letter-spacing:4px;margin:0;font-size:18px;}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:4px;margin:12px 0 8px;}
+nav a{color:#00e5ff;text-decoration:none;font-size:12px;}
+nav a:hover{text-decoration:underline;}
+.topbar{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.main{display:flex;flex:1;overflow:hidden;}
+.sidebar{width:220px;border-right:1px solid #00e5ff22;padding:10px;overflow-y:auto;}
+.content{flex:1;overflow:auto;padding:14px;}
+select,input[type=text]{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px;}
+select:focus,input:focus{outline:none;border-color:#00e5ff;}
+button{background:#00e5ff;border:none;padding:4px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;}
+button:hover{background:#33eeff;}
+button:disabled{opacity:.4;cursor:default;}
+button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;}
+button.sec:hover{background:#00e5ff11;}
+.tab-row{display:flex;gap:0;border-bottom:1px solid #00e5ff22;margin-bottom:10px;}
+.tab{padding:7px 13px;cursor:pointer;font-size:11px;color:#556;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
+.tab.on{color:#00e5ff;border-bottom-color:#00e5ff;}
+.stat-grid{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+.stat-box{border:1px solid #00e5ff22;padding:8px 14px;min-width:110px;text-align:center;background:rgba(0,20,30,.5);cursor:pointer;}
+.stat-box:hover{border-color:#00e5ff66;}
+.stat-box.active{border-color:#00e5ff;background:rgba(0,229,255,.07);}
+.stat-num{font-size:20px;font-weight:bold;}
+.stat-lbl{font-size:10px;color:#445;text-transform:uppercase;letter-spacing:1px;}
+.n-only1{color:#ff9900;}
+.n-changed{color:#ffdd55;}
+.n-only2{color:#55aaff;}
+.n-same{color:#00cc66;}
+table{border-collapse:collapse;width:100%;font-size:11px;}
+th{border-bottom:1px solid #00e5ff33;padding:4px 8px;text-align:left;color:#00e5ff;font-size:10px;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;}
+td{border-bottom:1px solid #0e2030;padding:4px 8px;vertical-align:top;}
+tr:hover td{background:rgba(0,229,255,.04);}
+.mono{font-family:monospace;font-size:11px;}
+.empty{color:#445;font-style:italic;font-size:12px;padding:10px 0;}
+.warn-msg{color:#ffaa00;font-size:11px;padding:3px 8px;background:#1a1000;border-left:2px solid #ffaa00;margin:2px 0;}
+.err-msg{color:#ff6666;font-size:11px;padding:3px 8px;background:#1a0000;border-left:2px solid #ff4444;margin:2px 0;}
+.card{border:1px solid #00e5ff22;padding:10px 14px;margin-bottom:10px;background:rgba(0,20,30,.5);}
+.section-head{font-size:11px;font-weight:bold;padding:5px 0 4px;border-bottom:1px solid #0a2030;margin-bottom:4px;display:flex;align-items:center;gap:8px;cursor:pointer;}
+.section-head:hover{color:#00e5ff;}
+.toggle{font-size:10px;color:#556;}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;}
+.chip-add{background:#001e00;border:1px solid #00cc66;color:#00cc66;}
+.chip-del{background:#200000;border:1px solid #ff6600;color:#ff9900;}
+.chip-chg{background:#1a1400;border:1px solid #ffdd55;color:#ffdd55;}
+.chip-same{background:#001830;border:1px solid #00e5ff44;color:#00e5ff;}
+.diff-row{background:#12181f;border-left:3px solid #ffdd55;padding:3px 8px;margin:1px 0;font-size:11px;}
+.diff-col{color:#667;font-size:10px;text-transform:uppercase;letter-spacing:1px;}
+.diff-v1{color:#ff9900;}
+.diff-v2{color:#55aaff;}
+.ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
+.env-label{font-size:10px;color:#667;text-transform:uppercase;letter-spacing:1px;}
+a.obj-link{color:#00e5ff;text-decoration:none;cursor:pointer;font-size:11px;}
+a.obj-link:hover{text-decoration:underline;}
+.spinner{display:none;color:#00e5ff;font-size:11px;margin-left:8px;}
+.spinner.on{display:inline;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>&#9878; ENVIRONMENT COMPARISON</h1>
+  <nav>
+    <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
+    <a href="/admin/runtime">Runtime</a> &nbsp;&middot;&nbsp;
+    <a href="/admin/sqlws">SQL Workspace</a> &nbsp;&middot;&nbsp;
+    <a href="/admin/ib">IB Explorer</a>
+  </nav>
+</div>
+
+<div class="main">
+
+<!-- ═══════════════════════════════════════════════════════════ SIDEBAR -->
+<div class="sidebar">
+  <h2>Environments</h2>
+  <div style="margin-bottom:8px;">
+    <span class="env-label">Left</span>
+    <select id="env1Sel" onchange="loadSummary()" style="width:100%;margin-top:2px;"></select>
+  </div>
+  <div style="margin-bottom:12px;">
+    <span class="env-label">Right</span>
+    <select id="env2Sel" onchange="loadSummary()" style="width:100%;margin-top:2px;"></select>
+  </div>
+
+  <h2>Object Counts</h2>
+  <div id="summaryTable"><span class="empty">Loading…</span></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ CONTENT AREA -->
+<div class="content">
+  <div class="tab-row">
+    <div class="tab on"  onclick="switchTab('records')">Records</div>
+    <div class="tab"     onclick="switchTab('fields')">Fields</div>
+    <div class="tab"     onclick="switchTab('components')">Components</div>
+    <div class="tab"     onclick="switchTab('permissions')">Permissions</div>
+    <div class="tab"     onclick="switchTab('ae')">AE Programs</div>
+    <div class="tab"     onclick="switchTab('roles')">Roles</div>
+    <div class="tab"     onclick="switchTab('peoplecode')">PeopleCode</div>
+    <div class="tab"     onclick="switchTab('sql_definitions')">SQL Defs</div>
+    <div class="tab"     onclick="switchTab('portals')">Portals</div>
+    <div class="tab"     onclick="switchTab('graph')">Graph</div>
+  </div>
+
+  <!-- Records tab -->
+  <div id="pane-records" class="pane on">
+    <div class="ctrl">
+      <input id="recQ" type="text" placeholder="Search records…" style="width:220px;" onkeydown="if(event.key==='Enter')runCompare('records')">
+      <button onclick="runCompare('records')">Compare</button>
+      <span class="spinner" id="spin-records">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-records"></div>
+  </div>
+
+  <!-- Fields tab -->
+  <div id="pane-fields" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="fieldRec" type="text" placeholder="Record name (e.g. PSRECDEFN)" style="width:220px;" onkeydown="if(event.key==='Enter')runFieldCompare()">
+      <button onclick="runFieldCompare()">Compare Fields</button>
+      <span class="spinner" id="spin-fields">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-fields"></div>
+  </div>
+
+  <!-- Components tab -->
+  <div id="pane-components" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="compQ" type="text" placeholder="Search components…" style="width:220px;" onkeydown="if(event.key==='Enter')runCompare('components')">
+      <button onclick="runCompare('components')">Compare</button>
+      <span class="spinner" id="spin-components">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-components"></div>
+  </div>
+
+  <!-- Permissions tab -->
+  <div id="pane-permissions" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="permQ" type="text" placeholder="Search permission lists…" style="width:220px;" onkeydown="if(event.key==='Enter')runCompare('permissions')">
+      <button onclick="runCompare('permissions')">Compare</button>
+      <span class="spinner" id="spin-permissions">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-permissions"></div>
+  </div>
+
+  <!-- AE tab -->
+  <div id="pane-ae" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="aeQ" type="text" placeholder="Search AE programs…" style="width:220px;" onkeydown="if(event.key==='Enter')runCompare('ae')">
+      <button onclick="runCompare('ae')">Compare</button>
+      <span class="spinner" id="spin-ae">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-ae"></div>
+  </div>
+
+  <!-- Roles tab -->
+  <div id="pane-roles" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="roleQ" type="text" placeholder="Search roles…" style="width:220px;" onkeydown="if(event.key==='Enter')runCompare('roles')">
+      <button onclick="runCompare('roles')">Compare</button>
+      <span class="spinner" id="spin-roles">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-roles"></div>
+  </div>
+
+  <!-- PeopleCode tab -->
+  <div id="pane-peoplecode" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="pcQ" type="text" placeholder="Filter by parent object (e.g. JOB, GDP_SELECT_PRCS)…" style="width:300px;" onkeydown="if(event.key==='Enter')runCompare('peoplecode')">
+      <button onclick="runCompare('peoplecode')">Compare</button>
+      <span class="spinner" id="spin-peoplecode">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div class="warn-msg" style="margin-bottom:6px;">Key = objectid1|ov1|ov2|ov3|ov4|ov5 &nbsp;&middot;&nbsp; Compare col = lastupddttm &nbsp;&middot;&nbsp; Capped at 500 programs — use the filter to scope by record/component name.</div>
+    <div id="res-peoplecode"></div>
+  </div>
+
+  <!-- SQL Definitions tab -->
+  <div id="pane-sql_definitions" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="sqlQ" type="text" placeholder="Search SQL ID or owner…" style="width:260px;" onkeydown="if(event.key==='Enter')runCompare('sql_definitions')">
+      <button onclick="runCompare('sql_definitions')">Compare</button>
+      <span class="spinner" id="spin-sql_definitions">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-sql_definitions"></div>
+  </div>
+
+  <!-- Portals tab -->
+  <div id="pane-portals" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="portalQ" type="text" placeholder="Search portal object name or label…" style="width:300px;" onkeydown="if(event.key==='Enter')runCompare('portals')">
+      <button onclick="runCompare('portals')">Compare</button>
+      <span class="spinner" id="spin-portals">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-portals"></div>
+  </div>
+
+  <!-- Graph tab -->
+  <div id="pane-graph" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="graphTypes" type="text" placeholder="Node types, e.g. record,component,service_operation" style="width:360px;" onkeydown="if(event.key==='Enter')runGraphCompare()">
+      <button onclick="runGraphCompare()">Compare Graph Snapshots</button>
+      <a class="obj-link" href="/admin/graphdb" target="_blank">Open Graph Admin ↗</a>
+      <span class="spinner" id="spin-graph">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-graph"></div>
+  </div>
+
+</div><!-- .content -->
+</div><!-- .main -->
+
+<script>
+const $ = id => document.getElementById(id);
+const TABS = ['records','fields','components','permissions','ae','roles','peoplecode','sql_definitions','portals','graph'];
+let currentTab = 'records';
+
+function env1() { return $('env1Sel').value || 'HCM'; }
+function env2() { return $('env2Sel').value || 'FSCM'; }
+
+function esc(s) {
+  if (s == null) return '—';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function api(path) {
+  const r = await fetch(path);
+  return r.json().catch(() => ({}));
+}
+
+function switchTab(name) {
+  currentTab = name;
+  TABS.forEach(t => {
+    $(`pane-${t}`).style.display = t === name ? 'block' : 'none';
+  });
+  document.querySelectorAll('.tab').forEach((el, i) => {
+    el.classList.toggle('on', TABS[i] === name);
+  });
+}
+
+// ─── Summary sidebar ──────────────────────────────────────────────────────────
+async function loadSummary() {
+  $('summaryTable').innerHTML = '<span class="empty">Loading…</span>';
+  const d = await api(`/api/envcompare/summary?env1=${env1()}&env2=${env2()}`);
+  if (!d.counts) { $('summaryTable').innerHTML = '<div class="err-msg">Error loading summary.</div>'; return; }
+
+  let h = `<table>
+    <thead><tr><th>Type</th><th style="text-align:right">${esc(env1())}</th><th style="text-align:right">${esc(env2())}</th><th style="text-align:right">Δ</th></tr></thead>
+    <tbody>`;
+  d.counts.forEach(row => {
+    const delta = row.delta;
+    const dcls = delta === 0 ? 'color:#00cc66' : (delta > 0 ? 'color:#ff9900' : 'color:#55aaff');
+    const dsign = delta > 0 ? `+${delta}` : (delta < 0 ? String(delta) : '=');
+    h += `<tr>
+      <td style="font-size:10px;">${esc(row.type)}</td>
+      <td style="text-align:right;font-family:monospace;">${row.env1_count != null ? row.env1_count : '—'}</td>
+      <td style="text-align:right;font-family:monospace;">${row.env2_count != null ? row.env2_count : '—'}</td>
+      <td style="text-align:right;font-family:monospace;${dcls}">${delta != null ? dsign : '—'}</td>
+    </tr>`;
+  });
+  h += '</tbody></table>';
+  (d.warnings || []).forEach(w => { h += `<div class="warn-msg" style="margin-top:4px;">${esc(w.message||w)}</div>`; });
+  $('summaryTable').innerHTML = h;
+}
+
+// ─── Generic compare (records / components / permissions / ae / roles) ────────
+const Q_IDS = {
+  records: 'recQ', components: 'compQ', permissions: 'permQ', ae: 'aeQ', roles: 'roleQ',
+  peoplecode: 'pcQ', sql_definitions: 'sqlQ', portals: 'portalQ',
+};
+
+async function runCompare(type) {
+  const qId = Q_IDS[type];
+  const q = qId ? $(qId).value : '';
+  const spinId = `spin-${type}`;
+  $(spinId).classList.add('on');
+  $(`res-${type}`).innerHTML = '';
+
+  const url = `/api/envcompare/${type}?env1=${env1()}&env2=${env2()}&q=${encodeURIComponent(q)}&limit=500`;
+  const d = await api(url);
+  $(spinId).classList.remove('on');
+
+  if (d.warnings && d.warnings.some(w => w.severity === 'error')) {
+    let h = '';
+    d.warnings.forEach(w => { h += `<div class="${w.severity==='error'?'err-msg':'warn-msg'}">${esc(w.message)}</div>`; });
+    $(`res-${type}`).innerHTML = h;
+    return;
+  }
+
+  renderDiff(`res-${type}`, d, type);
+}
+
+async function runFieldCompare() {
+  const rec = $('fieldRec').value.trim().toUpperCase();
+  if (!rec) { $('res-fields').innerHTML = '<div class="warn-msg">Enter a record name.</div>'; return; }
+  $('spin-fields').classList.add('on');
+  $('res-fields').innerHTML = '';
+
+  const d = await api(`/api/envcompare/fields?env1=${env1()}&env2=${env2()}&record=${encodeURIComponent(rec)}`);
+  $('spin-fields').classList.remove('on');
+
+  if (d.warnings && d.warnings.some(w => w.severity === 'error')) {
+    let h = '';
+    d.warnings.forEach(w => { h += `<div class="${w.severity==='error'?'err-msg':'warn-msg'}">${esc(w.message)}</div>`; });
+    $('res-fields').innerHTML = h;
+    return;
+  }
+
+  renderDiff('res-fields', d, 'fields');
+}
+
+async function runGraphCompare() {
+  $('spin-graph').classList.add('on');
+  $('res-graph').innerHTML = '';
+  const types = $('graphTypes').value.trim();
+  const d = await api(`/api/envcompare/graph?env1=${env1()}&env2=${env2()}&node_types=${encodeURIComponent(types)}&limit=250`);
+  $('spin-graph').classList.remove('on');
+  renderGraphDiff(d);
+}
+
+// ─── Diff renderer ────────────────────────────────────────────────────────────
+function explorerLink(type, name) {
+  const map = {
+    records:     `/admin/record/${encodeURIComponent(name)}`,
+    roles:       `/admin/role/${encodeURIComponent(name)}`,
+    permissions: `/admin/object/permissionlist/${encodeURIComponent(name)}`,
+  };
+  if (!map[type]) return '';
+  return ` <a href="${map[type]}" target="_blank" style="font-size:9px;color:#00e5ff44;text-decoration:none;" title="Open in Explorer">↗</a>`;
+}
+
+function renderDiff(targetId, d, type) {
+  const only1 = d.only_in_env1 || [];
+  const only2 = d.only_in_env2 || [];
+  const changed = d.changed || [];
+  const identical = d.identical_count || 0;
+  const total = only1.length + only2.length + changed.length + identical;
+
+  const nameKey = nameCol(type);
+
+  let h = '';
+
+  // Warnings.
+  (d.warnings || []).forEach(w => {
+    h += `<div class="${w.severity==='error'?'err-msg':'warn-msg'}">${esc(w.message||w)}</div>`;
+  });
+
+  // Stat summary.
+  h += `<div class="stat-grid">
+    ${sBox(only1.length, 'Only in ' + esc(env1()), 'n-only1', 'filter-only1')}
+    ${sBox(changed.length, 'Changed', 'n-changed', 'filter-changed')}
+    ${sBox(only2.length, 'Only in ' + esc(env2()), 'n-only2', 'filter-only2')}
+    ${sBox(identical, 'Identical', 'n-same', 'filter-same')}
+  </div>`;
+
+  // Only in env1.
+  if (only1.length) {
+    h += collapsibleSection(
+      `<span class="chip chip-del">&#8722; Only in ${esc(env1())} (${only1.length})</span>`,
+      only1.map(r => `<tr><td class="mono">${esc(r[nameKey])}${explorerLink(type, r[nameKey])}</td>${metaCells(r, type)}</tr>`).join(''),
+      metaHeaders(type), 'only1', true
+    );
+  }
+
+  // Changed.
+  if (changed.length) {
+    const rows = changed.map(c => {
+      const diffs = c.diffs.map(df =>
+        `<div class="diff-row"><span class="diff-col">${esc(df.col)}</span>&nbsp;
+          <span class="diff-v1">${esc(df.env1)}</span>
+          <span style="color:#334;"> → </span>
+          <span class="diff-v2">${esc(df.env2)}</span></div>`
+      ).join('');
+      return `<tr onclick="toggleDetail(this)" style="cursor:pointer;">
+        <td class="mono">${esc(c.name)}${explorerLink(type, c.name)}</td>
+        <td colspan="99"><span style="color:#ffdd55;font-size:10px;">▶ ${c.diffs.length} diff${c.diffs.length>1?'s':''}</span>
+          <div class="detail" style="display:none;margin-top:4px;">${diffs}</div>
+        </td>
+      </tr>`;
+    }).join('');
+    h += collapsibleSection(
+      `<span class="chip chip-chg">&#9650; Changed (${changed.length})</span>`,
+      rows, ['Name','Differences'], 'changed', true
+    );
+  }
+
+  // Only in env2.
+  if (only2.length) {
+    h += collapsibleSection(
+      `<span class="chip chip-add">&#43; Only in ${esc(env2())} (${only2.length})</span>`,
+      only2.map(r => `<tr><td class="mono">${esc(r[nameKey])}${explorerLink(type, r[nameKey])}</td>${metaCells(r, type)}</tr>`).join(''),
+      metaHeaders(type), 'only2', true
+    );
+  }
+
+  if (!h.includes('<tr>') && !h.includes('warn') && !h.includes('err')) {
+    h += `<div class="empty" style="padding:16px;">No results. Try a different search filter.</div>`;
+  } else if (total === identical && identical > 0) {
+    h += `<div class="card" style="color:#00cc66;font-size:12px;">&#10003; All ${identical} objects are identical across both environments.</div>`;
+  }
+
+  $(targetId).innerHTML = h;
+}
+
+function renderGraphDiff(d) {
+  const s = d.summary || {};
+  let h = '';
+
+  (d.warnings || []).forEach(w => {
+    h += `<div class="warn-msg">${esc(w.message || w)}
+      <div style="margin-top:4px;">
+        <a class="obj-link" href="/api/graph/build?env=${encodeURIComponent(env1())}&limit=50&persist=true" target="_blank">Build ${esc(env1())} graph</a>
+        &nbsp;·&nbsp;
+        <a class="obj-link" href="/api/graph/build?env=${encodeURIComponent(env2())}&limit=50&persist=true" target="_blank">Build ${esc(env2())} graph</a>
+      </div>
+    </div>`;
+  });
+
+  h += `<div class="card">
+    <div style="font-size:11px;color:#667;margin-bottom:8px;">
+      Snapshot: ${esc(d.snapshot?.env1_built_at || 'not built')} ↔ ${esc(d.snapshot?.env2_built_at || 'not built')}
+    </div>
+    <div class="stat-grid">
+      ${sBox(s.only_in_env1_nodes || 0, 'Nodes only in ' + esc(env1()), 'n-only1')}
+      ${sBox(s.changed_nodes || 0, 'Changed Nodes', 'n-changed')}
+      ${sBox(s.only_in_env2_nodes || 0, 'Nodes only in ' + esc(env2()), 'n-only2')}
+      ${sBox(s.only_in_env1_edges || 0, 'Edges only in ' + esc(env1()), 'n-only1')}
+      ${sBox(s.changed_edges || 0, 'Changed Edges', 'n-changed')}
+      ${sBox(s.only_in_env2_edges || 0, 'Edges only in ' + esc(env2()), 'n-only2')}
+    </div>
+  </div>`;
+
+  h += graphNodeSection(`Only in ${esc(env1())} Nodes`, d.only_in_env1_nodes || [], 'g-only1');
+  h += graphChangedNodeSection(d.changed_nodes || [], 'g-changed');
+  h += graphNodeSection(`Only in ${esc(env2())} Nodes`, d.only_in_env2_nodes || [], 'g-only2');
+  h += graphEdgeSection(`Only in ${esc(env1())} Edges`, d.only_in_env1_edges || [], 'g-edge1');
+  h += graphEdgeSection(`Changed Edges`, d.changed_edges || [], 'g-edge-changed', true);
+  h += graphEdgeSection(`Only in ${esc(env2())} Edges`, d.only_in_env2_edges || [], 'g-edge2');
+
+  $('res-graph').innerHTML = h;
+}
+
+function graphNodeSection(title, nodes, id) {
+  if (!nodes.length) return '';
+  const rows = nodes.map(n => `<tr>
+    <td class="mono"><a class="obj-link" href="${esc(n.canonical_url || '#')}" target="_blank">${esc(n.id)}</a></td>
+    <td>${esc(n.type)}</td>
+    <td>${esc(n.display_name || n.name)}</td>
+  </tr>`).join('');
+  return collapsibleSection(`<span class="chip chip-del">${title} (${nodes.length})</span>`, rows, ['ID','Type','Name'], id, false);
+}
+
+function graphChangedNodeSection(items, id) {
+  if (!items.length) return '';
+  const rows = items.map(item => {
+    const diffs = (item.diffs || []).map(df => `<div class="diff-row">
+      <span class="diff-col">${esc(df.field)}</span>
+      <span class="diff-v1">${esc(shortJson(df.env1))}</span>
+      <span style="color:#334;"> → </span>
+      <span class="diff-v2">${esc(shortJson(df.env2))}</span>
+    </div>`).join('');
+    return `<tr onclick="toggleDetail(this)" style="cursor:pointer;">
+      <td class="mono"><a class="obj-link" href="${esc(item.env1?.canonical_url || item.env2?.canonical_url || '#')}" target="_blank">${esc(item.id)}</a></td>
+      <td>${esc(item.env1?.type || item.env2?.type)}</td>
+      <td><span style="color:#ffdd55;">▶ ${item.diffs?.length || 0} diff(s)</span><div class="detail" style="display:none;margin-top:4px;">${diffs}</div></td>
+    </tr>`;
+  }).join('');
+  return collapsibleSection(`<span class="chip chip-chg">Changed Nodes (${items.length})</span>`, rows, ['ID','Type','Differences'], id, false);
+}
+
+function graphEdgeSection(title, edges, id, changed=false) {
+  if (!edges.length) return '';
+  const rows = edges.map(item => {
+    const e = changed ? (item.env1 || item.env2 || {}) : item;
+    return `<tr>
+      <td class="mono">${esc(e.source || item.id)}</td>
+      <td>${esc(e.type || '')}</td>
+      <td class="mono">${esc(e.target || '')}</td>
+    </tr>`;
+  }).join('');
+  return collapsibleSection(`<span class="chip ${changed ? 'chip-chg' : 'chip-del'}">${title} (${edges.length})</span>`, rows, ['Source','Type','Target'], id, false);
+}
+
+function shortJson(value) {
+  if (value == null) return '';
+  const s = typeof value === 'string' ? value : JSON.stringify(value);
+  return s.length > 180 ? s.substring(0, 180) + '…' : s;
+}
+
+function collapsibleSection(header, rows, headers, id, open) {
+  const thHtml = Array.isArray(headers)
+    ? headers.map(h => `<th>${esc(h)}</th>`).join('')
+    : '';
+  return `<div class="card" style="margin-bottom:8px;">
+    <div class="section-head" onclick="toggleSection('sec-${id}', this)">
+      ${header}
+      <span class="toggle">${open ? '▾' : '▸'}</span>
+    </div>
+    <div id="sec-${id}" style="${open ? '' : 'display:none'}">
+      <table><thead><tr>${thHtml}</tr></thead><tbody>${rows}</tbody></table>
+    </div>
+  </div>`;
+}
+
+function toggleSection(id, head) {
+  const el = $(id);
+  const tog = head.querySelector('.toggle');
+  if (!el) return;
+  const hidden = el.style.display === 'none';
+  el.style.display = hidden ? '' : 'none';
+  if (tog) tog.textContent = hidden ? '▾' : '▸';
+}
+
+function toggleDetail(tr) {
+  const detail = tr.querySelector('.detail');
+  if (!detail) return;
+  const arrow = tr.querySelector('span[style]');
+  if (detail.style.display === 'none') {
+    detail.style.display = '';
+    if (arrow) arrow.textContent = arrow.textContent.replace('▶','▼');
+  } else {
+    detail.style.display = 'none';
+    if (arrow) arrow.textContent = arrow.textContent.replace('▼','▶');
+  }
+}
+
+function sBox(n, label, cls, filterId) {
+  return `<div class="stat-box" title="Click to jump">
+    <div class="stat-num ${cls}">${n}</div>
+    <div class="stat-lbl">${label}</div>
+  </div>`;
+}
+
+// ─── Per-type helpers ─────────────────────────────────────────────────────────
+function nameCol(type) {
+  const map = {
+    records: 'recname',
+    fields: 'fieldname',
+    components: 'pnlgrpname',
+    permissions: 'classid',
+    ae: 'ae_applid',
+    roles: 'rolename',
+  };
+  return map[type] || 'name';
+}
+
+function metaHeaders(type) {
+  const map = {
+    records:     ['Name', 'Type', 'Fields', 'Description'],
+    fields:      ['Name', 'Seq', 'Type', 'Length'],
+    components:  ['Name', 'Search Rec', 'Add Rec', 'Actions'],
+    permissions: ['Name', 'Description'],
+    ae:          ['Name', 'Status', 'Description'],
+    roles:       ['Name', 'Description'],
+  };
+  return map[type] || ['Name'];
+}
+
+function metaCells(r, type) {
+  switch(type) {
+    case 'records':
+      return `<td>${esc(r.rectype_label||r.rectype)}</td><td>${esc(r.field_count)}</td><td>${esc(r.recdescr)}</td>`;
+    case 'fields':
+      return `<td>${esc(r.fieldnum)}</td><td>${esc(r.fieldtype_label||r.fieldtype)}</td><td>${esc(r.fieldlen)}</td>`;
+    case 'components':
+      return `<td class="mono">${esc(r.searchrecname)}</td><td class="mono">${esc(r.addrecname)}</td><td>${esc(r.actions)}</td>`;
+    case 'permissions':
+      return `<td>${esc(r.descr)}</td>`;
+    case 'ae':
+      return `<td>${esc(r.ae_status)}</td><td>${esc(r.descr)}</td>`;
+    case 'roles':
+      return `<td>${esc(r.descr)}</td>`;
+    default:
+      return '';
+  }
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+(async () => {
+  const d = await api('/api/envcompare/config');
+  const envs = d.envs || ['HCM', 'FSCM'];
+  $('env1Sel').innerHTML = envs.map((e,i) => `<option value="${e}"${i===0?' selected':''}>${e}</option>`).join('');
+  $('env2Sel').innerHTML = envs.map((e,i) => `<option value="${e}"${i===1||envs.length===1?' selected':''}>${e}</option>`).join('');
+  // If only one env, pick it for both (will show all-identical).
+  loadSummary();
+})();
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/tracing", response_class=HTMLResponse)
+def admin_tracing():
+    return """<!DOCTYPE html>
+<html>
+<head>
+<title>DeathStar — Transaction Tracing</title>
+<style>
+*{box-sizing:border-box;}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;display:flex;flex-direction:column;height:100vh;}
+h1{color:#00e5ff;text-shadow:0 0 12px #00e5ff;letter-spacing:4px;margin:0;font-size:18px;}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:4px;margin:12px 0 8px;}
+nav a{color:#00e5ff;text-decoration:none;font-size:12px;}
+nav a:hover{text-decoration:underline;}
+.topbar{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.main{display:flex;flex:1;overflow:hidden;}
+.sidebar{width:230px;border-right:1px solid #00e5ff22;display:flex;flex-direction:column;overflow:hidden;}
+.sidebar-body{overflow-y:auto;flex:1;padding:8px;}
+.content{flex:1;overflow:auto;padding:14px;}
+select,input[type=text],input[type=number]{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px;}
+select:focus,input:focus{outline:none;border-color:#00e5ff;}
+button{background:#00e5ff;border:none;padding:4px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;}
+button:hover{background:#33eeff;}
+button:disabled{opacity:.4;cursor:default;}
+button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;}
+button.sec:hover{background:#00e5ff11;}
+.ctrl{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
+.lbl{font-size:10px;color:#667;text-transform:uppercase;letter-spacing:1px;}
+.stat-grid{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+.stat-box{border:1px solid #00e5ff22;padding:6px 12px;min-width:90px;text-align:center;background:rgba(0,20,30,.5);}
+.stat-num{font-size:18px;font-weight:bold;color:#00e5ff;}
+.stat-lbl{font-size:9px;color:#445;text-transform:uppercase;letter-spacing:1px;}
+.s-err{color:#ff4444;}
+.s-warn{color:#ffaa00;}
+.s-proc{color:#00e5ff;}
+.s-sess{color:#00cc66;}
+.s-ib{color:#ffaa00;}
+/* Timeline */
+.timeline{position:relative;padding-left:28px;}
+.timeline::before{content:'';position:absolute;left:10px;top:0;bottom:0;width:1px;background:#0a2030;}
+.tl-event{position:relative;margin-bottom:6px;}
+.tl-dot{position:absolute;left:-22px;top:6px;width:10px;height:10px;border-radius:50%;border:2px solid;}
+.tl-card{border:1px solid #0a2030;padding:7px 10px;background:#06121a;cursor:pointer;transition:border-color .1s;}
+.tl-card:hover{border-color:#00e5ff33;}
+.tl-card.open{border-color:#00e5ff44;background:#081820;}
+.tl-type{font-size:9px;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:2px;}
+.tl-title{font-size:12px;color:#d7faff;}
+.tl-sub{font-size:10px;color:#556;margin-top:1px;}
+.tl-ts{font-size:10px;color:#334;float:right;font-family:monospace;}
+.tl-detail{display:none;margin-top:6px;border-top:1px solid #0a2030;padding-top:6px;}
+.tl-card.open .tl-detail{display:block;}
+.kv-grid{display:grid;grid-template-columns:130px 1fr;gap:1px 10px;font-size:10px;}
+.kv-key{color:#556;text-transform:uppercase;letter-spacing:1px;padding:2px 0;}
+.kv-val{padding:2px 0;font-family:monospace;word-break:break-all;}
+.sql-block{background:#040d14;border:1px solid #0a2030;padding:6px 8px;font-family:monospace;font-size:10px;color:#9ab;margin-top:4px;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow:auto;}
+.empty{color:#445;font-style:italic;font-size:12px;padding:10px 0;}
+.warn-msg{color:#ffaa00;font-size:11px;padding:3px 8px;background:#1a1000;border-left:2px solid #ffaa00;margin:2px 0;}
+.err-msg{color:#ff6666;font-size:11px;padding:3px 8px;background:#1a0000;border-left:2px solid #ff4444;margin:2px 0;}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;}
+.chip-ok{background:#002800;border:1px solid #00cc66;color:#00cc66;}
+.chip-err{background:#3a0000;border:1px solid #ff4444;color:#ff4444;}
+.chip-warn{background:#2a1800;border:1px solid #ffaa00;color:#ffaa00;}
+.chip-info{background:#001830;border:1px solid #00e5ff44;color:#00e5ff;}
+.side-item{padding:6px 8px;cursor:pointer;border-bottom:1px solid #081520;font-size:11px;}
+.side-item:hover{background:#0b2030;}
+.side-item.active{background:#0b2030;border-left:2px solid #00e5ff;}
+.side-badge{float:right;font-size:9px;padding:1px 5px;border-radius:2px;background:#001830;border:1px solid #00e5ff44;color:#00e5ff;}
+.spin{display:none;color:#00e5ff;font-size:11px;margin-left:6px;}
+.spin.on{display:inline;}
+a.obj-link{color:#00e5ff;text-decoration:none;font-size:10px;}
+a.obj-link:hover{text-decoration:underline;}
+#opridInput{width:160px;}
+#hoursInput{width:55px;}
+#opridSuggest{position:absolute;z-index:100;background:#0b1b24;border:1px solid #00e5ff44;max-height:200px;overflow-y:auto;width:200px;display:none;}
+#opridSuggest .sug-item{padding:5px 10px;cursor:pointer;font-size:11px;}
+#opridSuggest .sug-item:hover{background:#0b2030;}
+.suggest-wrap{position:relative;display:inline-block;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>&#9741; TRANSACTION TRACING</h1>
+  <nav>
+    <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
+    <a href="/admin/runtime">Runtime</a> &nbsp;&middot;&nbsp;
+    <a href="/admin/envcompare">Env Compare</a>
+  </nav>
+  <!-- Search bar -->
+  <div class="ctrl" style="margin:0;margin-left:16px;">
+    <span class="lbl">Env</span>
+    <select id="envSel" style="width:70px;"></select>
+    <span class="lbl">DB</span>
+    <select id="dbSel" style="width:80px;"></select>
+    <span class="lbl">OPRID</span>
+    <div class="suggest-wrap">
+      <input id="opridInput" type="text" placeholder="JSMITH" autocomplete="off"
+             oninput="suggestOprids()" onkeydown="handleKey(event)">
+      <div id="opridSuggest"></div>
+    </div>
+    <span class="lbl">Hours</span>
+    <input id="hoursInput" type="number" value="24" min="1" max="720">
+    <button id="traceBtn" onclick="runTrace()">Trace</button>
+    <span class="spin" id="spin">&#9679;&#9679;&#9679;</span>
+  </div>
+</div>
+
+<div class="main">
+
+<!-- ═══════════════════════════════════════════════════════════ SIDEBAR -->
+<div class="sidebar">
+  <div style="padding:8px;border-bottom:1px solid #00e5ff11;">
+    <h2 style="margin:0 0 6px;">Recent Activity</h2>
+    <select id="sideEnvSel" style="width:100%;font-size:11px;" onchange="loadActive()"></select>
+  </div>
+  <div class="sidebar-body" id="activeList">
+    <span class="empty">Loading…</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ CONTENT AREA -->
+<div class="content" id="contentArea">
+  <div id="placeholder" style="padding:20px 0;">
+    <div style="color:#334;font-size:13px;margin-bottom:8px;">Enter an OPRID above to trace their activity.</div>
+    <div style="color:#223;font-size:11px;line-height:1.8;">
+      The trace will correlate:<br>
+      &nbsp;&#9654; Login / logout history (PSACCESSLOG)<br>
+      &nbsp;&#9881; Process Scheduler runs (PSPRCSRQST)<br>
+      &nbsp;&#9670; Active Oracle sessions (V$SESSION · CLIENT_IDENTIFIER)<br>
+      &nbsp;&#8644; Integration Broker transactions (PSAPMSGPUBHDR · when accessible)
+    </div>
+  </div>
+</div>
+
+</div><!-- .main -->
+
+<script>
+const $ = id => document.getElementById(id);
+let suggestTimer = null;
+let currentOprid = null;
+
+function env()   { return $('envSel').value   || 'HCM'; }
+function db()    { return $('dbSel').value    || ''; }
+function hours() { return parseInt($('hoursInput').value) || 24; }
+
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function api(path) {
+  const r = await fetch(path);
+  return r.json().catch(() => ({}));
+}
+
+// ─── Autocomplete ──────────────────────────────────────────────────────────
+function suggestOprids() {
+  clearTimeout(suggestTimer);
+  const q = $('opridInput').value.trim();
+  if (!q) { $('opridSuggest').style.display = 'none'; return; }
+  suggestTimer = setTimeout(async () => {
+    const d = await api(`/api/tracing/operators?env=${env()}&q=${encodeURIComponent(q)}`);
+    const items = d.items || [];
+    if (!items.length) { $('opridSuggest').style.display = 'none'; return; }
+    $('opridSuggest').innerHTML = items.map(it =>
+      `<div class="sug-item" onclick="selectOprid('${esc(it.oprid)}')">
+        <strong>${esc(it.oprid)}</strong>
+        ${it.oprdefndesc ? `<span style="color:#556;"> — ${esc(it.oprdefndesc)}</span>` : ''}
+        ${it.emailid ? `<br><span style="color:#334;font-size:10px;">${esc(it.emailid)}</span>` : ''}
+      </div>`
+    ).join('');
+    $('opridSuggest').style.display = 'block';
+  }, 200);
+}
+
+function selectOprid(oprid) {
+  $('opridInput').value = oprid;
+  $('opridSuggest').style.display = 'none';
+  runTrace();
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter') { $('opridSuggest').style.display = 'none'; runTrace(); }
+  if (e.key === 'Escape') $('opridSuggest').style.display = 'none';
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.suggest-wrap')) $('opridSuggest').style.display = 'none';
+});
+
+// ─── Recent active operators (sidebar) ────────────────────────────────────
+async function loadActive() {
+  const e = $('sideEnvSel').value || 'HCM';
+  $('activeList').innerHTML = '<span class="empty">Loading…</span>';
+  const d = await api(`/api/tracing/active?env=${e}&limit=30`);
+  const items = d.items || [];
+  if (!items.length) {
+    $('activeList').innerHTML = '<span class="empty" style="padding:8px;">No recent activity.</span>';
+    (d.warnings||[]).forEach(w => {
+      $('activeList').innerHTML += `<div class="warn-msg">${esc(w.message||w)}</div>`;
+    });
+    return;
+  }
+  $('activeList').innerHTML = items.map(it => {
+    const badge = it.is_active
+      ? '<span class="side-badge" style="background:#002800;border-color:#00cc66;color:#00cc66;">ACTIVE</span>'
+      : `<span class="side-badge">${it.session_count}</span>`;
+    const sub = it.last_login ? it.last_login.replace('T',' ').substring(0,16) : '';
+    return `<div class="side-item" onclick="quickTrace('${esc(it.oprid)}')">
+      ${badge}
+      <strong style="font-family:monospace;font-size:11px;">${esc(it.oprid)}</strong>
+      <div style="font-size:10px;color:#334;">${sub}</div>
+    </div>`;
+  }).join('');
+}
+
+function quickTrace(oprid) {
+  $('opridInput').value = oprid;
+  document.querySelectorAll('.side-item').forEach(el => el.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  runTrace();
+}
+
+// ─── Main trace ────────────────────────────────────────────────────────────
+async function runTrace() {
+  const oprid = $('opridInput').value.trim();
+  if (!oprid) return;
+  currentOprid = oprid;
+  $('spin').classList.add('on');
+  $('traceBtn').disabled = true;
+  $('contentArea').innerHTML = `<div style="color:#334;padding:10px;">Tracing ${esc(oprid)}…</div>`;
+
+  let url = `/api/tracing/trace?env=${env()}&oprid=${encodeURIComponent(oprid)}&hours=${hours()}`;
+  const dbv = db();
+  if (dbv) url += `&db=${encodeURIComponent(dbv)}`;
+
+  const d = await api(url);
+  $('spin').classList.remove('on');
+  $('traceBtn').disabled = false;
+
+  renderTrace(d);
+}
+
+function renderTrace(d) {
+  const oprid   = d.oprid || '?';
+  const summary = d.summary || {};
+  const events  = d.timeline || [];
+  const warns   = d.warnings || [];
+
+  let h = `<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;">
+    <span style="font-family:monospace;font-size:15px;color:#00e5ff;">${esc(oprid)}</span>
+    <span style="font-size:10px;color:#556;">last ${d.hours_back}h · ${esc(d.env)}</span>
+  </div>`;
+
+  // Warnings.
+  warns.forEach(w => {
+    if (w.severity === 'error') {
+      h += `<div class="err-msg">${esc(w.message||w)}</div>`;
+    } else {
+      h += `<div class="warn-msg">${esc(w.message||w)}</div>`;
+    }
+  });
+
+  // Summary stats.
+  h += `<div class="stat-grid">
+    ${sBox(summary.login_count, 'Logins', 's-sess')}
+    ${sBox(summary.process_count, 'Processes', 's-proc')}
+    ${sBox(summary.error_count, 'Errors', 's-err')}
+    ${sBox(summary.oracle_count, 'Oracle Sessions', '')}
+    ${sBox(summary.ib_count, 'IB Txns', 's-ib')}
+  </div>`;
+
+  if (!events.length) {
+    h += `<div class="empty">No activity found for ${esc(oprid)} in the last ${d.hours_back} hours.</div>`;
+    $('contentArea').innerHTML = h;
+    return;
+  }
+
+  // Filter bar.
+  h += `<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;font-size:11px;">
+    <button class="sec" style="font-size:10px;" onclick="filterEvents('all')">All</button>
+    <button class="sec" style="font-size:10px;" onclick="filterEvents('login')">Logins</button>
+    <button class="sec" style="font-size:10px;" onclick="filterEvents('process')">Processes</button>
+    <button class="sec" style="font-size:10px;" onclick="filterEvents('oracle')">Oracle</button>
+    <button class="sec" style="font-size:10px;" onclick="filterEvents('ib')">IB</button>
+    <button class="sec" style="font-size:10px;float:right;" onclick="expandAll()">Expand All</button>
+    <button class="sec" style="font-size:10px;" onclick="collapseAll()">Collapse</button>
+  </div>`;
+
+  // Timeline.
+  h += '<div class="timeline" id="timeline">';
+  events.forEach((ev, i) => {
+    const meta    = ev.meta || {};
+    const color   = meta.color || '#556';
+    const typeKey = ev.type || 'info';
+    const tsStr   = (ev.ts || '').replace('T', ' ').substring(0, 19);
+    const statusCls = ev.status === 'error' ? 'chip-err' : ev.status === 'warn' ? 'chip-warn' : ev.status === 'ok' ? 'chip-ok' : 'chip-info';
+
+    h += `<div class="tl-event" data-type="${esc(typeKey)}">
+      <div class="tl-dot" style="border-color:${color};background:${color}33;"></div>
+      <div class="tl-card" onclick="toggleEvent(this)">
+        <div>
+          <span class="tl-ts">${esc(tsStr)}</span>
+          <span class="tl-type" style="color:${color};">${esc(meta.label || typeKey)}</span>
+        </div>
+        <div class="tl-title">${esc(ev.title)}</div>
+        ${ev.subtitle ? `<div class="tl-sub">${esc(ev.subtitle)}</div>` : ''}
+        <div class="tl-detail">${buildDetail(ev)}</div>
+      </div>
+    </div>`;
+  });
+  h += '</div>';
+
+  $('contentArea').innerHTML = h;
+}
+
+function buildDetail(ev) {
+  const d = ev.detail || {};
+  const type = ev.type;
+  let h = '<div class="kv-grid">';
+
+  if (type === 'login' || type === 'logout') {
+    h += kv('OPRID', d.oprid) + kv('Login', d.logindttm) + kv('Logout', d.logoutdttm || '— (active)') + kv('DB', d.connectdbbname) + kv('Tools', d.toolsrel);
+  } else if (type === 'process') {
+    h += kv('Instance', d.prcsinstance) + kv('Type', d.prcstype) + kv('Program', d.prcsname)
+       + kv('Run Control', d.runcntlid) + kv('Status', d.runstatus_label) + kv('Server', d.serverbatch)
+       + kv('Start', d.begindttm) + kv('End', d.enddttm);
+  } else if (type === 'oracle') {
+    h += kv('SID/Serial', `${d.sid}/${d.serial_num}`) + kv('Username', d.username) + kv('Status', d.status)
+       + kv('Program', d.program) + kv('Module', d.module) + kv('Action', d.action)
+       + kv('Machine', d.machine) + kv('Logon', d.logon_time) + kv('Wait', `${d.seconds_in_wait || 0}s · ${d.event || ''}`)
+       + kv('CLIENT_ID', d.client_identifier);
+    if (d.sql_text) {
+      h += `</div><div class="sql-block">${esc(d.sql_text)}</div><div class="kv-grid">`;
+    }
+  } else if (type === 'ib') {
+    h += kv('Txn ID', d.ibtransactionid) + kv('Operation', d.ib_operationname) + kv('Queue', d.queuename)
+       + kv('Pub Node', d.pubnode) + kv('Status', d.pubstatus) + kv('Created', d.createdttm);
+  }
+
+  h += '</div>';
+  if ((ev.links || []).length) {
+    h += '<div style="margin-top:4px;">';
+    ev.links.forEach(l => { h += `<a class="obj-link" href="${esc(l.url)}">${esc(l.label)}</a>&nbsp; `; });
+    h += '</div>';
+  }
+  return h;
+}
+
+function kv(label, val) {
+  if (val == null || val === '') return '';
+  return `<div class="kv-key">${esc(label)}</div><div class="kv-val">${esc(String(val))}</div>`;
+}
+
+function sBox(n, label, cls) {
+  return `<div class="stat-box"><div class="stat-num ${cls}">${n != null ? n : 0}</div><div class="stat-lbl">${esc(label)}</div></div>`;
+}
+
+function toggleEvent(card) {
+  card.classList.toggle('open');
+}
+
+function filterEvents(type) {
+  document.querySelectorAll('.tl-event').forEach(el => {
+    el.style.display = (type === 'all' || el.dataset.type === type) ? '' : 'none';
+  });
+}
+
+function expandAll() {
+  document.querySelectorAll('.tl-card').forEach(c => c.classList.add('open'));
+}
+function collapseAll() {
+  document.querySelectorAll('.tl-card').forEach(c => c.classList.remove('open'));
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────
+(async () => {
+  const cfg = await api('/api/tracing/config');
+  const envs = cfg.envs || ['HCM'];
+  const dbs  = cfg.dbs  || [];
+  $('envSel').innerHTML = envs.map(e => `<option value="${e}">${e}</option>`).join('');
+  $('sideEnvSel').innerHTML = envs.map(e => `<option value="${e}">${e}</option>`).join('');
+  $('dbSel').innerHTML = `<option value="">— (no Oracle)</option>` + dbs.map(d => `<option value="${d}">${d}</option>`).join('');
+  if (dbs.length) $('dbSel').value = dbs[0];
+
+  // Pre-fill from URL params: ?oprid=VP1&env=FSCM
+  const params = new URLSearchParams(window.location.search);
+  const opParam  = params.get('oprid');
+  const envParam = params.get('env');
+  if (envParam && envs.includes(envParam.toUpperCase())) {
+    $('envSel').value = envParam.toUpperCase();
+    $('sideEnvSel').value = envParam.toUpperCase();
+  }
+  if (opParam) {
+    $('opridInput').value = opParam;
+    runTrace();
+  } else {
+    loadActive();
+  }
+})();
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/record", response_class=HTMLResponse)
+@router.get("/record/{recname}", response_class=HTMLResponse)
+def admin_record(recname: str = None):
+    return """<!DOCTYPE html>
+<html>
+<head>
+<title>DeathStar — Record Explorer</title>
+<style>
+*{box-sizing:border-box;}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;display:flex;flex-direction:column;height:100vh;}
+h1{color:#00e5ff;text-shadow:0 0 12px #00e5ff;letter-spacing:4px;margin:0;font-size:18px;}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:4px;margin:12px 0 8px;}
+nav a{color:#00e5ff;text-decoration:none;font-size:12px;}
+nav a:hover{text-decoration:underline;}
+.topbar{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.main{display:flex;flex:1;overflow:hidden;}
+.sidebar{width:240px;border-right:1px solid #00e5ff22;display:flex;flex-direction:column;overflow:hidden;}
+.search-bar{padding:8px;border-bottom:1px solid #00e5ff11;display:flex;gap:4px;}
+.search-bar input{flex:1;min-width:0;}
+.list-area{overflow-y:auto;flex:1;}
+.content{flex:1;overflow:auto;padding:14px;}
+select,input[type=text]{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px;}
+select:focus,input:focus{outline:none;border-color:#00e5ff;}
+button{background:#00e5ff;border:none;padding:4px 10px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;}
+button:hover{background:#33eeff;}
+button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;}
+button.sec:hover{background:#00e5ff11;}
+.tab-row{display:flex;gap:0;border-bottom:1px solid #00e5ff22;margin-bottom:10px;overflow-x:auto;}
+.tab{padding:7px 12px;cursor:pointer;font-size:11px;color:#556;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
+.tab.on{color:#00e5ff;border-bottom-color:#00e5ff;}
+.pane{display:none;} .pane.on{display:block;}
+.list-item{padding:6px 10px;cursor:pointer;border-bottom:1px solid #0b1b24;font-size:11px;}
+.list-item:hover{background:#0b2030;}
+.list-item.active{background:#0b2030;border-left:2px solid #00e5ff;}
+.item-name{font-family:monospace;color:#d7faff;}
+.item-meta{font-size:10px;color:#445;margin-top:1px;}
+.badge{display:inline-block;font-size:9px;padding:1px 5px;border-radius:2px;float:right;}
+.bd-table{background:#001830;border:1px solid #00e5ff44;color:#00e5ff;}
+.bd-view{background:#180030;border:1px solid #aa55ff;color:#aa55ff;}
+.bd-work{background:#181800;border:1px solid #aaaa00;color:#aaaa00;}
+.bd-sub{background:#002018;border:1px solid #00aaaa;color:#00aaaa;}
+.bd-temp{background:#1a0a00;border:1px solid #ff8800;color:#ff8800;}
+table{border-collapse:collapse;width:100%;font-size:11px;}
+th{border-bottom:1px solid #00e5ff33;padding:4px 8px;text-align:left;color:#00e5ff;font-size:10px;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;}
+td{border-bottom:1px solid #0e2030;padding:4px 8px;vertical-align:top;}
+tr:hover td{background:rgba(0,229,255,.04);}
+.mono{font-family:monospace;font-size:11px;}
+.empty{color:#445;font-style:italic;font-size:12px;padding:8px 0;}
+.warn-msg{color:#ffaa00;font-size:11px;padding:3px 8px;background:#1a1000;border-left:2px solid #ffaa00;margin:2px 0;}
+.err-msg{color:#ff6666;font-size:11px;padding:3px 8px;background:#1a0000;border-left:2px solid #ff4444;margin:2px 0;}
+.card{border:1px solid #00e5ff22;padding:10px 14px;margin-bottom:10px;background:rgba(0,20,30,.5);}
+.kv-grid{display:grid;grid-template-columns:150px 1fr;gap:2px 12px;font-size:11px;margin:8px 0;}
+.kv-key{color:#667;text-transform:uppercase;font-size:10px;letter-spacing:1px;padding:3px 0;}
+.kv-val{padding:3px 0;font-family:monospace;}
+.stat-grid{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+.stat-box{border:1px solid #00e5ff22;padding:6px 12px;min-width:90px;text-align:center;background:rgba(0,20,30,.5);}
+.stat-num{font-size:18px;font-weight:bold;color:#00e5ff;}
+.stat-lbl{font-size:9px;color:#445;text-transform:uppercase;letter-spacing:1px;}
+.chip{display:inline-block;padding:1px 7px;border-radius:2px;font-size:10px;font-weight:bold;}
+.chip-table{background:#001830;border:1px solid #00e5ff44;color:#00e5ff;}
+.chip-view{background:#180030;border:1px solid #aa55ff;color:#aa55ff;}
+.chip-work{background:#181800;border:1px solid #aaaa00;color:#aaaa00;}
+.chip-sub{background:#002018;border:1px solid #00aaaa;color:#00aaaa;}
+.chip-temp{background:#1a0a00;border:1px solid #ff8800;color:#ff8800;}
+.key-badge{display:inline-block;font-size:9px;padding:1px 4px;border-radius:2px;margin-right:2px;}
+.key-pk{background:#002818;border:1px solid #00aa66;color:#00aa66;}
+.key-search{background:#281800;border:1px solid #aa7700;color:#aa7700;}
+.key-dup{background:#001828;border:1px solid #0077aa;color:#0077aa;}
+.code-block{background:#040d14;border:1px solid #0a2030;padding:8px;font-family:monospace;font-size:10px;color:#9ab;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow:auto;margin:4px 0;}
+a.obj-link{color:#00e5ff;text-decoration:none;font-family:monospace;font-size:11px;}
+a.obj-link:hover{text-decoration:underline;}
+.spin{display:none;color:#00e5ff;font-size:11px;margin-left:6px;}
+.spin.on{display:inline;}
+.rec-header{font-size:16px;font-family:monospace;color:#00e5ff;margin-bottom:4px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>&#9641; RECORD EXPLORER</h1>
+  <nav>
+    <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
+    <a href="/admin/object">Objects</a> &nbsp;&middot;&nbsp;
+    <a href="/admin/sqlws">SQL Workspace</a>
+  </nav>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+    <span style="font-size:10px;color:#667;text-transform:uppercase;">Env</span>
+    <select id="envSel" onchange="clearRecord()"></select>
+  </div>
+</div>
+
+<div class="main">
+
+<!-- ═══════════════════════════════════════════════════════════ SIDEBAR -->
+<div class="sidebar">
+  <div class="search-bar">
+    <input id="recQ" type="text" placeholder="Search records…" onkeydown="if(event.key==='Enter')searchRecords()">
+    <button onclick="searchRecords()">Go</button>
+  </div>
+  <div class="list-area" id="recList">
+    <span class="empty" style="padding:8px;">Search for a record above.</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ CONTENT AREA -->
+<div class="content" id="contentArea">
+  <div style="color:#334;padding:10px 0;font-size:12px;">
+    Search for a record, or navigate from the Object Explorer.<br><br>
+    Examples: <span class="mono" onclick="loadRecord('PSRECDEFN')" style="cursor:pointer;color:#00e5ff;">PSRECDEFN</span> &nbsp;
+    <span class="mono" onclick="loadRecord('PSOPRDEFN')" style="cursor:pointer;color:#00e5ff;">PSOPRDEFN</span> &nbsp;
+    <span class="mono" onclick="loadRecord('PSROLEDEFN')" style="cursor:pointer;color:#00e5ff;">PSROLEDEFN</span>
+  </div>
+</div>
+
+</div><!-- .main -->
+
+<script>
+const $ = id => document.getElementById(id);
+let currentRec = null;
+
+function env() { return $('envSel').value || 'HCM'; }
+
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function api(path) {
+  const r = await fetch(path);
+  return r.json().catch(() => ({}));
+}
+
+function clearRecord() { currentRec = null; }
+
+// ─── Search ────────────────────────────────────────────────────────────────
+async function searchRecords() {
+  const q = $('recQ').value.trim();
+  $('recList').innerHTML = '<span class="empty" style="padding:8px;">Searching…</span>';
+  const d = await api(`/api/record/search?env=${env()}&q=${encodeURIComponent(q)}`);
+  const items = d.items || [];
+  if (!items.length) {
+    $('recList').innerHTML = '<span class="empty" style="padding:8px;">No results.</span>';
+    return;
+  }
+  $('recList').innerHTML = items.map(r => {
+    const badge = recBadge(r.rectype_label || r.rectype);
+    return `<div class="list-item" onclick="loadRecord('${esc(r.recname)}')">
+      <span class="badge ${badge.cls}">${badge.text}</span>
+      <span class="item-name">${esc(r.recname)}</span>
+      <div class="item-meta">${esc(r.recdescr || '')}</div>
+    </div>`;
+  }).join('');
+}
+
+// ─── Record detail ─────────────────────────────────────────────────────────
+async function loadRecord(recname) {
+  currentRec = recname.toUpperCase();
+  $('contentArea').innerHTML = `<div style="color:#334;padding:6px;">Loading ${esc(recname)}…</div>`;
+
+  // Mark active in list.
+  document.querySelectorAll('.list-item').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.list-item').forEach(el => {
+    if (el.querySelector('.item-name')?.textContent === recname.toUpperCase())
+      el.classList.add('active');
+  });
+
+  const d = await api(`/api/record/${encodeURIComponent(recname)}?env=${env()}`);
+  const item = d.item;
+  if (!item) {
+    $('contentArea').innerHTML = `<div class="err-msg">Record not found: ${esc(recname)}</div>`;
+    return;
+  }
+
+  const chip = recChip(item.rectype_label);
+  const sqltbl = item.sqltablename && item.sqltablename.trim() ? item.sqltablename.trim() : null;
+
+  let h = `
+  <div class="rec-header">${esc(item.recname)} ${chip}</div>
+  ${item.recdescr ? `<div style="color:#9ab;font-size:12px;margin-bottom:10px;">${esc(item.recdescr)}</div>` : ''}
+
+  <div class="tab-row">
+    <div class="tab on"   onclick="switchTab('overview')">Overview</div>
+    <div class="tab"      onclick="switchTab('fields');loadTab('fields')">Fields</div>
+    <div class="tab"      onclick="switchTab('keys');loadTab('keys')">Keys</div>
+    <div class="tab"      onclick="switchTab('indexes');loadTab('indexes')">Indexes</div>
+    <div class="tab"      onclick="switchTab('related');loadTab('related')">Related</div>
+    <div class="tab"      onclick="switchTab('components');loadTab('components')">Components</div>
+    <div class="tab"      onclick="switchTab('pages');loadTab('pages')">Pages</div>
+    <div class="tab"      onclick="switchTab('ddl');loadTab('ddl')">DDL</div>
+    <div class="tab"      onclick="switchTab('data');loadTab('data')">Data</div>
+  </div>
+
+  <!-- Overview tab -->
+  <div id="pane-overview" class="pane on">
+    <div class="card">
+      <div class="kv-grid">
+        ${kv('Record Name', item.recname)}
+        ${kv('Type', item.rectype_label)}
+        ${item.sqltablename && item.sqltablename.trim() ? kv('SQL Table Name', item.sqltablename.trim()) : ''}
+        ${item.parentrecname && item.parentrecname.trim() ? kv('Parent Record', `<a class="obj-link" onclick="loadRecord('${esc(item.parentrecname.trim())}')">${esc(item.parentrecname.trim())}</a>`) : ''}
+        ${kv('Field Count', item.fieldcount ?? '—')}
+        ${kv('Key Count', item.keycount ?? '—')}
+        ${item.setcntrlfld && item.setcntrlfld.trim() ? kv('SetID Control Field', item.setcntrlfld.trim()) : ''}
+        ${kv('Owner', item.objectownerid)}
+        ${kv('Last Updated', item.lastupddttm)}
+        ${kv('Updated By', item.lastupdoprid)}
+      </div>
+    </div>
+    <div id="overview-storage"></div>
+    <div id="overview-children"></div>
+  </div>
+
+  <div id="pane-fields"     class="pane"><span class="empty">Loading…</span></div>
+  <div id="pane-keys"       class="pane"><span class="empty">Loading…</span></div>
+  <div id="pane-indexes"    class="pane"><span class="empty">Loading…</span></div>
+  <div id="pane-related"    class="pane"><span class="empty">Loading…</span></div>
+  <div id="pane-components" class="pane"><span class="empty">Loading…</span></div>
+  <div id="pane-pages"      class="pane"><span class="empty">Loading…</span></div>
+  <div id="pane-ddl"        class="pane"><span class="empty">Loading…</span></div>
+  <div id="pane-data"       class="pane"><span class="empty">Loading…</span></div>
+  `;
+
+  $('contentArea').innerHTML = h;
+
+  // Eagerly load storage stats and children into the overview.
+  loadStorageInto('overview-storage', recname);
+  loadChildrenInto('overview-children', recname);
+}
+
+function switchTab(name) {
+  const tabs = ['overview','fields','keys','indexes','related','components','pages','ddl','data'];
+  tabs.forEach(t => {
+    const p = $(`pane-${t}`); if (p) p.className = 'pane' + (t === name ? ' on' : '');
+  });
+  document.querySelectorAll('.tab').forEach((el, i) => {
+    el.classList.toggle('on', tabs[i] === name);
+  });
+}
+
+const _loaded = {};
+async function loadTab(name) {
+  switchTab(name);
+  if (_loaded[currentRec + '/' + name]) return;
+  _loaded[currentRec + '/' + name] = true;
+  const pane = $(`pane-${name}`);
+
+  if (name === 'fields') {
+    const d = await api(`/api/record/${encodeURIComponent(currentRec)}/fields?env=${env()}`);
+    pane.innerHTML = renderFields(d.items || []);
+  } else if (name === 'keys') {
+    const d = await api(`/api/record/${encodeURIComponent(currentRec)}/keys?env=${env()}`);
+    pane.innerHTML = renderKeys(d.items || []);
+  } else if (name === 'indexes') {
+    const [idxR, keyR] = await Promise.all([
+      api(`/api/record/${encodeURIComponent(currentRec)}/indexes?env=${env()}`),
+      api(`/api/record/${encodeURIComponent(currentRec)}/keys?env=${env()}`)
+    ]);
+    pane.innerHTML = renderIndexes(idxR.items || [], keyR.items || []);
+  } else if (name === 'related') {
+    const d = await api(`/api/record/${encodeURIComponent(currentRec)}/related?env=${env()}`);
+    pane.innerHTML = renderRelated(d);
+  } else if (name === 'components') {
+    const d = await api(`/api/record/${encodeURIComponent(currentRec)}/components?env=${env()}`);
+    pane.innerHTML = renderComponents(d.items || []);
+  } else if (name === 'pages') {
+    const d = await api(`/api/record/${encodeURIComponent(currentRec)}/pages?env=${env()}`);
+    pane.innerHTML = renderPages(d.items || []);
+  } else if (name === 'ddl') {
+    const d = await api(`/api/record/${encodeURIComponent(currentRec)}/ddl?env=${env()}`);
+    pane.innerHTML = renderDDL(d);
+  } else if (name === 'data') {
+    pane.innerHTML = renderDataPane();
+    loadData(currentRec);
+  }
+}
+
+// ─── Tab renderers ─────────────────────────────────────────────────────────
+function renderFields(items) {
+  if (!items.length) return '<div class="empty">No fields found.</div>';
+  return `<table><thead><tr>
+    <th>#</th><th>Field Name</th><th>Type</th><th>Len</th><th>Dec</th><th>Flags</th><th>Prompt</th>
+  </tr></thead><tbody>` + items.map(f => {
+    const flags = [];
+    const ue = parseInt(f.useedit || 0);
+    if (ue & 1)  flags.push('<span class="key-badge key-pk">Req</span>');
+    if (ue & 2)  flags.push('<span class="key-badge key-search">Xlat</span>');
+    if (ue & 16) flags.push('<span class="key-badge key-dup">Prompt</span>');
+    return `<tr>
+      <td style="color:#445;">${esc(f.fieldnum)}</td>
+      <td class="mono">
+        <a class="obj-link" href="/admin/object/field/${esc(currentRec)}.${esc(f.fieldname)}">${esc(f.fieldname)}</a>
+        <a href="/admin/field?field=${esc(f.fieldname)}" title="Cross-record usage" style="color:#556;font-size:9px;margin-left:4px;text-decoration:none;">&#8648;</a>
+      </td>
+      <td>${esc(f.fieldtype_label || f.fieldtype)}</td>
+      <td>${esc(f.fieldlen)}</td>
+      <td>${esc(f.decimalpos || '')}</td>
+      <td>${flags.join(' ')}</td>
+      <td class="mono" style="font-size:10px;">${esc(f.defrecname || '')}${f.deffieldname ? '.' + esc(f.deffieldname) : ''}</td>
+    </tr>`;
+  }).join('') + '</tbody></table>';
+}
+
+function renderKeys(items) {
+  if (!items.length) return '<div class="empty">No key fields (PSKEYDEFN not accessible in this environment).</div>';
+  const IDX_LABEL = {'_':'PK','0':'Search','A':'Alt A','B':'Alt B','C':'Alt C','D':'Alt D'};
+  return `<table><thead><tr>
+    <th>Index</th><th>Pos</th><th>Field</th><th>Order</th>
+  </tr></thead><tbody>` + items.map(k => {
+    const lbl = IDX_LABEL[k.indexid] ?? `Idx ${k.indexid}`;
+    const ord = k.ascdesc === 1 ? 'Asc' : k.ascdesc === 0 ? 'Desc' : '';
+    return `<tr>
+      <td style="color:#00e5ff;font-family:monospace;">${esc(lbl)}</td>
+      <td style="color:#445;">${esc(k.keyposn)}</td>
+      <td class="mono">${esc(k.fieldname)}</td>
+      <td style="color:#667;">${ord}</td>
+    </tr>`;
+  }).join('') + '</tbody></table>';
+}
+
+function renderIndexes(indexes, keys) {
+  if (!indexes.length && !keys.length) return '<div class="empty">No indexes found (PSINDEXDEFN/PSKEYDEFN not accessible in this environment).</div>';
+  const IDX_LABEL = {'_':'Primary Key (PK)','0':'Primary Search','A':'Alt Search A','B':'Alt Search B','C':'Alt Search C'};
+  // group keys by indexid
+  const keysByIdx = {};
+  (keys || []).forEach(k => { (keysByIdx[k.indexid] = keysByIdx[k.indexid] || []).push(k); });
+  let h = '';
+  indexes.forEach(idx => {
+    const id = idx.indexid ?? '?';
+    const label = IDX_LABEL[id] ?? (id >= 'A' && id <= 'Z' ? `Alt Search ${id}` : `Index ${id}`);
+    const fields = (keysByIdx[id] || []).sort((a,b) => (a.keyposn||0)-(b.keyposn||0));
+    const uniq = idx.uniqueflag ? '<span class="chip chip-table" style="margin-left:6px;">Unique</span>' : '';
+    const inactive = !idx.activeflag ? '<span class="chip chip-temp" style="margin-left:4px;">Inactive</span>' : '';
+    const custord = idx.custkeyorder ? '<span class="chip chip-work" style="margin-left:4px;">Custom Order</span>' : '';
+    const fieldStr = fields.length
+      ? fields.map(f => `${esc(f.fieldname)}${f.ascdesc === 0 ? '<span style="color:#667;"> ▼</span>' : ''}`).join(', ')
+      : '<em style="color:#445;">No field composition (fetch keys tab first)</em>';
+    h += `<div class="card" style="margin-bottom:8px;">
+      <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:5px;">
+        <strong style="font-size:12px;color:#00e5ff;">${label}</strong>
+        <span style="color:#334;font-size:10px;font-family:monospace;">[${esc(id)}]</span>
+        ${uniq}${inactive}${custord}
+      </div>
+      <div style="font-family:monospace;font-size:11px;color:#9ab;">${fieldStr}</div>
+    </div>`;
+  });
+  // Any key-only indexes (no PSINDEXDEFN row)
+  Object.keys(keysByIdx).filter(id => !indexes.find(i => (i.indexid ?? '?') === id)).forEach(id => {
+    const fields = keysByIdx[id].sort((a,b) => (a.keyposn||0)-(b.keyposn||0));
+    h += `<div class="card" style="margin-bottom:8px;">
+      <strong style="font-size:12px;color:#00e5ff;">Index ${esc(id)}</strong>
+      <div style="font-family:monospace;font-size:11px;color:#9ab;margin-top:4px;">${fields.map(f=>esc(f.fieldname)).join(', ')}</div>
+    </div>`;
+  });
+  return h || '<div class="empty">No indexes found.</div>';
+}
+
+function renderRelated(d) {
+  let h = '';
+  if (d.parent) {
+    h += '<h2>Parent Record</h2><div class="card">' +
+      recRow(d.parent, () => loadRecord(d.parent.recname)) + '</div>';
+  }
+  if (d.lang) {
+    h += '<h2>Language Variant</h2><div class="card">' +
+      recRow(d.lang, () => loadRecord(d.lang.recname)) + '</div>';
+  }
+  if (d.audit) {
+    h += '<h2>Audit Record</h2><div class="card">' +
+      recRow(d.audit, () => loadRecord(d.audit.recname)) + '</div>';
+  }
+  if ((d.views || []).length) {
+    h += `<h2>Related Views (${d.views.length})</h2><div class="card"><table><thead><tr>
+      <th>Record Name</th><th>Type</th><th>Description</th>
+    </tr></thead><tbody>`;
+    d.views.forEach(v => {
+      const chip = recChip(psRecTypeLabel(v.rectype));
+      h += `<tr><td class="mono"><a class="obj-link" onclick="loadRecord('${esc(v.recname)}')">${esc(v.recname)}</a></td>
+        <td>${chip}</td><td>${esc(v.recdescr || '')}</td></tr>`;
+    });
+    h += '</tbody></table></div>';
+  }
+  if (!h) h = '<div class="empty">No related records found.</div>';
+  return h;
+}
+
+function renderComponents(items) {
+  if (!items.length) return '<div class="empty">No components use this record as search or add record.</div>';
+  return `<table><thead><tr>
+    <th>Component</th><th>Search Record</th><th>Add Record</th><th>Description</th><th>Market</th>
+  </tr></thead><tbody>` + items.map(c => `<tr>
+    <td class="mono"><a class="obj-link" href="/admin/object/component/${esc(c.pnlgrpname)}">${esc(c.pnlgrpname)}</a></td>
+    <td class="mono">${esc(c.searchrecname || '')}</td>
+    <td class="mono">${esc(c.addsearchrecname || '')}</td>
+    <td>${esc(c.descr || '')}</td>
+    <td>${esc(c.market || '')}</td>
+  </tr>`).join('') + '</tbody></table>';
+}
+
+function renderPages(items) {
+  if (!items.length) return '<div class="empty">No pages reference this record\'s fields.</div>';
+  // Deduplicate by page name.
+  const seen = new Set();
+  const unique = items.filter(r => { const k = r.pnlname; if (seen.has(k)) return false; seen.add(k); return true; });
+  return `<table><thead><tr><th>Page</th></tr></thead><tbody>` +
+    unique.map(p => `<tr><td class="mono">
+      <a class="obj-link" href="/admin/object/page/${esc(p.pnlname)}">${esc(p.pnlname)}</a>
+    </td></tr>`).join('') + '</tbody></table>';
+}
+
+function renderDDL(d) {
+  const ddl = d.ddl || d.sql || '';
+  if (!ddl) return '<div class="empty">DDL not available (may be a view or derived record).</div>';
+  return `<div class="code-block">${esc(ddl)}</div>`;
+}
+
+function renderDataPane() {
+  return `<div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+      <span id="rowCountBadge" style="font-size:11px;color:#556;">Loading row count…</span>
+      <button class="sec" onclick="loadSample()" style="font-size:10px;">Sample 20 Rows</button>
+      <a class="obj-link" id="sqlwsLink" style="margin-left:auto;display:none;" href="/admin/sqlws">Open in SQL Workspace &#8594;</a>
+    </div>
+    <div id="sampleData"><span class="empty">Click "Sample 20 Rows" to load data.</span></div>
+  </div>`;
+}
+
+async function loadData(recname) {
+  const d = await api(`/api/record/${encodeURIComponent(recname)}/count?env=${env()}`);
+  const badge = $('rowCountBadge');
+  if (badge) {
+    const n = d.row_count ?? d.count ?? '?';
+    badge.textContent = `${n.toLocaleString()} rows`;
+    badge.style.color = '#00e5ff';
+  }
+  const link = $('sqlwsLink');
+  if (link) {
+    const tbl = `PS_${recname}`;
+    link.href = `/admin/sqlws`;
+    link.style.display = 'inline';
+    link.title = `SELECT * FROM SYSADM.${tbl}`;
+  }
+}
+
+async function loadSample() {
+  const d = await api(`/api/record/${encodeURIComponent(currentRec)}/sample?env=${env()}&limit=20`);
+  const pane = $('sampleData');
+  if (!pane) return;
+  const rows = d.rows || d.items || [];
+  if (!rows.length) { pane.innerHTML = '<div class="empty">No data returned.</div>'; return; }
+  const cols = Object.keys(rows[0]);
+  pane.innerHTML = `<div style="overflow-x:auto;"><table><thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>` +
+    rows.map(r => `<tr>${cols.map(c => `<td class="mono">${esc(r[c])}</td>`).join('')}</tr>`).join('') +
+    '</tbody></table></div>';
+}
+
+// ─── Eager overview sub-sections ──────────────────────────────────────────
+async function loadStorageInto(targetId, recname) {
+  const d = await api(`/api/record/${encodeURIComponent(recname)}/storage?env=${env()}`);
+  const target = $(targetId);
+  if (!target) return;
+  const item = d.item;
+  if (!item) return;
+  target.innerHTML = `<h2>Oracle Storage</h2><div class="card">
+    <div class="stat-grid">
+      ${sBox(item.num_rows != null ? Number(item.num_rows).toLocaleString() : '—', 'Est. Rows')}
+      ${sBox(item.blocks != null ? item.blocks : '—', 'Blocks')}
+      ${sBox(item.avg_row_len != null ? item.avg_row_len + ' B' : '—', 'Avg Row')}
+    </div>
+    <div class="kv-grid">
+      ${kv('Table Name', item.table_name)}
+      ${kv('Partitioned', item.partitioned)}
+      ${kv('Compression', item.compression)}
+      ${kv('Last Analyzed', item.last_analyzed)}
+    </div>
+  </div>`;
+}
+
+async function loadChildrenInto(targetId, recname) {
+  const d = await api(`/api/record/${encodeURIComponent(recname)}/children?env=${env()}`);
+  const target = $(targetId);
+  if (!target) return;
+  const items = d.items || [];
+  if (!items.length) return;
+  target.innerHTML = `<h2>Child Records (${items.length})</h2><div class="card"><table><thead><tr>
+    <th>Record Name</th><th>Type</th><th>Description</th>
+  </tr></thead><tbody>` +
+    items.map(c => `<tr>
+      <td class="mono"><a class="obj-link" onclick="loadRecord('${esc(c.recname)}')">${esc(c.recname)}</a></td>
+      <td>${recChip(c.rectype_label || psRecTypeLabel(c.rectype))}</td>
+      <td>${esc(c.recdescr || '')}</td>
+    </tr>`).join('') +
+  '</tbody></table></div>';
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+function kv(label, val) {
+  if (val == null || val === '' || val === ' ') return '';
+  return `<div class="kv-key">${esc(label)}</div><div class="kv-val">${val}</div>`;
+}
+function sBox(n, label) {
+  return `<div class="stat-box"><div class="stat-num">${n != null ? n : '—'}</div><div class="stat-lbl">${esc(label)}</div></div>`;
+}
+
+function psRecTypeLabel(rt) {
+  const map = {0:'SQL Table',1:'SQL View',2:'Derived/Work',3:'SubRecord',5:'Dynamic View',6:'Query View',7:'Temporary Table'};
+  return map[parseInt(rt)] || String(rt ?? '');
+}
+
+function recBadge(label) {
+  const map = {
+    'SQL Table':      {cls:'bd-table',text:'T'},
+    'SQL View':       {cls:'bd-view',text:'V'},
+    'Derived/Work':   {cls:'bd-work',text:'D'},
+    'SubRecord':      {cls:'bd-sub',text:'S'},
+    'Dynamic View':   {cls:'bd-view',text:'DV'},
+    'Query View':     {cls:'bd-view',text:'QV'},
+    'Temporary Table':{cls:'bd-temp',text:'TMP'},
+  };
+  return map[label] || {cls:'bd-table',text:String(label||'?').substring(0,3)};
+}
+
+function recChip(label) {
+  const map = {
+    'SQL Table':'chip-table','SQL View':'chip-view','Derived/Work':'chip-work',
+    'SubRecord':'chip-sub','Dynamic View':'chip-view','Query View':'chip-view',
+    'Temporary Table':'chip-temp',
+  };
+  const cls = map[label] || 'chip-table';
+  return `<span class="chip ${cls}">${esc(label||'')}</span>`;
+}
+
+function recRow(rec, onclick) {
+  if (!rec) return '';
+  return `<span class="mono" style="cursor:pointer;" onclick="loadRecord('${esc(rec.recname)}')">${esc(rec.recname)}</span>
+    <span style="color:#556;font-size:10px;margin-left:8px;">${esc(rec.recdescr || '')}</span>`;
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────
+(async () => {
+  const envs = ['HCM','FSCM'];
+  try {
+    const d = await (await fetch('/api/envcompare/config')).json();
+    if (d.envs) envs.splice(0, envs.length, ...d.envs);
+  } catch(e) {}
+  $('envSel').innerHTML = envs.map(e => `<option value="${e}">${e}</option>`).join('');
+
+  // If URL has a record name, load it.
+  const path = window.location.pathname;
+  const match = path.match(/\\/admin\\/record\\/([^/]+)$/);
+  if (match) loadRecord(decodeURIComponent(match[1]));
+})();
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/field", response_class=HTMLResponse)
+def admin_field():
+    return """<!DOCTYPE html>
+<html>
+<head>
+<title>DeathStar Field Explorer</title>
+<style>
+*{box-sizing:border-box;}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;height:100vh;display:flex;flex-direction:column;}
+h1{color:#00e5ff;text-shadow:0 0 12px #00e5ff;letter-spacing:4px;margin:0;font-size:18px;}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:5px;margin:14px 0 8px;}
+nav{font-size:12px;color:#445;}
+nav a{color:#00e5ff;text-decoration:none;} nav a:hover{text-decoration:underline;}
+.topbar{padding:12px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+.main{display:flex;flex:1;overflow:hidden;}
+.sidebar{width:280px;min-width:220px;border-right:1px solid #00e5ff22;overflow-y:auto;padding:12px;flex-shrink:0;}
+.content{flex:1;overflow:auto;padding:16px;}
+select,input[type=text]{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px;}
+input:focus,select:focus{outline:none;border-color:#00e5ff;}
+button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;}
+button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;}
+.lbl{font-size:10px;color:#667;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:3px;}
+.chip{display:inline-block;padding:2px 8px;border-radius:2px;font-size:11px;font-weight:bold;}
+.chip-ok{background:#002800;border:1px solid #00cc66;color:#00cc66;}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778;}
+.chip-info{background:#001830;border:1px solid #00e5ff44;color:#00e5ff;}
+.chip-warn{background:#2a1800;border:1px solid #ffaa00;color:#ffaa00;}
+.chip-def{background:#001830;border:1px solid #00e5ff55;color:#00ccdd;font-size:10px;padding:2px 7px;}
+.chip-len{background:#0d1a10;border:1px solid #33664422;color:#558866;font-size:10px;padding:2px 7px;}
+.field-item{padding:6px 8px;cursor:pointer;border-radius:2px;display:flex;justify-content:space-between;align-items:center;}
+.field-item:hover{background:rgba(0,229,255,.07);}
+.field-item.sel{background:rgba(0,229,255,.12);border-left:2px solid #00e5ff;}
+.field-name{font-family:monospace;font-size:12px;color:#d7faff;}
+.field-cnt{font-size:10px;color:#445;min-width:30px;text-align:right;}
+.field-type{font-size:10px;color:#667;padding-left:6px;}
+table{border-collapse:collapse;width:100%;font-size:12px;}
+th{border-bottom:1px solid #00e5ff33;padding:5px 8px;text-align:left;color:#00e5ff;font-size:10px;text-transform:uppercase;letter-spacing:1px;}
+td{border-bottom:1px solid #1e3040;padding:5px 8px;}
+tr:hover td{background:rgba(0,229,255,.04);}
+.mono{font-family:monospace;}
+.empty{color:#445;font-style:italic;padding:16px 0;font-size:12px;}
+.warn-msg{color:#ffaa00;font-size:11px;margin:2px 0;}
+.tab-row{display:flex;gap:0;margin:10px 0 0;border-bottom:1px solid #00e5ff22;}
+.tab{padding:5px 14px;cursor:pointer;font-size:11px;color:#556;border-bottom:2px solid transparent;margin-bottom:-1px;}
+.tab.on{color:#00e5ff;border-bottom-color:#00e5ff;}
+.pane{display:none;} .pane.on{display:block;}
+.rec-badge{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;border:1px solid #00e5ff33;color:#8ab;margin-left:4px;}
+.flag-key{color:#ffaa00;font-size:10px;font-weight:bold;}
+.flag-req{color:#ff8888;font-size:10px;}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin:12px 0;}
+.stat-box{background:#0b1b24;border:1px solid #00e5ff22;padding:10px;border-radius:2px;}
+.stat-box .sv{font-size:22px;font-weight:bold;color:#00e5ff;line-height:1;}
+.stat-box .sl{font-size:10px;color:#556;text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
+a.obj-link{color:#00e5ff;text-decoration:none;font-family:monospace;font-size:11px;}
+a.obj-link:hover{text-decoration:underline;}
+.search-row{display:flex;gap:6px;margin-bottom:8px;}
+.search-row input{flex:1;}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div>
+    <h1>&#8801; FIELD EXPLORER</h1>
+    <nav style="margin-top:4px;">
+      <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
+      <a href="/admin/record">Record Explorer</a> &nbsp;&middot;&nbsp;
+      <a href="/admin/object">Objects</a> &nbsp;&middot;&nbsp;
+      <a href="/admin/sqlws">SQL Workspace</a>
+    </nav>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:12px;align-items:flex-end;">
+    <div><span class="lbl">Environment</span><select id="envSel" onchange="clearField()"></select></div>
+  </div>
+</div>
+<div class="main">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h2>Field Search</h2>
+    <div class="search-row">
+      <input type="text" id="searchInput" placeholder="Field name…" oninput="debSearch()" onkeydown="if(event.key==='Enter')doSearch()">
+      <button class="sec" onclick="doSearch()" style="font-size:10px;">Go</button>
+    </div>
+    <div id="searchCount" style="font-size:10px;color:#445;margin-bottom:6px;"></div>
+    <div id="fieldList"><div class="empty">Enter a field name to search.</div></div>
+  </div>
+  <!-- Content -->
+  <div class="content">
+    <div id="placeholder" style="padding:40px 0;text-align:center;">
+      <div style="font-size:40px;margin-bottom:12px;opacity:.3;">&#8801;</div>
+      <div style="color:#445;font-size:13px;">Select a field from the sidebar.</div>
+      <div style="color:#334;font-size:11px;margin-top:6px;">Searches PSRECFIELD — 521k+ field-record relationships.</div>
+    </div>
+    <div id="fieldContent" style="display:none;">
+      <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:12px;">
+        <span id="fieldTitle" style="font-size:20px;font-weight:bold;color:#00e5ff;font-family:monospace;"></span>
+        <span id="fieldTypeChip"></span>
+        <span id="fieldLenChip"></span>
+        <a id="fieldObjLink" href="#" style="margin-left:auto;font-size:11px;color:#00e5ff;text-decoration:none;">Object Page &#8599;</a>
+      </div>
+      <div class="stat-grid" id="statGrid"></div>
+      <div class="tab-row">
+        <div class="tab on" onclick="setTab('records')">Records</div>
+        <div class="tab"    onclick="setTab('keyed')">Keyed Usage</div>
+        <div class="tab"    onclick="setTab('rectype')">By Type</div>
+      </div>
+      <div id="paneRecords" class="pane on"><div id="tblRecords"></div></div>
+      <div id="paneKeyed"   class="pane"><div id="tblKeyed"></div></div>
+      <div id="paneRectype" class="pane"><div id="tblRectype"></div></div>
+    </div>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+function env() { return $('envSel').value || 'HCM'; }
+let debTimer = null;
+function debSearch() { clearTimeout(debTimer); debTimer = setTimeout(doSearch, 200); }
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s ?? '');
+  return d.innerHTML;
+}
+function empty(msg) { return `<div class="empty">${msg || 'No data.'}</div>`; }
+
+const FTYPE = {0:'Char',1:'Long Char',2:'Number',3:'Signed Num',4:'Date',5:'Time',6:'DateTime',8:'Image',9:'ImgRef'};
+const RTYPE = {0:'SQL Table',1:'SQL View',2:'Derived/Work',3:'SubRecord',5:'Dynamic View',6:'Query View',7:'Temp Table'};
+let currentField = null;
+let allRecords = [];
+
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function doSearch() {
+  const q = $('searchInput').value.trim();
+  if (!q) { $('fieldList').innerHTML = '<div class="empty">Enter a field name to search.</div>'; return; }
+  $('fieldList').innerHTML = '<div class="empty">Searching…</div>';
+  $('searchCount').textContent = '';
+  try {
+    const d = await api(`/api/field/search?env=${env()}&q=${encodeURIComponent(q)}&limit=150`);
+    const items = d.items || [];
+    $('searchCount').textContent = `${items.length} field${items.length===1?'':'s'}`;
+    if (!items.length) { $('fieldList').innerHTML = '<div class="empty">No fields found.</div>'; return; }
+    $('fieldList').innerHTML = items.map(it => {
+      const ft = FTYPE[it.db_fieldtype] || '';
+      return `<div class="field-item" id="fi_${esc(it.fieldname)}" onclick="loadField('${esc(it.fieldname)}', this)">
+        <div>
+          <span class="field-name">${esc(it.fieldname)}</span>
+          ${ft ? `<span class="field-type">${ft}</span>` : ''}
+        </div>
+        <span class="field-cnt">${(it.record_count||0).toLocaleString()}</span>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    $('fieldList').innerHTML = `<div class="warn-msg">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function clearField() {
+  $('placeholder').style.display = '';
+  $('fieldContent').style.display = 'none';
+  currentField = null;
+  allRecords = [];
+}
+
+async function loadField(name, el) {
+  if (el) {
+    document.querySelectorAll('.field-item').forEach(e => e.classList.remove('sel'));
+    el.classList.add('sel');
+  }
+  currentField = name;
+  $('placeholder').style.display = 'none';
+  $('fieldContent').style.display = '';
+  $('fieldTitle').textContent = name;
+  $('fieldTypeChip').textContent = '';
+  $('fieldLenChip').textContent = '';
+  $('statGrid').innerHTML = '<div style="color:#445;font-size:11px;">Loading…</div>';
+  $('tblRecords').innerHTML = '<div class="empty">Loading…</div>';
+  $('tblKeyed').innerHTML = '';
+  $('tblRectype').innerHTML = '';
+  $('fieldObjLink').href = `/admin/object/field/${encodeURIComponent(name)}`;
+
+  // Load definition + records in parallel
+  const [defRes, recRes] = await Promise.allSettled([
+    api(`/api/field/${encodeURIComponent(name)}/definition?env=${env()}`),
+    api(`/api/field/${encodeURIComponent(name)}/records?env=${env()}`)
+  ]);
+
+  if (defRes.status === 'fulfilled') {
+    const item = defRes.value.item || {};
+    const ft = item.field_type;
+    if (ft !== null && ft !== undefined) {
+      $('fieldTypeChip').className = 'chip chip-def';
+      $('fieldTypeChip').textContent = FTYPE[ft] || `Type ${ft}`;
+    }
+    const len = item.length;
+    if (len !== null && len !== undefined && len !== '') {
+      $('fieldLenChip').className = 'chip chip-len';
+      $('fieldLenChip').textContent = `Len ${len}`;
+    }
+  }
+
+  if (recRes.status === 'fulfilled') {
+    const d = recRes.value;
+    allRecords = d.items || [];
+    (d.warnings||[]).forEach(w => $('tblRecords').innerHTML += `<div class="warn-msg">&#9888; ${esc(w.message)}</div>`);
+    renderStats(allRecords);
+    renderRecords(allRecords);
+    renderKeyed(allRecords);
+    renderByType(allRecords);
+  } else {
+    $('tblRecords').innerHTML = `<div class="warn-msg">Error: ${esc(recRes.reason?.message)}</div>`;
+    $('statGrid').innerHTML = '';
+  }
+}
+
+function renderStats(rows) {
+  const total = rows.length;
+  const keyed = rows.filter(r => r.is_key).length;
+  const views = rows.filter(r => [1,5,6].includes(r.rectype)).length;
+  const tables = rows.filter(r => r.rectype === 0).length;
+  $('statGrid').innerHTML = [
+    {v: total, l: 'Records Using Field'},
+    {v: tables, l: 'SQL Tables'},
+    {v: views, l: 'Views'},
+    {v: keyed, l: 'Used as Key'},
+  ].map(s => `<div class="stat-box"><div class="sv">${s.v.toLocaleString()}</div><div class="sl">${s.l}</div></div>`).join('');
+}
+
+function recRow(r) {
+  const rt = r.rectype_label || '';
+  const flags = [
+    r.is_key ? '<span class="flag-key">KEY</span>' : '',
+    r.is_search_key ? '<span class="flag-key">SRCH</span>' : '',
+    r.is_required ? '<span class="flag-req">REQ</span>' : '',
+  ].filter(Boolean).join(' ');
+  return `<tr>
+    <td><a class="obj-link" href="/admin/record/${esc(r.recname)}">${esc(r.recname)}</a></td>
+    <td style="font-size:10px;color:#667;">${esc(r.recdescr||'')}</td>
+    <td style="font-size:10px;"><span class="rec-badge">${esc(rt)}</span></td>
+    <td style="font-size:10px;text-align:center;">${r.fieldnum||''}</td>
+    <td>${flags}</td>
+  </tr>`;
+}
+
+function recTable(rows, emptyMsg) {
+  if (!rows.length) return empty(emptyMsg||'None.');
+  return `<table><thead><tr>
+    <th>Record</th><th>Description</th><th>Type</th><th>Fld#</th><th>Flags</th>
+  </tr></thead><tbody>${rows.map(recRow).join('')}</tbody></table>`;
+}
+
+function renderRecords(rows) {
+  $('tblRecords').innerHTML = recTable(rows, 'No records use this field.');
+}
+
+function renderKeyed(rows) {
+  const keyed = rows.filter(r => r.is_key || r.is_search_key);
+  $('tblKeyed').innerHTML = keyed.length
+    ? recTable(keyed, 'Field is not used as a key in any record.')
+    : '<div class="empty">This field is not used as a key in any record.</div>';
+}
+
+function renderByType(rows) {
+  const groups = {};
+  rows.forEach(r => {
+    const k = r.rectype_label || 'Unknown';
+    if (!groups[k]) groups[k] = [];
+    groups[k].push(r);
+  });
+  const order = ['SQL Table','SQL View','Dynamic View','Query View','SubRecord','Derived/Work','Temporary Table'];
+  const keys = [...new Set([...order, ...Object.keys(groups)])].filter(k => groups[k]);
+  $('tblRectype').innerHTML = keys.map(k => {
+    const cnt = groups[k].length;
+    return `<details style="margin-bottom:6px;">
+      <summary style="cursor:pointer;padding:4px 0;font-size:11px;color:#8ab;">
+        ${esc(k)} <span style="color:#00e5ff;font-weight:bold;">${cnt}</span>
+      </summary>
+      ${recTable(groups[k])}
+    </details>`;
+  }).join('');
+}
+
+function setTab(name) {
+  ['records','keyed','rectype'].forEach(n => {
+    const tab = document.querySelector(`.tab[onclick*="${n}"]`);
+    if (tab) tab.classList.toggle('on', n === name);
+    const p = $(`pane${n.charAt(0).toUpperCase()+n.slice(1)}`);
+    if (p) p.classList.toggle('on', n === name);
+  });
+}
+
+(async () => {
+  try {
+    const cfg = await api('/api/runtime/config').catch(() => ({envs:['HCM','FSCM']}));
+    $('envSel').innerHTML = (cfg.envs||['HCM','FSCM']).map(e => `<option value="${e}">${e}</option>`).join('');
+  } catch(e) {
+    $('envSel').innerHTML = '<option value="HCM">HCM</option>';
+  }
+  // Check URL for pre-seeded field
+  const params = new URLSearchParams(window.location.search);
+  const fParam = params.get('field');
+  if (fParam) {
+    $('searchInput').value = fParam;
+    await doSearch();
+    const item = document.getElementById(`fi_${fParam}`);
+    if (item) loadField(fParam, item);
+    else loadField(fParam, null);
+  }
+})();
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/operator", response_class=HTMLResponse)
+@router.get("/operator/{oprid_val:path}", response_class=HTMLResponse)
+def admin_operator(oprid_val: str = None):
+    return """<!DOCTYPE html>
+<html>
+<head>
+<title>DeathStar Operator Explorer</title>
+<style>
+*{box-sizing:border-box;}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;height:100vh;display:flex;flex-direction:column;}
+h1{color:#00e5ff;text-shadow:0 0 12px #00e5ff;letter-spacing:4px;margin:0;font-size:18px;}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:5px;margin:14px 0 8px;}
+nav a{color:#00e5ff;text-decoration:none;font-size:12px;} nav a:hover{text-decoration:underline;}
+.topbar{padding:12px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+.main{display:flex;flex:1;overflow:hidden;}
+.sidebar{width:280px;min-width:220px;border-right:1px solid #00e5ff22;overflow-y:auto;padding:12px;flex-shrink:0;}
+.content{flex:1;overflow:auto;padding:16px;}
+select,input[type=text]{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px;}
+input:focus,select:focus{outline:none;border-color:#00e5ff;}
+button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;}
+button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;}
+.lbl{font-size:10px;color:#667;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:3px;}
+.op-item{padding:6px 8px;cursor:pointer;border-radius:2px;}
+.op-item:hover{background:rgba(0,229,255,.07);}
+.op-item.sel{background:rgba(0,229,255,.12);border-left:2px solid #00e5ff;}
+.op-id{font-family:monospace;font-size:12px;color:#d7faff;}
+.op-name{font-size:10px;color:#556;margin-top:1px;}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:12px 0;}
+.stat-box{background:#0b1b24;border:1px solid #00e5ff22;padding:10px;border-radius:2px;}
+.stat-box .sv{font-size:22px;font-weight:bold;color:#00e5ff;line-height:1;}
+.stat-box .sl{font-size:10px;color:#556;text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
+table{border-collapse:collapse;width:100%;font-size:12px;}
+th{border-bottom:1px solid #00e5ff33;padding:5px 8px;text-align:left;color:#00e5ff;font-size:10px;text-transform:uppercase;letter-spacing:1px;}
+td{border-bottom:1px solid #1e3040;padding:5px 8px;}
+tr:hover td{background:rgba(0,229,255,.04);}
+.mono{font-family:monospace;}
+.empty{color:#445;font-style:italic;padding:16px 0;font-size:12px;}
+.warn-msg{color:#ffaa00;font-size:11px;margin:2px 0;}
+.tab-row{display:flex;gap:0;margin:10px 0 0;border-bottom:1px solid #00e5ff22;}
+.tab{padding:5px 14px;cursor:pointer;font-size:11px;color:#556;border-bottom:2px solid transparent;margin-bottom:-1px;}
+.tab.on{color:#00e5ff;border-bottom-color:#00e5ff;}
+.pane{display:none;} .pane.on{display:block;}
+a.obj-link{color:#00e5ff;text-decoration:none;font-family:monospace;font-size:11px;}
+a.obj-link:hover{text-decoration:underline;}
+.badge{display:inline-block;padding:2px 8px;border-radius:2px;font-size:10px;font-weight:bold;border:1px solid;}
+.b-active{border-color:#00cc66;color:#00cc66;background:#002800;}
+.b-locked{border-color:#ff4444;color:#ff4444;background:#3a0000;}
+.kv{display:flex;margin:4px 0;font-size:12px;}
+.kl{color:#445;min-width:160px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;flex-shrink:0;}
+.kv-val{color:#d7faff;font-family:monospace;word-break:break-all;}
+.search-row{display:flex;gap:6px;margin-bottom:8px;}
+.search-row input{flex:1;}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div>
+    <h1>&#9786; OPERATOR EXPLORER</h1>
+    <nav style="margin-top:4px;">
+      <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
+      <a href="/admin/role">Role Explorer</a> &nbsp;&middot;&nbsp;
+      <a href="/admin/security">Security</a> &nbsp;&middot;&nbsp;
+      <a href="/admin/tracing">Transaction Trace</a>
+    </nav>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:12px;align-items:flex-end;">
+    <div><span class="lbl">Environment</span><select id="envSel" onchange="clearOp()"></select></div>
+  </div>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Operator Search</h2>
+    <div class="search-row">
+      <input type="text" id="searchInput" placeholder="OPRID, name, or email…" oninput="debSearch()" onkeydown="if(event.key==='Enter')doSearch()">
+      <button class="sec" onclick="doSearch()" style="font-size:10px;">Go</button>
+    </div>
+    <div style="font-size:10px;color:#445;margin-bottom:6px;" id="searchCount"></div>
+    <div id="opList"><div class="empty">Enter a search term or leave blank to list all operators.</div></div>
+  </div>
+  <div class="content">
+    <div id="placeholder" style="padding:40px 0;text-align:center;">
+      <div style="font-size:40px;margin-bottom:12px;opacity:.3;">&#9786;</div>
+      <div style="color:#445;font-size:13px;">Select an operator from the sidebar.</div>
+      <div style="color:#334;font-size:11px;margin-top:6px;">141 operators in HCM.</div>
+    </div>
+    <div id="opContent" style="display:none;">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+        <span id="opTitle" style="font-size:20px;font-weight:bold;color:#00e5ff;font-family:monospace;"></span>
+        <span id="opBadge"></span>
+        <a id="traceLink" href="#" style="font-size:11px;color:#00e5ff;text-decoration:none;">&#9654; Trace</a>
+        <a id="objLink"   href="#" style="font-size:11px;color:#00e5ff;text-decoration:none;">Object Page &#8599;</a>
+      </div>
+      <div id="opName" style="color:#8ab;font-size:13px;margin-bottom:12px;"></div>
+      <div class="stat-grid" id="statGrid"></div>
+      <div class="tab-row">
+        <div class="tab on" onclick="setTab('overview')">Overview</div>
+        <div class="tab"    onclick="setTab('roles')">Roles</div>
+      </div>
+      <div id="paneOverview" class="pane on"><div id="tblOverview"></div></div>
+      <div id="paneRoles"    class="pane"><div id="tblRoles"></div></div>
+    </div>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+function env() { return $('envSel').value || 'HCM'; }
+let debTimer = null;
+function debSearch() { clearTimeout(debTimer); debTimer = setTimeout(doSearch, 200); }
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s??''); return d.innerHTML; }
+function empty(msg) { return `<div class="empty">${msg||'No data.'}</div>`; }
+let currentOp = null;
+
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function doSearch() {
+  const q = $('searchInput').value.trim();
+  $('opList').innerHTML = '<div class="empty">Searching…</div>';
+  $('searchCount').textContent = '';
+  try {
+    const d = await api(`/api/operator/search?env=${env()}&q=${encodeURIComponent(q)}&limit=150`);
+    const items = d.items || [];
+    $('searchCount').textContent = `${items.length} operator${items.length===1?'':'s'}`;
+    if (!items.length) { $('opList').innerHTML = '<div class="empty">No operators found.</div>'; return; }
+    $('opList').innerHTML = items.map(it => {
+      const locked = it.acctlock ? ' style="color:#ff4444;"' : '';
+      return `<div class="op-item" id="oi_${esc(it.oprid)}" onclick="loadOp('${esc(it.oprid).replace(/'/g,"\\'")}', this)">
+        <div class="op-id"${locked}>${esc(it.oprid)}${it.acctlock ? ' &#128274;' : ''}</div>
+        ${it.oprdefndesc ? `<div class="op-name">${esc(it.oprdefndesc)}</div>` : ''}
+      </div>`;
+    }).join('');
+  } catch(e) {
+    $('opList').innerHTML = `<div class="warn-msg">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function clearOp() {
+  $('placeholder').style.display = '';
+  $('opContent').style.display = 'none';
+  currentOp = null;
+}
+
+async function loadOp(oprid, el) {
+  if (el) {
+    document.querySelectorAll('.op-item').forEach(e => e.classList.remove('sel'));
+    el.classList.add('sel');
+  }
+  currentOp = oprid;
+  $('placeholder').style.display = 'none';
+  $('opContent').style.display = '';
+  $('opTitle').textContent = oprid;
+  $('opName').textContent = '';
+  $('opBadge').innerHTML = '';
+  $('statGrid').innerHTML = '<div style="color:#445;font-size:11px;">Loading…</div>';
+  $('tblOverview').innerHTML = '<div class="empty">Loading…</div>';
+  $('tblRoles').innerHTML = '<div class="empty">Loading…</div>';
+  $('traceLink').href = `/admin/tracing?oprid=${encodeURIComponent(oprid)}&env=${env()}`;
+  $('objLink').href   = `/admin/object/operator/${encodeURIComponent(oprid)}`;
+  history.replaceState(null, '', `/admin/operator/${encodeURIComponent(oprid)}`);
+
+  try {
+    const [det, roles] = await Promise.allSettled([
+      api(`/api/operator/${encodeURIComponent(oprid)}?env=${env()}`),
+      api(`/api/operator/${encodeURIComponent(oprid)}/roles?env=${env()}`),
+    ]);
+
+    const d = det.status === 'fulfilled'   ? det.value   : {item: null, warnings: [{message: det.reason?.message}]};
+    const r = roles.status === 'fulfilled' ? roles.value : {items: [], warnings: [{message: roles.reason?.message}]};
+
+    const item = d.item || {};
+    $('opName').textContent = item.oprdefndesc || '';
+
+    const locked = item.acctlock;
+    $('opBadge').innerHTML = `<span class="badge ${locked ? 'b-locked' : 'b-active'}">${esc(item.acctlock_label || (locked ? 'Locked' : 'Active'))}</span>`;
+
+    const roleCount = (r.items || []).length;
+    $('statGrid').innerHTML = [
+      {v: roleCount,               l: 'Roles Assigned'},
+      {v: item.failedlogins || 0,  l: 'Failed Logins'},
+    ].map(s => `<div class="stat-box"><div class="sv">${s.v}</div><div class="sl">${s.l}</div></div>`).join('');
+
+    renderOverview(item, d.warnings || []);
+    renderRoles(r.items || [], r.warnings || []);
+  } catch(e) {
+    $('tblOverview').innerHTML = `<div class="warn-msg">Error: ${esc(e.message)}</div>`;
+    $('statGrid').innerHTML = '';
+  }
+}
+
+function renderOverview(item, warns) {
+  let h = warns.filter(w=>w.message).map(w=>`<div class="warn-msg">&#9888; ${esc(w.message)}</div>`).join('');
+  if (!item || !item.oprid) { $('tblOverview').innerHTML = h+'<div class="empty">Operator not found.</div>'; return; }
+  const dt = s => s ? s.replace('T',' ').substr(0,19) : '—';
+  h += `
+  <h2>Identity</h2>
+  <div class="kv"><span class="kl">OPRID</span><span class="kv-val">${esc(item.oprid)}</span></div>
+  <div class="kv"><span class="kl">Name</span><span class="kv-val">${esc(item.oprdefndesc||'—')}</span></div>
+  ${item.emplid ? `<div class="kv"><span class="kl">Employee ID</span><span class="kv-val">${esc(item.emplid)}</span></div>` : ''}
+  ${item.emailid ? `<div class="kv"><span class="kl">Email</span><span class="kv-val">${esc(item.emailid)}</span></div>` : ''}
+  <div class="kv"><span class="kl">Status</span><span class="kv-val">${esc(item.acctlock_label||'—')}</span></div>
+  ${item.oprtype_label ? `<div class="kv"><span class="kl">Type</span><span class="kv-val">${esc(item.oprtype_label)}</span></div>` : ''}
+  ${item.language_cd ? `<div class="kv"><span class="kl">Language</span><span class="kv-val">${esc(item.language_cd)}</span></div>` : ''}
+  ${item.currency_cd ? `<div class="kv"><span class="kl">Currency</span><span class="kv-val">${esc(item.currency_cd)}</span></div>` : ''}
+  <h2>Security</h2>
+  <div class="kv"><span class="kl">Permission List</span><span class="kv-val">${item.oprclass ? `<a class="obj-link" href="/admin/object/permissionlist/${esc(item.oprclass)}">${esc(item.oprclass)}</a>` : '—'}</span></div>
+  <div class="kv"><span class="kl">Row Security</span><span class="kv-val">${esc(item.rowsecclass||'—')}</span></div>
+  <div class="kv"><span class="kl">Process Profile</span><span class="kv-val">${esc(item.prcsprflcls||'—')}</span></div>
+  <div class="kv"><span class="kl">Failed Logins</span><span class="kv-val">${esc(item.failedlogins??'—')}</span></div>
+  ${item.ptacctlockdate ? `<div class="kv"><span class="kl">Lock Date</span><span class="kv-val">${esc(dt(item.ptacctlockdate))}</span></div>` : ''}
+  ${item.ptacctneverlock ? `<div class="kv"><span class="kl">Never Lock</span><span class="kv-val">${esc(item.ptacctneverlock)}</span></div>` : ''}
+  <div class="kv"><span class="kl">Allow Switch User</span><span class="kv-val">${item.ptallowswitchuser==='Y'?'<span style="color:#00cc66;">Yes</span>':'No'}</span></div>
+  <h2>Activity</h2>
+  <div class="kv"><span class="kl">Last Sign-On</span><span class="kv-val">${esc(dt(item.lastsignondttm))}</span></div>
+  <div class="kv"><span class="kl">Last Password Change</span><span class="kv-val">${esc(dt(item.lastpswdchange))}</span></div>
+  <div class="kv"><span class="kl">Password Expiry</span><span class="kv-val">${esc(dt(item.expent))}</span></div>
+  <div class="kv"><span class="kl">Last Updated</span><span class="kv-val">${esc(dt(item.lastupddttm))}</span></div>
+  <div class="kv"><span class="kl">Updated By</span><span class="kv-val">${esc(item.lastupdoprid||'—')}</span></div>`;
+  $('tblOverview').innerHTML = h;
+}
+
+function renderRoles(items, warns) {
+  let h = warns.filter(w=>w.message).map(w=>`<div class="warn-msg">&#9888; ${esc(w.message)}</div>`).join('');
+  if (!items.length) { $('tblRoles').innerHTML = h+'<div class="empty">No roles found.</div>'; return; }
+  const rows = items.map(r => `<tr>
+    <td class="mono"><a class="obj-link" href="/admin/role/${encodeURIComponent(r.rolename)}">${esc(r.rolename)}</a></td>
+    <td style="font-size:10px;color:#556;">${esc(r.descr||'')}</td>
+    <td style="font-size:10px;">${r.dynamic_sw==='Y'?'<span style="color:#ffaa00;">Dynamic</span>':'Static'}</td>
+    <td style="font-size:10px;color:#445;">${esc(r.rolestatus_label||'')}</td>
+  </tr>`).join('');
+  $('tblRoles').innerHTML = h+`<table><thead><tr>
+    <th>Role</th><th>Description</th><th>Assignment</th><th>Status</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function setTab(name) {
+  ['overview','roles'].forEach(n => {
+    const tab = document.querySelector(`.tab[onclick*="${n}"]`);
+    if (tab) tab.classList.toggle('on', n === name);
+    const cap = n.charAt(0).toUpperCase()+n.slice(1);
+    const p = $(`pane${cap}`);
+    if (p) p.classList.toggle('on', n === name);
+  });
+}
+
+(async () => {
+  try {
+    const cfg = await api('/api/runtime/config').catch(()=>({envs:['HCM','FSCM']}));
+    $('envSel').innerHTML = (cfg.envs||['HCM','FSCM']).map(e=>`<option value="${e}">${e}</option>`).join('');
+  } catch(e) { $('envSel').innerHTML='<option value="HCM">HCM</option>'; }
+
+  doSearch();
+
+  const pathMatch = window.location.pathname.match(/\\/admin\\/operator\\/(.+)$/);
+  const opParam   = new URLSearchParams(window.location.search).get('oprid') || (pathMatch ? decodeURIComponent(pathMatch[1]) : null);
+  if (opParam) {
+    $('searchInput').value = opParam;
+    await doSearch();
+    const el = document.getElementById(`oi_${opParam}`);
+    loadOp(opParam, el||null);
+  }
+})();
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/role", response_class=HTMLResponse)
+@router.get("/role/{rolename:path}", response_class=HTMLResponse)
+def admin_role(rolename: str = None):
+    return """<!DOCTYPE html>
+<html>
+<head>
+<title>DeathStar Role Explorer</title>
+<style>
+*{box-sizing:border-box;}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;height:100vh;display:flex;flex-direction:column;}
+h1{color:#00e5ff;text-shadow:0 0 12px #00e5ff;letter-spacing:4px;margin:0;font-size:18px;}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:5px;margin:14px 0 8px;}
+nav a{color:#00e5ff;text-decoration:none;font-size:12px;} nav a:hover{text-decoration:underline;}
+.topbar{padding:12px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+.main{display:flex;flex:1;overflow:hidden;}
+.sidebar{width:280px;min-width:220px;border-right:1px solid #00e5ff22;overflow-y:auto;padding:12px;flex-shrink:0;}
+.content{flex:1;overflow:auto;padding:16px;}
+select,input[type=text]{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px;}
+input:focus,select:focus{outline:none;border-color:#00e5ff;}
+button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;}
+button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;}
+.lbl{font-size:10px;color:#667;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:3px;}
+.role-item{padding:6px 8px;cursor:pointer;border-radius:2px;display:flex;justify-content:space-between;align-items:center;gap:4px;}
+.role-item:hover{background:rgba(0,229,255,.07);}
+.role-item.sel{background:rgba(0,229,255,.12);border-left:2px solid #00e5ff;}
+.role-name{font-family:monospace;font-size:11px;color:#d7faff;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.role-descr{font-size:9px;color:#445;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.role-cnt{font-size:10px;color:#00e5ff;font-weight:bold;min-width:24px;text-align:right;flex-shrink:0;}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:12px 0;}
+.stat-box{background:#0b1b24;border:1px solid #00e5ff22;padding:10px;border-radius:2px;}
+.stat-box .sv{font-size:22px;font-weight:bold;color:#00e5ff;line-height:1;}
+.stat-box .sl{font-size:10px;color:#556;text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
+table{border-collapse:collapse;width:100%;font-size:12px;}
+th{border-bottom:1px solid #00e5ff33;padding:5px 8px;text-align:left;color:#00e5ff;font-size:10px;text-transform:uppercase;letter-spacing:1px;}
+td{border-bottom:1px solid #1e3040;padding:5px 8px;}
+tr:hover td{background:rgba(0,229,255,.04);}
+.mono{font-family:monospace;}
+.empty{color:#445;font-style:italic;padding:16px 0;font-size:12px;}
+.warn-msg{color:#ffaa00;font-size:11px;margin:2px 0;}
+.tab-row{display:flex;gap:0;margin:10px 0 0;border-bottom:1px solid #00e5ff22;}
+.tab{padding:5px 14px;cursor:pointer;font-size:11px;color:#556;border-bottom:2px solid transparent;margin-bottom:-1px;}
+.tab.on{color:#00e5ff;border-bottom-color:#00e5ff;}
+.pane{display:none;} .pane.on{display:block;}
+a.obj-link{color:#00e5ff;text-decoration:none;font-family:monospace;font-size:11px;}
+a.obj-link:hover{text-decoration:underline;}
+.badge{display:inline-block;padding:2px 8px;border-radius:2px;font-size:10px;font-weight:bold;border:1px solid;}
+.b-active{border-color:#00cc66;color:#00cc66;background:#002800;}
+.b-inactive{border-color:#556;color:#556;background:#1a1a1a;}
+.b-query{border-color:#ffaa00;color:#ffaa00;background:#2a1800;}
+.b-general{border-color:#00e5ff44;color:#8ab;background:#001830;}
+.kv{display:flex;margin:4px 0;font-size:12px;}
+.kl{color:#445;min-width:160px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;}
+.kv-val{color:#d7faff;font-family:monospace;word-break:break-all;}
+.flag-on{color:#00cc66;font-size:10px;} .flag-off{color:#334;font-size:10px;}
+.search-row{display:flex;gap:6px;margin-bottom:8px;}
+.search-row input{flex:1;}
+.count-tag{font-size:10px;color:#445;margin-bottom:6px;}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div>
+    <h1>&#9632; ROLE EXPLORER</h1>
+    <nav style="margin-top:4px;">
+      <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
+      <a href="/admin/security">Security</a> &nbsp;&middot;&nbsp;
+      <a href="/admin/field">Field Explorer</a> &nbsp;&middot;&nbsp;
+      <a href="/admin/record">Record Explorer</a>
+    </nav>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:12px;align-items:flex-end;">
+    <div><span class="lbl">Environment</span><select id="envSel" onchange="clearRole()"></select></div>
+  </div>
+</div>
+<div class="main">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h2>Role Search</h2>
+    <div class="search-row">
+      <input type="text" id="searchInput" placeholder="Role name or description…" oninput="debSearch()" onkeydown="if(event.key==='Enter')doSearch()">
+      <button class="sec" onclick="doSearch()" style="font-size:10px;">Go</button>
+    </div>
+    <div class="count-tag" id="searchCount"></div>
+    <div id="roleList"><div class="empty">Enter a role name to search.<br>Leave blank to list all roles.</div></div>
+  </div>
+  <!-- Content -->
+  <div class="content">
+    <div id="placeholder" style="padding:40px 0;text-align:center;">
+      <div style="font-size:40px;margin-bottom:12px;opacity:.3;">&#9632;</div>
+      <div style="color:#445;font-size:13px;">Select a role from the sidebar.</div>
+      <div style="color:#334;font-size:11px;margin-top:6px;">853 roles · 6,088 assignments in HCM.</div>
+    </div>
+    <div id="roleContent" style="display:none;">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+        <span id="roleTitle" style="font-size:20px;font-weight:bold;color:#00e5ff;font-family:monospace;max-width:100%;word-break:break-word;"></span>
+        <span id="roleStatusBadge"></span>
+        <span id="roleTypeBadge"></span>
+        <a id="roleObjLink" href="#" style="margin-left:auto;font-size:11px;color:#00e5ff;text-decoration:none;">Object Page &#8599;</a>
+      </div>
+      <div id="roleDescr" style="color:#8ab;font-size:12px;margin-bottom:12px;"></div>
+      <div class="stat-grid" id="statGrid"></div>
+      <div class="tab-row">
+        <div class="tab on" onclick="setTab('overview')">Overview</div>
+        <div class="tab"    onclick="setTab('members')">Members</div>
+        <div class="tab"    onclick="setTab('permlists')">Permission Lists</div>
+      </div>
+      <div id="paneOverview"  class="pane on"><div id="tblOverview"></div></div>
+      <div id="paneMembers"   class="pane"><div id="tblMembers"></div></div>
+      <div id="panePermlists" class="pane"><div id="tblPermlists"></div></div>
+    </div>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+function env() { return $('envSel').value || 'HCM'; }
+let debTimer = null;
+function debSearch() { clearTimeout(debTimer); debTimer = setTimeout(doSearch, 200); }
+function esc(s) {
+  const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML;
+}
+function empty(msg) { return `<div class="empty">${msg||'No data.'}</div>`; }
+
+let currentRole = null;
+
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function doSearch() {
+  const q = $('searchInput').value.trim();
+  $('roleList').innerHTML = '<div class="empty">Searching…</div>';
+  $('searchCount').textContent = '';
+  try {
+    const d = await api(`/api/role/search?env=${env()}&q=${encodeURIComponent(q)}&limit=200`);
+    const items = d.items || [];
+    $('searchCount').textContent = `${items.length} role${items.length===1?'':'s'}`;
+    if (!items.length) { $('roleList').innerHTML = '<div class="empty">No roles found.</div>'; return; }
+    $('roleList').innerHTML = items.map(it => `
+      <div class="role-item" id="ri_${esc(it.rolename)}" onclick="loadRole('${esc(it.rolename).replace(/'/g,"\\\'")}', this)">
+        <div style="min-width:0;overflow:hidden;">
+          <div class="role-name">${esc(it.rolename)}</div>
+          ${it.descr ? `<div class="role-descr">${esc(it.descr)}</div>` : ''}
+        </div>
+        ${it.member_count != null ? `<span class="role-cnt">${it.member_count}</span>` : ''}
+      </div>`).join('');
+  } catch(e) {
+    $('roleList').innerHTML = `<div class="warn-msg">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function clearRole() {
+  $('placeholder').style.display = '';
+  $('roleContent').style.display = 'none';
+  currentRole = null;
+}
+
+async function loadRole(name, el) {
+  if (el) {
+    document.querySelectorAll('.role-item').forEach(e => e.classList.remove('sel'));
+    el.classList.add('sel');
+  }
+  currentRole = name;
+  $('placeholder').style.display = 'none';
+  $('roleContent').style.display = '';
+  $('roleTitle').textContent = name;
+  $('roleDescr').textContent = '';
+  $('roleStatusBadge').textContent = '';
+  $('roleTypeBadge').textContent = '';
+  $('statGrid').innerHTML = '<div style="color:#445;font-size:11px;">Loading…</div>';
+  $('tblOverview').innerHTML = '<div class="empty">Loading…</div>';
+  $('tblMembers').innerHTML = '<div class="empty">Loading…</div>';
+  $('tblPermlists').innerHTML = '<div class="empty">Loading…</div>';
+  $('roleObjLink').href = `/admin/object/role/${encodeURIComponent(name)}`;
+  history.replaceState(null, '', `/admin/role/${encodeURIComponent(name)}`);
+
+  try {
+    const [det, mem, perm] = await Promise.allSettled([
+      api(`/api/role/${encodeURIComponent(name)}?env=${env()}`),
+      api(`/api/role/${encodeURIComponent(name)}/members?env=${env()}`),
+      api(`/api/role/${encodeURIComponent(name)}/permissionlists?env=${env()}`),
+    ]);
+
+    const d = det.status === 'fulfilled' ? det.value : {item: null, warnings: [{message: det.reason?.message}]};
+    const m = mem.status === 'fulfilled' ? mem.value : {items: [], warnings: [{message: mem.reason?.message}]};
+    const p = perm.status === 'fulfilled' ? perm.value : {items: [], warnings: [{message: perm.reason?.message}]};
+
+    const item = d.item || {};
+
+    $('roleDescr').textContent = item.descr || '';
+    $('roleStatusBadge').innerHTML = item.rolestatus_label
+      ? `<span class="badge b-${item.rolestatus_label.toLowerCase()}">${esc(item.rolestatus_label)}</span>`
+      : '';
+    $('roleTypeBadge').innerHTML = item.roletype_label
+      ? `<span class="badge ${item.roletype_label.includes('Query') || item.roletype_label.includes('PeopleCode') ? 'b-query' : 'b-general'}">${esc(item.roletype_label)}</span>`
+      : '';
+
+    const memberCount = (m.items || []).length;
+    $('statGrid').innerHTML = [
+      {v: memberCount, l: 'Members (Users)'},
+      {v: (p.items || []).length || '—', l: 'Permission Lists'},
+    ].map(s => `<div class="stat-box"><div class="sv">${s.v}</div><div class="sl">${s.l}</div></div>`).join('');
+
+    renderOverview(item, d.warnings || []);
+    renderMembers(m.items || [], m.warnings || []);
+    renderPermlists(p.items || [], p.warnings || []);
+  } catch(e) {
+    $('tblOverview').innerHTML = `<div class="warn-msg">Error: ${esc(e.message)}</div>`;
+    $('statGrid').innerHTML = '';
+  }
+}
+
+function renderOverview(item, warns) {
+  let h = warns.map(w => `<div class="warn-msg">&#9888; ${esc(w.message)}</div>`).join('');
+  if (!item || !item.rolename) { $('tblOverview').innerHTML = h + '<div class="empty">Role not found.</div>'; return; }
+
+  const yn = v => v === 'Y' ? '<span class="flag-on">&#10003; Yes</span>' : '<span class="flag-off">No</span>';
+  const on = v => v === 'Y' ? '<span class="flag-on">&#10003; On</span>' : '<span class="flag-off">Off</span>';
+
+  h += `
+    <h2>Identity</h2>
+    <div class="kv"><span class="kl">Role Name</span><span class="kv-val">${esc(item.rolename)}</span></div>
+    <div class="kv"><span class="kl">Description</span><span class="kv-val">${esc(item.descr||'—')}</span></div>
+    <div class="kv"><span class="kl">Type</span><span class="kv-val">${esc(item.roletype_label||'—')}</span></div>
+    <div class="kv"><span class="kl">Status</span><span class="kv-val">${esc(item.rolestatus_label||'—')}</span></div>
+    <div class="kv"><span class="kl">Last Updated</span><span class="kv-val">${esc((item.lastupddttm||'').replace('T',' ').substr(0,19)||'—')}</span></div>
+    <div class="kv"><span class="kl">Updated By</span><span class="kv-val">${esc(item.lastupdoprid||'—')}</span></div>`;
+
+  if (item.roletype_label?.includes('Query') && item.qryname) {
+    h += `
+    <h2>Dynamic Membership Rule</h2>
+    <div class="kv"><span class="kl">Query Name</span><span class="kv-val">${esc(item.qryname)}</span></div>
+    ${item.qryname_sec ? `<div class="kv"><span class="kl">Security Query</span><span class="kv-val">${esc(item.qryname_sec)}</span></div>` : ''}
+    <div class="kv"><span class="kl">Query Rule Active</span><span class="kv-val">${on(item.role_query_rule_on)}</span></div>`;
+  }
+
+  if (item.recname || item.fieldname) {
+    h += `
+    <h2>Dynamic Rule — Record/Field</h2>
+    <div class="kv"><span class="kl">Record</span><span class="kv-val"><a class="obj-link" href="/admin/record/${esc(item.recname)}">${esc(item.recname||'—')}</a></span></div>
+    <div class="kv"><span class="kl">Field</span><span class="kv-val">${esc(item.fieldname||'—')}</span></div>`;
+  }
+
+  if (item.pc_function_name) {
+    h += `
+    <h2>PeopleCode Rule</h2>
+    <div class="kv"><span class="kl">Function</span><span class="kv-val">${esc(item.pc_function_name)}</span></div>
+    <div class="kv"><span class="kl">Event Type</span><span class="kv-val">${esc(item.pc_event_type||'—')}</span></div>
+    <div class="kv"><span class="kl">PeopleCode Rule Active</span><span class="kv-val">${on(item.role_pcode_rule_on)}</span></div>`;
+  }
+
+  h += `
+    <h2>Permissions</h2>
+    <div class="kv"><span class="kl">Allow Notifications</span><span class="kv-val">${yn(item.allownotify)}</span></div>
+    <div class="kv"><span class="kl">Allow Lookup</span><span class="kv-val">${yn(item.allowlookup)}</span></div>
+    <div class="kv"><span class="kl">LDAP Rule Active</span><span class="kv-val">${on(item.ldap_rule_on)}</span></div>`;
+
+  if (item.descrlong) {
+    h += `<h2>Description</h2><div style="font-size:12px;color:#8ab;line-height:1.6;white-space:pre-wrap;">${esc(item.descrlong)}</div>`;
+  }
+
+  $('tblOverview').innerHTML = h;
+}
+
+function renderMembers(items, warns) {
+  let h = warns.filter(w => w.message).map(w => `<div class="warn-msg">&#9888; ${esc(w.message)}</div>`).join('');
+  if (!items.length) {
+    $('tblMembers').innerHTML = h + '<div class="empty">No members (this role may be assigned dynamically via query, or no users have been assigned).</div>';
+    return;
+  }
+  const rows = items.map(r => `<tr>
+    <td class="mono"><a class="obj-link" href="/admin/tracing?oprid=${esc(r.roleuser)}&env=${esc(env())}">${esc(r.roleuser)}</a></td>
+    <td style="font-size:10px;">${r.dynamic_sw === 'Y' ? '<span style="color:#ffaa00;">Dynamic</span>' : 'Static'}</td>
+    <td><a class="obj-link" href="/admin/object/operator/${esc(r.roleuser)}" style="font-size:10px;">Profile &#8599;</a></td>
+  </tr>`).join('');
+  $('tblMembers').innerHTML = h + `<table><thead><tr>
+    <th>User (OPRID)</th><th>Assignment Type</th><th>Links</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderPermlists(items, warns) {
+  let h = warns.filter(w => w.message).map(w => `<div class="warn-msg">&#9888; ${esc(w.message)}</div>`).join('');
+  if (!items.length) {
+    $('tblPermlists').innerHTML = h + '<div class="empty">No permission lists found (PSROLECLASS not accessible, or role has no permission lists).</div>';
+    return;
+  }
+  const rows = items.map(r => `<tr>
+    <td class="mono"><a class="obj-link" href="/admin/object/permissionlist/${esc(r.classid)}">${esc(r.classid)}</a></td>
+    <td style="font-size:10px;">${r.dynamic_sw === 'Y' ? '<span style="color:#ffaa00;">Dynamic</span>' : 'Static'}</td>
+  </tr>`).join('');
+  $('tblPermlists').innerHTML = h + `<table><thead><tr>
+    <th>Permission List</th><th>Type</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function setTab(name) {
+  ['overview','members','permlists'].forEach(n => {
+    const tab = document.querySelector(`.tab[onclick*="${n}"]`);
+    if (tab) tab.classList.toggle('on', n === name);
+    const cap = n.charAt(0).toUpperCase() + n.slice(1);
+    const p = $(`pane${cap}`);
+    if (p) p.classList.toggle('on', n === name);
+  });
+}
+
+(async () => {
+  try {
+    const cfg = await api('/api/runtime/config').catch(() => ({envs:['HCM','FSCM']}));
+    $('envSel').innerHTML = (cfg.envs||['HCM','FSCM']).map(e => `<option value="${e}">${e}</option>`).join('');
+  } catch(e) {
+    $('envSel').innerHTML = '<option value="HCM">HCM</option>';
+  }
+
+  // Pre-load all roles in sidebar on start
+  doSearch();
+
+  // URL param: /admin/role/ROLENAME
+  const params = new URLSearchParams(window.location.search);
+  const rParam = params.get('role');
+  const pathMatch = window.location.pathname.match(/\\/admin\\/role\\/(.+)$/);
+  const roleName = rParam || (pathMatch ? decodeURIComponent(pathMatch[1]) : null);
+  if (roleName) {
+    $('searchInput').value = roleName;
+    await doSearch();
+    const el = document.getElementById(`ri_${roleName}`);
+    loadRole(roleName, el || null);
+  }
+})();
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/peoplecode", response_class=HTMLResponse)
+@router.get("/peoplecode/{reference:path}", response_class=HTMLResponse)
+def admin_peoplecode(reference: str = None):
+    return """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>PeopleCode Explorer — DeathStar</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0d0d;color:#ccc;font-family:monospace;font-size:13px}
+nav{padding:8px 16px;background:#111;border-bottom:1px solid #222;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+nav a{color:#7bf;text-decoration:none;font-size:12px}
+nav a:hover{color:#fff}
+.topbar{display:flex;gap:8px;padding:12px 16px;background:#111;border-bottom:1px solid #222;align-items:center;flex-wrap:wrap}
+.topbar input,.topbar select{background:#1a1a1a;border:1px solid #333;color:#ccc;padding:5px 8px;font-family:monospace;font-size:12px;border-radius:3px}
+.topbar input[type=text]{width:280px}
+.topbar button{background:#1a3a5a;border:1px solid #336;color:#8cf;padding:5px 14px;cursor:pointer;border-radius:3px;font-size:12px}
+.topbar button:hover{background:#2a4a7a}
+.chip-row{display:flex;gap:6px;flex-wrap:wrap;padding:8px 16px;background:#111;border-bottom:1px solid #222}
+.type-chip{padding:3px 9px;border-radius:10px;font-size:11px;cursor:pointer;border:1px solid;opacity:0.5;transition:opacity .15s}
+.type-chip.on{opacity:1}
+.layout{display:flex;height:calc(100vh - 130px)}
+.sidebar{width:400px;min-width:280px;border-right:1px solid #222;overflow-y:auto;flex-shrink:0}
+.detail-pane{flex:1;overflow-y:auto;padding:16px}
+.result-item{padding:8px 12px;border-bottom:1px solid #1a1a1a;cursor:pointer;display:flex;flex-direction:column;gap:3px}
+.result-item:hover{background:#151515}
+.result-item.selected{background:#1a2a3a}
+.result-name{font-size:12px;color:#e0e0e0;font-family:monospace}
+.result-detail{font-size:11px;color:#556;display:flex;gap:8px;align-items:center}
+.type-badge{padding:1px 6px;border-radius:8px;font-size:10px;border:1px solid}
+.event-badge{color:#aaa;font-size:10px}
+.parent-badge{color:#888;font-size:10px}
+.muted{color:#444;padding:16px;font-size:11px}
+.stat{color:#667;font-size:11px;padding:4px 12px}
+.obj-card{background:#111;border:1px solid #222;border-radius:4px;padding:16px;margin-bottom:12px}
+.obj-card h3{color:#8ab;font-size:13px;margin-bottom:10px}
+.kl{color:#667;font-size:11px;width:130px;display:inline-block}
+.kv{padding:3px 0}
+.kv-val{color:#ccc}
+.kv-val a{color:#7bf;text-decoration:none}
+.kv-val a:hover{color:#fff}
+.ref{font-size:11px;color:#556;font-family:monospace;word-break:break-all}
+pre{background:#0a0a0a;border:1px solid #222;padding:12px;border-radius:3px;overflow-x:auto;font-size:11px;line-height:1.5;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<nav>
+  <a href="/admin">Home</a>
+  <a href="/admin/object">Objects</a>
+  <a href="/admin/record">Records</a>
+  <a href="/admin/field">Fields</a>
+  <a href="/admin/peoplecode">PeopleCode</a>
+  <a href="/admin/role">Roles</a>
+  <a href="/admin/operator">Operators</a>
+  <a href="/admin/ib">IB Explorer</a>
+</nav>
+
+<div class="topbar">
+  <select id="envSel"><option value="HCM">HCM</option><option value="FSCM">FSCM</option></select>
+  <input type="text" id="searchQ" placeholder="Search PeopleCode (name, event, object)..." oninput="schedSearch()">
+  <button onclick="doSearch()">Search</button>
+  <span id="resultCount" class="stat"></span>
+</div>
+
+<div class="chip-row" id="typeChips"></div>
+
+<div class="layout">
+  <div class="sidebar">
+    <div id="results"><div class="muted">Enter a search term to find PeopleCode programs.</div></div>
+  </div>
+  <div class="detail-pane" id="detail">
+    <div class="muted">Select a PeopleCode program to view details.</div>
+  </div>
+</div>
+
+<script>
+const TYPE_COLORS = {
+  'Record':              {bg:'#001830', border:'#00e5ff44', color:'#8ab'},
+  'Component':           {bg:'#1a1800', border:'#aaaa00',   color:'#aaaa00'},
+  'Application Engine':  {bg:'#0d1a00', border:'#44aa00',   color:'#88cc55'},
+  'Handler':             {bg:'#001a14', border:'#00cc88',    color:'#00cc88'},
+  'Subscription':        {bg:'#1a0030', border:'#cc66ff',    color:'#cc66ff'},
+  'Component Interface': {bg:'#1a0010', border:'#ff4488',    color:'#ff88aa'},
+  'Menu':                {bg:'#1a1000', border:'#cc8800',    color:'#ccaa55'},
+  'Application Package': {bg:'#001a18', border:'#00aaaa',    color:'#00aaaa'},
+};
+
+let _allTypes = new Set();
+let _activeTypes = new Set();
+let _searchTimer = null;
+let _items = [];
+let _selectedRef = null;
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function api(url) { return fetch(url).then(r => r.json()); }
+function env() { return document.getElementById('envSel').value; }
+
+function schedSearch() {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(doSearch, 350);
+}
+
+function buildTypeChips() {
+  const row = document.getElementById('typeChips');
+  row.innerHTML = '';
+  [..._allTypes].sort().forEach(t => {
+    const cfg = TYPE_COLORS[t] || {bg:'#111', border:'#555', color:'#aaa'};
+    const chip = document.createElement('span');
+    chip.className = 'type-chip' + (_activeTypes.has(t) ? ' on' : '');
+    chip.style.cssText = `background:${cfg.bg};border-color:${cfg.border};color:${cfg.color}`;
+    chip.textContent = t;
+    chip.onclick = () => toggleType(t);
+    row.appendChild(chip);
+  });
+}
+
+function toggleType(t) {
+  if (_activeTypes.has(t)) _activeTypes.delete(t);
+  else _activeTypes.add(t);
+  buildTypeChips();
+  renderResults();
+}
+
+function renderResults() {
+  const results = document.getElementById('results');
+  const filtered = _activeTypes.size > 0
+    ? _items.filter(i => _activeTypes.has(i.object_type_label))
+    : _items;
+
+  document.getElementById('resultCount').textContent =
+    `${filtered.length} / ${_items.length} programs`;
+
+  if (!filtered.length) {
+    results.innerHTML = '<div class="muted">No results.</div>';
+    return;
+  }
+  results.innerHTML = filtered.map(item => {
+    const cfg = TYPE_COLORS[item.object_type_label] || {bg:'#111', border:'#555', color:'#aaa'};
+    const isSelected = item.encoded_reference === _selectedRef;
+    return `<div class="result-item${isSelected ? ' selected' : ''}" onclick="loadPC(${JSON.stringify(item.encoded_reference)})">
+      <div class="result-name">${esc(item.reference || item.objectvalue1)}</div>
+      <div class="result-detail">
+        <span class="type-badge" style="background:${cfg.bg};border-color:${cfg.border};color:${cfg.color}">${esc(item.object_type_label)}</span>
+        ${item.event_label || item.event ? `<span class="event-badge">${esc(item.event_label || item.event)}</span>` : ''}
+        ${item.parent_name ? `<span class="parent-badge">→ ${esc(item.parent_name)}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function doSearch() {
+  const q = document.getElementById('searchQ').value.trim();
+  if (!q) {
+    document.getElementById('results').innerHTML = '<div class="muted">Enter a search term.</div>';
+    document.getElementById('resultCount').textContent = '';
+    return;
+  }
+  document.getElementById('results').innerHTML = '<div class="muted">Searching...</div>';
+
+  const data = await api(`/api/peoplesoft/peoplecode?env=${env()}&q=${encodeURIComponent(q)}&limit=200`).catch(() => ({items:[]}));
+  _items = data.items || [];
+
+  // Collect types
+  _allTypes = new Set(_items.map(i => i.object_type_label).filter(Boolean));
+  // Reset active types to all
+  _activeTypes = new Set();
+  buildTypeChips();
+  renderResults();
+}
+
+async function loadPC(encodedRef) {
+  _selectedRef = encodedRef;
+  renderResults();
+
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  // Update URL
+  history.replaceState(null, '', `/admin/peoplecode/${encodeURIComponent(encodedRef)}`);
+
+  const data = await api(`/api/peoplesoft/object/peoplecode/${encodeURIComponent(encodedRef)}?env=${env()}`).catch(e => null);
+  if (!data) {
+    detail.innerHTML = '<div class="muted">Failed to load.</div>';
+    return;
+  }
+
+  const uom = data._uom || {};
+  const raw = uom._metadata?.raw || {};
+  const rels = uom._relationships || {};
+  const cfg = TYPE_COLORS[raw.object_type_label] || {bg:'#111', border:'#555', color:'#aaa'};
+
+  let h = `<div class="obj-card">
+    <h3>
+      <span class="type-badge" style="background:${cfg.bg};border-color:${cfg.border};color:${cfg.color};margin-right:6px">${esc(raw.object_type_label)}</span>
+      ${esc(raw.reference || uom.name)}
+    </h3>
+    <div class="ref">${esc(raw.reference || '')}</div>
+    <div style="margin-top:10px">
+      <div class="kv"><span class="kl">Event</span><span class="kv-val">${esc(raw.event_label || raw.event || '—')}</span></div>
+      <div class="kv"><span class="kl">Scope</span><span class="kv-val">${esc(raw.event_scope || '—')}</span></div>
+      <div class="kv"><span class="kl">Subtype</span><span class="kv-val">${esc(raw.subtype || '—')}</span></div>
+      <div class="kv"><span class="kl">Path</span><span class="kv-val">${esc(raw.semantic_path_text || '—')}</span></div>
+      <div class="kv"><span class="kl">Parent Type</span><span class="kv-val">${esc(raw.parent_type || '—')}</span></div>
+      <div class="kv"><span class="kl">Parent</span><span class="kv-val">${raw.parent_name && raw.parent_type
+        ? `<a href="/admin/object/${esc(raw.parent_type)}/${encodeURIComponent(raw.parent_name)}">${esc(raw.parent_name)}</a>`
+        : esc(raw.parent_name || '—')}</span></div>
+      <div class="kv"><span class="kl">Last Updated</span><span class="kv-val">${esc(raw.lastupddttm || '—')}</span></div>
+      <div class="kv"><span class="kl">Updated By</span><span class="kv-val">${esc(raw.lastupdoprid || '—')}</span></div>
+    </div>
+    <div style="margin-top:10px">
+      <a href="/admin/object/peoplecode/${encodeURIComponent(encodedRef)}" style="color:#7bf;font-size:11px">Open in Object Explorer →</a>
+    </div>
+  </div>`;
+
+  // Source
+  const src = raw.source;
+  if (src) {
+    h += `<div class="obj-card"><h3>Source</h3><pre>${highlightPeopleCode(src)}</pre></div>`;
+  } else {
+    h += `<div class="obj-card"><h3>Source</h3><div class="muted">Source not available (PSPCMTXT may not be accessible or this program has no text).</div></div>`;
+  }
+
+  // References
+  const refs = rels.references || {};
+  const refItems = Object.entries(refs).flatMap(([type, names]) =>
+    names.map(n => ({type, name: n}))
+  );
+  if (refItems.length) {
+    h += `<div class="obj-card"><h3>References (${refItems.length})</h3>`;
+    refItems.forEach(r => {
+      const url = `/admin/object/${encodeURIComponent(r.type)}/${encodeURIComponent(r.name)}`;
+      h += `<div class="kv"><span class="kl">${esc(r.type)}</span><span class="kv-val"><a href="${esc(url)}">${esc(r.name)}</a></span></div>`;
+    });
+    h += '</div>';
+  }
+
+  // Calls
+  const calls = rels.calls || [];
+  if (calls.length) {
+    h += `<div class="obj-card"><h3>Calls (${calls.length})</h3>`;
+    calls.forEach(c => { h += `<div class="kv"><span class="kl">${esc(c.name)}</span><span class="kv-val">${esc(c.count)}</span></div>`; });
+    h += '</div>';
+  }
+
+  detail.innerHTML = h;
+}
+
+function highlightPeopleCode(source) {
+    if (!source) return '';
+    function esc2(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    const KEYWORDS = /\\b(If|Else|ElseIf|End-If|For|End-For|While|End-While|Break|Return|Function|End-Function|Local|Global|Component|import|class|method|property|get|set|End-class|try|catch|End-try|throw|CreateObject|GetLevel0|GetRowset|CreateRowset|CreateRecord|CreateArray|CreateSQL|GetSQL|SQLExec|MessageBox|WinMessage|Error|Warning|CallAppEngine|Transfer|DoModal|DoSaveNow|CommitWork|RetrieveFile|PutFile)\\b/g;
+    const BUILTINS = /\\b(SQLExec|CreateSQL|GetSQL|CallAppEngine|Transfer|DoModal|CreateRecord|GetRecord|GetField|GetComponent|GetRowset|GetLevel0|MessageBox|WinMessage|CommitWork|Error|Warning|CreateObject|CreateArray|CreateRowset|Substring|Len|Left|Right|Upper|Lower|NumberToString|StringToNumber|Char|Code|Find|DateAdd|DateDiff|Date|Time|DateTime|Today|Now|IsDate|IsNumber|MsgGet|MsgGetText)\\b/g;
+    const parts = [];
+    let i = 0;
+    while (i < source.length) {
+      if (source.startsWith('/*', i)) {
+        const e = source.indexOf('*/', i+2); const en = e<0?source.length:e+2;
+        parts.push(`<span style="color:#6a9955">${esc2(source.slice(i,en))}</span>`); i=en;
+      } else if (source[i] === '"') {
+        let j=i+1; while(j<source.length&&source[j]!=='"')j++;
+        parts.push(`<span style="color:#ce9178">${esc2(source.slice(i,j+1))}</span>`); i=j+1;
+      } else {
+        let j=i+1; while(j<source.length&&source[j]!=='"'&&!source.startsWith('/*',j))j++;
+        let chunk = esc2(source.slice(i,j));
+        chunk = chunk.replace(KEYWORDS, m=>`<span style="color:#569cd6">${m}</span>`);
+        chunk = chunk.replace(BUILTINS, m=>`<span style="color:#dcdcaa">${m}</span>`);
+        chunk = chunk.replace(/\\b(\\d+(\\.\\d+)?)\\b/g, m=>`<span style="color:#b5cea8">${m}</span>`);
+        parts.push(chunk); i=j;
+      }
+    }
+    return parts.join('');
+}
+
+(async () => {
+  // Env selector
+  const cfg = await api('/api/peoplesoft/summary').catch(() => null);
+  if (cfg?.environments) {
+    document.getElementById('envSel').innerHTML = cfg.environments
+      .map(e => `<option value="${e}">${e}</option>`).join('');
+  }
+
+  // URL param: /admin/peoplecode/REFERENCE
+  const params = new URLSearchParams(window.location.search);
+  const pathMatch = window.location.pathname.match(/\\/admin\\/peoplecode\\/(.+)$/);
+  const initRef = params.get('ref') || (pathMatch ? decodeURIComponent(pathMatch[1]) : null);
+  const initQ = params.get('q') || '';
+
+  if (initQ) {
+    document.getElementById('searchQ').value = initQ;
+    await doSearch();
+  }
+  if (initRef) {
+    await loadPC(initRef);
+  }
+})();
+</script>
+</body>
+</html>
+"""

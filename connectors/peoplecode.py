@@ -1,0 +1,649 @@
+import re
+from urllib.parse import quote, unquote
+
+from connectors import psdb, ptmetadata
+
+PEOPLECODE_OBJECT_TYPES = {
+    1:  "Record",
+    3:  "Menu",
+    8:  "Page",
+    9:  "Component",
+    10: "Component",
+    43: "Menu",
+    46: "Menu Item",
+    58: "Component Interface",
+    60: "Subscription",       # IB subscription PeopleCode (OV1=service_op, OV3="Subscription")
+    66: "Application Engine", # AE PeopleCode (OV1=applid, OV2=section, OV6=step, OV7=OnExecute)
+    74: "Component Interface",
+    104: "Handler",           # IB handler PeopleCode (OV1=service_op, OV3=OnExecute)
+}
+
+# Known PeopleCode event names (uppercase for comparison)
+PEOPLECODE_EVENTS = {
+    "FIELDDEFAULT", "FIELDFORMULA", "FIELDEDIT", "FIELDCHANGE",
+    "ROWINIT", "ROWINSERT", "ROWDELETE", "ROWSELECT",
+    "SAVEPRECHANGE", "SAVEPOSTCHANGE", "SAVEEDIT", "WORKFLOW",
+    "PREBUILD", "POSTBUILD",
+    "ACTIVATE",
+    "ITEMSELECTED",
+    "ONEXECUTE", "ONNOTIFY", "ONSELECT",
+    "SEARCHINIT", "SEARCHSAVE",
+    "ROWACTION",
+}
+
+PEOPLECODE_EVENT_LABELS = {
+    "FIELDDEFAULT": "FieldDefault",
+    "FIELDFORMULA": "FieldFormula",
+    "FIELDEDIT": "FieldEdit",
+    "FIELDCHANGE": "FieldChange",
+    "ROWINIT": "RowInit",
+    "ROWINSERT": "RowInsert",
+    "ROWDELETE": "RowDelete",
+    "ROWSELECT": "RowSelect",
+    "SAVEPRECHANGE": "SavePreChange",
+    "SAVEPOSTCHANGE": "SavePostChange",
+    "SAVEEDIT": "SaveEdit",
+    "WORKFLOW": "Workflow",
+    "PREBUILD": "PreBuild",
+    "POSTBUILD": "PostBuild",
+    "ACTIVATE": "Activate",
+    "ITEMSELECTED": "ItemSelected",
+    "ONEXECUTE": "OnExecute",
+    "ONNOTIFY": "OnNotify",
+    "ONSELECT": "OnSelect",
+    "SEARCHINIT": "SearchInit",
+    "SEARCHSAVE": "SearchSave",
+    "ROWACTION": "RowAction",
+}
+
+CALL_NAMES = [
+    "SQLExec",
+    "CreateSQL",
+    "GetSQL",
+    "CallAppEngine",
+    "Transfer",
+    "DoSave",
+    "DoModal",
+    "CreateRecord",
+    "GetRecord",
+    "GetField",
+    "GetComponent",
+    "GetRowset",
+    "GetLevel0",
+    "MessageBox",
+    "WinMessage",
+]
+
+REFERENCE_PATTERNS = {
+    "record": re.compile(r"\b(?:CreateRecord|GetRecord)\s*\(\s*Record\.([A-Z0-9_]+)", re.I),
+    "field": re.compile(r"\b(?:GetField)\s*\(\s*Field\.([A-Z0-9_]+)", re.I),
+    "sql_definition": re.compile(r"\b(?:GetSQL|CreateSQL|SQLExec)\s*\(\s*SQL\.([A-Z0-9_]+)", re.I),
+    "application_engine": re.compile(r"\bCallAppEngine\s*\(\s*['\"]?([A-Z0-9_]+)", re.I),
+    "component": re.compile(r"\bTransfer\s*\([^)]*Component\.([A-Z0-9_]+)", re.I),
+    "application_package": re.compile(r"\bimport\s+([A-Z0-9_:]+)", re.I),
+    "service_operation": re.compile(r"\b(?:CreateMessage|GetMessage)\s*\(\s*(?:Operation\.)?([A-Z0-9_]+)", re.I),
+}
+
+
+def encode_reference(reference):
+    return quote(reference, safe="")
+
+
+def decode_reference(reference):
+    return unquote(reference).upper()
+
+
+def warning(code, message, detail=None):
+    return ptmetadata.warning(code, message, detail=detail)
+
+
+def source_tables_available(env):
+    return {
+        "pspcmprog": ptmetadata.has_table(env, "PSPCMPROG"),
+        "pspcmtxt": ptmetadata.has_table(env, "PSPCMTXT"),
+        "pspcmname": ptmetadata.has_table(env, "PSPCMNAME"),
+        "pspcmdefn": ptmetadata.has_table(env, "PSPCMDEFN"),
+    }
+
+
+def capabilities(env):
+    tables = source_tables_available(env)
+    warnings = []
+    if not tables["pspcmprog"]:
+        warnings.append(warning(
+            "peoplecode_metadata_unavailable",
+            "PSPCMPROG is unavailable. PeopleCode metadata search will return no rows.",
+        ))
+    if not tables["pspcmtxt"]:
+        warnings.append(warning(
+            "peoplecode_source_unavailable",
+            "PSPCMTXT is unavailable. PeopleCode source text cannot be reconstructed.",
+        ))
+    return {
+        "tables": tables,
+        "warnings": warnings,
+    }
+
+
+def safe_columns(env, table_name, candidates, required=None):
+    try:
+        return psdb.select_existing_columns(env, table_name, candidates, required=required or [])
+    except Exception:
+        return required or []
+
+
+def reference_from_row(row):
+    values = []
+
+    for key in (
+        "objectvalue1",
+        "objectvalue2",
+        "objectvalue3",
+        "objectvalue4",
+        "objectvalue5",
+        "objectvalue6",
+        "objectvalue7",
+        "progseq",
+    ):
+        value = row.get(key)
+        if value not in (None, "", " "):
+            values.append(str(value).strip())
+
+    if not values:
+        for key in ("objectid1", "objectid2", "objectid3", "objectid4"):
+            value = row.get(key)
+            if value not in (None, "", " "):
+                values.append(str(value).strip())
+
+    return ".".join(values).upper() if values else None
+
+
+def parent_from_reference(reference):
+    parts = reference.split(".")
+    if not parts:
+        return {}
+
+    first = parts[0].lower()
+
+    if first == "record" and len(parts) >= 2:
+        parent = {"type": "record", "name": parts[1]}
+        if len(parts) >= 3:
+            parent = {"type": "field", "name": f"{parts[1]}.{parts[2]}"}
+        return parent
+
+    if first == "component" and len(parts) >= 2:
+        return {"type": "component", "name": parts[1]}
+
+    if first in ("page", "panel") and len(parts) >= 2:
+        return {"type": "page", "name": parts[1]}
+
+    if first == "ae" and len(parts) >= 2:
+        return {"type": "application_engine", "name": parts[1]}
+
+    if first == "funclib" and len(parts) >= 2:
+        return {"type": "record", "name": parts[1]}
+
+    return {}
+
+
+def extract_event(row):
+    """Find the PeopleCode event name by scanning objectvalue columns for known events."""
+    for key in ("objectvalue7", "objectvalue6", "objectvalue5", "objectvalue4", "objectvalue3", "objectvalue2"):
+        val = (row.get(key) or "").strip()
+        if val.upper() in PEOPLECODE_EVENTS:
+            return val
+    # fallback: last non-blank objectvalue
+    for key in ("objectvalue5", "objectvalue4", "objectvalue3"):
+        val = (row.get(key) or "").strip()
+        if val:
+            return val
+    return None
+
+
+def event_label(event):
+    if not event:
+        return None
+    return PEOPLECODE_EVENT_LABELS.get(str(event).strip().upper(), event)
+
+
+def _clean_value(row, key):
+    val = row.get(key)
+    if val in (None, "", " "):
+        return None
+    return str(val).strip()
+
+
+def _path_item(kind, name):
+    return {"kind": kind, "name": name} if name else None
+
+
+def decode_semantic_path(row):
+    """Decode PSPCMPROG objectvalue slots into a stable semantic path."""
+    try:
+        oid1 = int(row.get("objectid1"))
+    except (TypeError, ValueError):
+        oid1 = None
+
+    ov = {i: _clean_value(row, f"objectvalue{i}") for i in range(1, 8)}
+    event = extract_event(row)
+    event_norm = event.upper() if event else None
+    path = []
+    event_scope = None
+    subtype = None
+
+    if oid1 == 1:
+        path = [
+            _path_item("record", ov[1]),
+            _path_item("field", ov[2]),
+            _path_item("event", event_label(event)),
+        ]
+        event_scope = "record_field" if ov[2] else "record"
+    elif oid1 == 3:
+        path = [
+            _path_item("menu", ov[1]),
+            _path_item("menu_item_slot", ov[2]),
+            _path_item("menu_item", ov[3]),
+            _path_item("event", event_label(event)),
+        ]
+        event_scope = "menu_item"
+    elif oid1 == 9:
+        path = [
+            _path_item("component", ov[1]),
+            _path_item("event", event_label(event)),
+        ]
+        event_scope = "component"
+    elif oid1 == 10:
+        path = [_path_item("component", ov[1]), _path_item("market", ov[2])]
+        if event_norm == (ov[3] or "").upper():
+            path.append(_path_item("event", event_label(event)))
+            event_scope = "component_market"
+        elif event_norm == (ov[4] or "").upper():
+            path.extend([_path_item("record", ov[3]), _path_item("event", event_label(event))])
+            event_scope = "component_record"
+        else:
+            path.extend([
+                _path_item("record", ov[3]),
+                _path_item("field", ov[4]),
+                _path_item("event", event_label(event)),
+            ])
+            event_scope = "component_record_field"
+    elif oid1 == 60:
+        subtype = event_label(ov[3]) or "Subscription"
+        path = [
+            _path_item("service_operation", ov[1]),
+            _path_item("subscription", ov[2]),
+            _path_item("event", subtype),
+        ]
+        event_scope = "ib_subscription"
+    elif oid1 == 66:
+        path = [
+            _path_item("application_engine", ov[1]),
+            _path_item("section", ov[2]),
+            _path_item("market", ov[3]),
+            _path_item("database_type", ov[4]),
+            _path_item("effective_date", ov[5]),
+            _path_item("step", ov[6]),
+            _path_item("event", event_label(event)),
+        ]
+        event_scope = "application_engine_step"
+    elif oid1 == 74:
+        subtype = event_label(ov[2]) or ov[2]
+        path = [
+            _path_item("component_interface", ov[1]),
+            _path_item("event", subtype),
+        ]
+        event_scope = "component_interface"
+    elif oid1 == 104:
+        path = [
+            _path_item("service_operation", ov[1]),
+            _path_item("handler", ov[2]),
+            _path_item("event", event_label(event)),
+        ]
+        event_scope = "ib_handler"
+    else:
+        path = [_path_item(f"objectvalue{i}", ov[i]) for i in range(1, 8)]
+
+    path = [item for item in path if item and item.get("name")]
+    return {
+        "event_label": event_label(event),
+        "event_scope": event_scope,
+        "subtype": subtype,
+        "semantic_path": path,
+        "semantic_path_text": " / ".join(item["name"] for item in path),
+    }
+
+
+_OID1_PARENT_TYPES = {
+    1:  "record",
+    3:  "menu",
+    8:  "page",
+    9:  "component",
+    10: "component",
+    43: "menu",
+    58: "component_interface",
+    60: "service_operation",    # IB subscription PeopleCode: OV1 = service op name
+    66: "application_engine",   # AE PeopleCode: OV1 = AE applid
+    74: "component_interface",
+    104: "service_operation",   # IB handler PeopleCode: OV1 = service op name
+}
+
+
+def normalize_program(row, source=None):
+    reference = row.get("reference") or reference_from_row(row)
+    if not reference:
+        reference = f"peoplecode.{row.get('progseq') or row.get('objectid1') or 'unknown'}"
+
+    reference = reference.upper()
+    parent = parent_from_reference(reference)
+
+    oid1 = row.get("objectid1")
+    object_type_label = PEOPLECODE_OBJECT_TYPES.get(
+        int(oid1) if oid1 is not None else -1, f"Type {oid1}"
+    )
+
+    # Derive parent from objectid1 + objectvalue1 when reference-based detection misses
+    ov1 = (row.get("objectvalue1") or "").strip()
+    if oid1 is not None and ov1 and not parent.get("type"):
+        derived = _OID1_PARENT_TYPES.get(int(oid1))
+        if derived:
+            parent = {"type": derived, "name": ov1}
+
+    decoded = decode_semantic_path(row)
+
+    return {
+        **row,
+        "reference": reference,
+        "encoded_reference": encode_reference(reference),
+        "parent_type": parent.get("type"),
+        "parent_name": parent.get("name"),
+        "object_type_label": object_type_label,
+        "event": extract_event(row),
+        **decoded,
+        "source": source,
+    }
+
+
+def programs(env, q="", limit=100):
+    limit = max(1, min(int(limit), 500))
+    caps = capabilities(env)
+    if not caps["tables"]["pspcmprog"]:
+        return {
+            "items": [],
+            "warnings": caps["warnings"],
+        }
+
+    candidates = [
+        "OBJECTID1",
+        "OBJECTID2",
+        "OBJECTID3",
+        "OBJECTID4",
+        "OBJECTVALUE1",
+        "OBJECTVALUE2",
+        "OBJECTVALUE3",
+        "OBJECTVALUE4",
+        "OBJECTVALUE5",
+        "OBJECTVALUE6",
+        "OBJECTVALUE7",
+        "PROGSEQ",
+        "LASTUPDDTTM",
+        "LASTUPDOPRID",
+    ]
+    columns = safe_columns(env, "PSPCMPROG", candidates)
+    if not columns:
+        return {
+            "items": [],
+            "warnings": [warning("peoplecode_columns_unavailable", "No readable PSPCMPROG columns were detected.")],
+        }
+
+    predicates = []
+    params = {}
+    if q:
+        params["q"] = f"%{q.upper()}%"
+        for col in columns:
+            predicates.append(f"upper(to_char({col})) like :q")
+    where_clause = f"where {' or '.join(predicates)}" if predicates else ""
+
+    try:
+        rows = psdb.query(env, f"""
+            select {", ".join(columns)}
+              from sysadm.pspcmprog
+              {where_clause}
+             fetch first {limit} rows only
+        """, params)
+    except Exception as exc:
+        return {
+            "items": [],
+            "warnings": [warning("peoplecode_metadata_unavailable", str(exc))],
+        }
+
+    items = [normalize_program(row) for row in rows]
+    if q and caps["tables"]["pspcmtxt"]:
+        text_rows = source_search(env, q, limit)
+        seen = {item["reference"] for item in items}
+        for item in text_rows["items"]:
+            if item["reference"] not in seen:
+                items.append(item)
+                seen.add(item["reference"])
+    return {
+        "items": items[:limit],
+        "warnings": caps["warnings"],
+    }
+
+
+def source_search(env, q, limit=100):
+    columns = safe_columns(
+        env,
+        "PSPCMTXT",
+        ["OBJECTVALUE1", "OBJECTVALUE2", "OBJECTVALUE3", "OBJECTVALUE4", "PROGSEQ", "PROGTXT", "TXT", "TEXT", "LINE_NBR"],
+    )
+    text_col = next((col for col in ("PROGTXT", "TXT", "TEXT") if col in columns), None)
+    if not text_col:
+        return {"items": [], "warnings": [warning("peoplecode_source_unavailable", "No source text column found in PSPCMTXT.")]}
+
+    try:
+        rows = psdb.query(env, f"""
+            select {", ".join(columns)}
+              from sysadm.pspcmtxt
+             where upper({text_col}) like :q
+             fetch first {max(1, min(int(limit), 500))} rows only
+        """, {"q": f"%{q.upper()}%"})
+    except Exception as exc:
+        return {"items": [], "warnings": [warning("peoplecode_source_unavailable", str(exc))]}
+
+    return {
+        "items": [normalize_program(row, source=row.get(text_col.lower())) for row in rows],
+        "warnings": [],
+    }
+
+
+def program(reference, env):
+    reference = decode_reference(reference)
+    # Search by the first component (object name); the full dotted reference won't match
+    # any single PSPCMPROG column, so we anchor on OV1 then filter for exact reference.
+    first_component = reference.split(".")[0]
+    rows = programs(env, first_component, 500)
+    for row in rows["items"]:
+        if row["reference"] == reference:
+            source = source_for_reference(env, row)
+            return {
+                "item": normalize_program(row, source=source.get("source")),
+                "warnings": rows["warnings"] + source["warnings"],
+            }
+
+    parent = parent_from_reference(reference)
+    return {
+        "item": {
+            "reference": reference,
+            "encoded_reference": encode_reference(reference),
+            "parent_type": parent.get("type"),
+            "parent_name": parent.get("name"),
+            "source": None,
+        },
+        "warnings": rows["warnings"] + [warning("peoplecode_not_found", "PeopleCode metadata was not found for this reference.")],
+    }
+
+
+def source_for_reference(env, program_row):
+    caps = capabilities(env)
+    if not caps["tables"]["pspcmtxt"]:
+        return {
+            "source": None,
+            "warnings": [warning("peoplecode_source_unavailable", "PSPCMTXT is unavailable.")],
+        }
+
+    columns = safe_columns(
+        env,
+        "PSPCMTXT",
+        ["OBJECTVALUE1", "OBJECTVALUE2", "OBJECTVALUE3", "OBJECTVALUE4", "PROGSEQ", "PROGTXT", "TXT", "TEXT", "LINE_NBR"],
+    )
+    text_col = next((col for col in ("PROGTXT", "TXT", "TEXT") if col in columns), None)
+    if not text_col:
+        return {
+            "source": None,
+            "warnings": [warning("peoplecode_source_unavailable", "No source text column found in PSPCMTXT.")],
+        }
+
+    predicates = []
+    params = {}
+    for key in ("objectvalue1", "objectvalue2", "objectvalue3", "objectvalue4", "progseq"):
+        col = key.upper()
+        if col in columns and program_row.get(key) not in (None, "", " "):
+            predicates.append(f"{col} = :{key}")
+            params[key] = program_row.get(key)
+
+    if not predicates:
+        return {
+            "source": program_row.get("source"),
+            "warnings": [warning("peoplecode_source_unavailable", "Insufficient metadata to reconstruct source text.")],
+        }
+
+    order_col = "LINE_NBR" if "LINE_NBR" in columns else "PROGSEQ" if "PROGSEQ" in columns else text_col
+
+    try:
+        rows = psdb.query(env, f"""
+            select {text_col} as source_line
+              from sysadm.pspcmtxt
+             where {" and ".join(predicates)}
+             order by {order_col}
+        """, params)
+    except Exception as exc:
+        return {
+            "source": program_row.get("source"),
+            "warnings": [warning("peoplecode_source_unavailable", str(exc))],
+        }
+
+    return {
+        "source": "\n".join(str(row.get("source_line") or "") for row in rows),
+        "warnings": [],
+    }
+
+
+def extract_calls(source):
+    if not source:
+        return []
+
+    calls = []
+    for name in CALL_NAMES:
+        pattern = re.compile(rf"\b{name}\s*\(", re.I)
+        count = len(pattern.findall(source))
+        if count:
+            calls.append({
+                "name": name,
+                "count": count,
+                "type": "function",
+            })
+    return calls
+
+
+def extract_references(source):
+    if not source:
+        return {
+            "records": [],
+            "fields": [],
+            "components": [],
+            "pages": [],
+            "sql_definitions": [],
+            "functions": [],
+            "classes": [],
+            "application_engines": [],
+            "service_operations": [],
+        }
+
+    refs = {
+        "records": sorted(set(REFERENCE_PATTERNS["record"].findall(source))),
+        "fields": sorted(set(REFERENCE_PATTERNS["field"].findall(source))),
+        "components": sorted(set(REFERENCE_PATTERNS["component"].findall(source))),
+        "pages": [],
+        "sql_definitions": sorted(set(REFERENCE_PATTERNS["sql_definition"].findall(source))),
+        "functions": [call["name"] for call in extract_calls(source)],
+        "classes": sorted(set(REFERENCE_PATTERNS["application_package"].findall(source))),
+        "application_engines": sorted(set(REFERENCE_PATTERNS["application_engine"].findall(source))),
+        "service_operations": sorted(set(REFERENCE_PATTERNS["service_operation"].findall(source))),
+    }
+    return refs
+
+
+def references(reference, env):
+    result = program(reference, env)
+    source = result["item"].get("source")
+    return {
+        "reference": result["item"]["reference"],
+        "references": extract_references(source),
+        "calls": extract_calls(source),
+        "warnings": result["warnings"],
+    }
+
+
+def graph(reference, env):
+    result = program(reference, env)
+    item = result["item"]
+    ref = item["reference"]
+    refs = extract_references(item.get("source"))
+    calls = extract_calls(item.get("source"))
+    nodes = [{
+        "id": f"peoplecode:{ref}",
+        "type": "peoplecode",
+        "name": ref,
+        "label": ref,
+        "data": item,
+        "_links": {"admin": f"/admin/object/peoplecode/{encode_reference(ref)}"},
+    }]
+    edges = []
+
+    if item.get("parent_type") and item.get("parent_name"):
+        nodes.append({
+            "id": f"{item['parent_type']}:{item['parent_name']}",
+            "type": item["parent_type"],
+            "name": item["parent_name"],
+            "label": item["parent_name"],
+            "data": {},
+            "_links": {"admin": f"/admin/object/{item['parent_type']}/{item['parent_name']}"},
+        })
+        edges.append({
+            "source": f"peoplecode:{ref}",
+            "target": f"{item['parent_type']}:{item['parent_name']}",
+            "relationship": "BELONGS_TO",
+        })
+
+    for record in refs["records"]:
+        nodes.append({"id": f"record:{record}", "type": "record", "name": record, "label": record, "data": {}, "_links": {"admin": f"/admin/object/record/{record}"}})
+        edges.append({"source": f"peoplecode:{ref}", "target": f"record:{record}", "relationship": "REFERENCES"})
+
+    for field in refs["fields"]:
+        nodes.append({"id": f"field:{field}", "type": "field", "name": field, "label": field, "data": {}, "_links": {"admin": f"/admin/object/field/{field}"}})
+        edges.append({"source": f"peoplecode:{ref}", "target": f"field:{field}", "relationship": "REFERENCES"})
+
+    for sql_name in refs["sql_definitions"]:
+        nodes.append({"id": f"sql_definition:{sql_name}", "type": "sql_definition", "name": sql_name, "label": sql_name, "data": {}, "_links": {"admin": f"/admin/object/sql_definition/{sql_name}"}})
+        edges.append({"source": f"peoplecode:{ref}", "target": f"sql_definition:{sql_name}", "relationship": "USES"})
+
+    for call in calls:
+        nodes.append({"id": f"function:{call['name'].upper()}", "type": "function", "name": call["name"], "label": call["name"], "data": call, "_links": {"admin": f"/admin/object/function/{call['name']}"}})
+        edges.append({"source": f"peoplecode:{ref}", "target": f"function:{call['name'].upper()}", "relationship": "CALLS"})
+
+    return {
+        "root": f"peoplecode:{ref}",
+        "nodes": nodes,
+        "edges": edges,
+        "warnings": result["warnings"],
+    }

@@ -1,0 +1,734 @@
+# DeathStar Implementation Roadmap
+
+> **Architecture, vision, principles, provider contracts, and long-term capabilities
+> are documented in [ARCHITECTURE.md](ARCHITECTURE.md).**
+>
+> This file tracks implementation status only.
+
+---
+
+## Module Status
+
+### Object Explorer Architecture
+
+Status: In progress.
+
+Completed:
+- Canonical admin URLs for core PeopleSoft objects:
+  - `/admin/object/operator/{name}`
+  - `/admin/object/role/{name}`
+  - `/admin/object/permissionlist/{name}`
+  - `/admin/object/component/{name}`
+  - `/admin/object/page/{name}`
+  - `/admin/object/record/{name}`
+- Reusable object payload API at `/api/peoplesoft/object/{object_type}/{object_name}`
+- Global search API at `/api/peoplesoft/search`
+- `/admin/object` search landing page
+- Reusable object page renderer with overview, actions, and sections
+- Admin links added to graph/object relationship payloads
+- Graph UI nodes navigate to canonical object pages
+
+Remaining:
+- Dedicated section renderers for PeopleCode, SQL, live usage, environment compare, reports
+- More object types: menu, field, query, Application Engine, service operation, message, node, portal registry, content reference
+- Full universal search coverage across all object types
+- Breadcrumbs and recent objects
+- Stronger visual hierarchy for large object pages
+
+---
+
+### PeopleTools Metadata Engine
+
+Status: Foundation complete.
+
+Completed:
+- `connectors/ptmetadata.py` — TTL-cached discovery connector
+- Shared warning model
+- Oracle/PeopleTools/schema version discovery
+- `has_table()`, `has_column()`, `has_view()` capability helpers
+- OBJECT_REGISTRY with discovery + search providers per object type
+- Version adapter registry (8.58–8.62)
+- Generic object resolver
+- Provider-based universal search model
+- `/api/peoplesoft/search` consumes provider model
+- Metadata diagnostics APIs under `/api/metadata`
+- `/admin/metadata` diagnostics UI
+
+Remaining:
+- Migrate existing object relationships to consume metadata relationship providers
+- Implement concrete shared relationship providers (parents, children, references, security, pages, components, records, peoplecode, menus, portal)
+- Add PeopleTools-version-specific adapters where table structures differ
+- Expand OBJECT_REGISTRY search providers to Application Engine, IB, Query, Tree, CI, Portal
+
+---
+
+### Universal Object Model (UOM)
+
+Status: Foundation started.
+
+Completed:
+- `connectors/uom.py` — canonical object composition layer
+- Canonical object schema: id, type, name, display_name, description, owner, market, version, status, warnings, _links, _relationships, _graph, _metadata
+- Field object support with full relationship set (records, pages, components, peoplecode, search_records, views, sql)
+- UOM-to-object-renderer adapter for the Object Explorer
+- Field graph provider built from UOM relationship set
+
+Completed additions (2026-06-29):
+- **Operator → UOM**: `operator_object()`, `sections_for_operator()`, `operator_payload()` in `uom.py`;
+  `/api/peoplesoft/object/operator/{name}` now UOM-driven. Sections: Identity / Roles / Permission Lists /
+  Graph Preview / Warnings. Graph: operator → roles (up to 20), operator → permission lists (up to 20).
+  `_links` includes `explorer` → `/admin/operator/{oprid}` and `tracing` → `/admin/tracing?oprid={oprid}`.
+- **Role → UOM**: `role_object()`, `sections_for_role()`, `role_payload()` in `uom.py`;
+  `/api/peoplesoft/object/role/{name}` now UOM-driven. Sections: Definition / Members / Permission Lists /
+  Graph Preview / Warnings. Graph: role → members (up to 20), role → permission lists (up to 15).
+  `_links` includes `explorer` → `/admin/role/{rolename}`.
+- **Fix `attach_graph_context` idempotency**: guards against adding duplicate "Knowledge Graph Neighbors"
+  section when called on an already-enriched payload (happens at route level for all UOM types).
+
+Remaining:
+- Migrate Permission List, Component, Page into full UOM providers (lower priority — ad-hoc payloads work)
+- Move Graph Explorer to consume UOM graph providers for every object type
+- Add shared UOM relationship provider registration
+- Add UOM schemas for Integration Broker, Query, Tree, CI, Portal objects
+
+---
+
+### Knowledge Graph Engine
+
+Status: Foundation complete.
+
+Completed:
+- `connectors/graphdb.py` — in-memory graph backend with JSON persistence
+- Node model: id, type, name, display_name, metadata, canonical URL, icon, warnings
+- Typed edges: USES, CONTAINS, BELONGS_TO, CALLS, CALLED_BY, REFERENCES, REFERENCED_BY, SECURES, EXPOSES, OWNS, DEPENDS_ON, GENERATES, READS, WRITES
+- Incremental provider-based graph builder using connector/UOM metadata
+- Providers: operators, roles, permission lists, components, pages, fields, PeopleCode, AE programs
+- Graph algorithms: neighbors, shortest path, dependency tree, reverse dependency, connected components, cycle detection, topological ordering
+- Graph exports: JSON, GraphML, DOT
+- REST APIs under `/api/graph`
+- `/admin/graphdb` diagnostics UI
+- Object Explorer enriches payloads with Knowledge Graph neighbors
+
+Remaining:
+- Add graph providers for Integration Broker, Query, Tree, CI, Portal, SQL
+- Add graph diff/snapshot support for Environment Compare integration
+- Add graph compaction/indexing for large environments
+- Richer security traversal APIs (why-user-has-access path)
+
+---
+
+### Field Explorer
+
+Status: Complete + dedicated cross-record UI added (2026-06-29).
+
+Completed:
+- Canonical Field Object Page at `/admin/object/field/{record.field}`
+- Field overview: record, field, labels, type, length, decimal positions, key/search-key flags, prompt/edit table, translate metadata, defaults, format, currency control, language sensitivity
+- Field relationships: records, pages, components, PeopleCode, search records, views, SQL
+- Field REST APIs under `/api/peoplesoft/fields`
+- Field graph provider (Field → Record → Page → Component → Permission List → Role → Operator)
+- Global search returns canonical `record.field` results
+- Metadata resolver resolves `field` object names with record-prefix fallback
+- **`/admin/field` dedicated UI (2026-06-29)**: field-name-centric search across PSRECFIELD (521k rows), stat dashboard (total records using field / SQL tables / views / keyed), three tabs (all records / keyed usage / grouped by record type with collapsible sections); field type labels from PSDBFIELD when available (graceful degradation when not); cross-link from Record Explorer's field table (`↨` icon)
+- `connectors/psdb.py`: `search_fields_distinct()`, `field_record_summary()`, `FIELDTYPE_LABELS`
+- `routers/field.py`: `/api/field/search`, `/{fieldname}/records`, `/{fieldname}/definition`
+
+Remaining:
+- Improve label resolution from label metadata tables when grants available
+- Add precise PeopleCode event decoding
+- Field type/length shown from PSDBFIELD when accessible (currently null in HCM; label will populate in envs with grant)
+
+---
+
+### PeopleCode Explorer
+
+Status: Foundation implemented.
+
+Completed:
+- `connectors/peoplecode.py` — grant-aware PeopleCode discovery
+- PeopleCode registered as canonical object type in Metadata Registry
+- Canonical URLs: `/admin/object/peoplecode/{encoded_reference}`, `/api/peoplesoft/peoplecode/{encoded_reference}`
+- Source reconstruction where PSPCMTXT is readable
+- Best-effort reference extraction: records, fields, components, SQL definitions, functions/calls, application packages/classes, application engines, service operations
+- Best-effort call extraction: SQLExec, CreateSQL, GetSQL, CallAppEngine, Transfer, DoModal, CreateRecord, GetRecord, GetField, MessageBox, and others
+- PeopleCode graph provider added to Knowledge Graph builder
+- Object Explorer renders PeopleCode objects with source blocks
+- Global Search includes PeopleCode results
+
+Completed additions (2026-06-29 pass 2):
+- **Event label decoding**: `PEOPLECODE_EVENTS` set + `extract_event()` in `peoplecode.py` scans
+  objectvalue columns right-to-left for known event names (FieldChange, RowInit, SavePreChange,
+  Activate, OnExecute, etc.); correctly handles Record/Component/AE/Page PC structures.
+- **Object type label**: `PEOPLECODE_OBJECT_TYPES` dict maps objectid1 → "Record"/"Component"/etc.;
+  `_OID1_PARENT_TYPES` derives parent_type/parent_name from objectid1+objectvalue1 when reference-based
+  detection misses (e.g., bare "RECNAME.FIELD.EVENT.0" references).
+- **`program()` lookup fix**: now searches PSPCMPROG by first reference component (object name) with
+  limit=500, then filters for exact reference match — previously the full dotted reference never
+  matched any single column, leaving all metadata as None in the Object Explorer.
+- **`programs()` bind var fix**: removed `"limit"` from Oracle bind params (it was f-string
+  interpolated into the SQL, not a `:limit` placeholder); DPY-4008 error is gone, search works.
+- **PeopleCode Metadata section**: now shows curated fields (reference, object_type, event,
+  parent_type, parent_name, last_updated, updated_by) instead of raw objectvalue dump.
+- **PeopleCode syntax highlighting**: `highlightPeopleCode()` in admin.py tokenizes source for
+  block comments (/* */), string literals, keywords (If/Else/For/Function/…), and built-in
+  function calls (SQLExec/GetRecord/CallAppEngine/…); colors applied via inline `<span>` styles.
+
+Completed additions (2026-06-29 pass 3):
+- **objectid1 labels corrected**: Data-driven discovery; confirmed actual PeopleTools types in this database:
+  1=Record, 3=Menu, 9=Component (event-level), 10=Component (record/field-level), 60=Subscription (IB old-style),
+  66=Application Engine, 74=Component Interface, 104=Handler (IB new-style). `PEOPLECODE_OBJECT_TYPES` and
+  `_OID1_PARENT_TYPES` updated to match; parent links now correctly route to AE/Service Operation/CI pages.
+- **AE PeopleCode linkage**: Resolved — objectid1=66 is AE PeopleCode. `ae_peoplecode()` fixed to query
+  `WHERE OBJECTID1=66 AND OBJECTVALUE1=:ae_applid`. 2118 distinct AE programs have PeopleCode in this env.
+- **IB PeopleCode type labels**: 60=Subscription, 104=Handler; parent_type correctly set to "service_operation"
+
+Remaining:
+- Full Application Package/Class parsing (objectid1 for true AppPkg class methods not yet identified in this env)
+- SQL text object pages and SQL-to-record dependency extraction
+- Precise PeopleCode-to-component/page/action mapping when metadata grants are available
+- Large-source pagination (max 114 lines in current env; low priority)
+
+---
+
+### Identity Management
+
+Status: Feature-complete for current scope.
+
+Completed:
+- Authelia user management
+- PeopleSoft OPRID lookup
+- Identity compare, sync, sync-all
+- Provision from PeopleSoft
+- Identity status and audit log
+
+Future:
+- Bulk provisioning / bulk disable / bulk role changes
+- Approval workflow
+- Password expiration tracking
+- MFA status
+- Audit history UI
+
+---
+
+### Security Explorer
+
+Status: In progress.
+
+Completed:
+- Role search and detail APIs
+- Role → permission list traversal
+- Permission list search and detail APIs; menu and component traversal
+- Component → page traversal
+- Operator security summary, roles, permission lists, menus, and components APIs
+- Component access analysis API
+- `/admin/security` UI: role browsing, operator analysis, component access analysis
+- **Role Explorer dedicated UI (2026-06-29)**: `/admin/role` — sidebar search with member counts, Overview tab (full PSROLEDEFN row with dynamic membership rule details, description long text), Members tab (PSROLEUSER assignments with trace/profile cross-links), Permission Lists tab (graceful degradation when PSROLECLASS not granted)
+- `connectors/psdb.py`: `search_roles_with_count()`, `role_detail()`, `ROLETYPE_LABELS`, `ROLESTATUS_LABELS`, `_clean_value()` LOB-safe global serializer
+- `routers/role.py`: 4 endpoints under `/api/role/`
+- Fixed `query_env()` to use `_clean_value()` — any CLOB/LOB column now returns string instead of crashing FastAPI's JSON encoder
+
+Remaining:
+- Portal Registry / content reference security
+- Permission list action decoding
+- Compare two users / compare two roles
+- Explain why a user does or does not have access (needs PSROLECLASS/PSAUTHITEM grants)
+- Security report exports
+- Graph visualization beyond list traversal
+
+---
+
+### Component Explorer
+
+Status: In progress. Rich canonical page implemented.
+
+Completed:
+- Component search and detail APIs
+- Canonical component object page through Object Explorer
+- Component overview with counts, last-update, source metadata
+- Pages section with canonical page links; records used by pages; search/add records
+- Menu placement section
+- Portal Registry, Related Content, Event Mapping, Drop Zones sections (grant-aware)
+- Permission action decoding; security section (permission lists, roles, operators)
+- Component graph preview section
+
+Remaining:
+- Fluid/classic metadata
+- Transfer PeopleCode
+- More precise Portal Registry path reconstruction
+- Rich embedded graph visualization
+
+---
+
+### Page Explorer
+
+Status: In progress. Rich canonical page implemented.
+
+Completed:
+- Page search and detail APIs
+- Canonical page object page through Object Explorer
+- Page overview with grant-aware metadata fallback
+- Components using page; records used by page; fields with canonical field links
+- Scroll structure, grids, subpages sections
+- Page PeopleCode metadata, Event Mapping, Related Content, Drop Zones, Transfer relationships (grant-aware)
+- Security summary through components and permission lists
+- Page graph preview and graph expansion
+- Page-aware global search ranking
+- Generic object renderer indentation for hierarchical page rows
+
+Remaining:
+- Accurate PeopleTools field type decoding when metadata grants available
+- Richer scroll/grid/subpage hierarchy
+- Page PeopleCode source display (after PeopleCode Explorer matures)
+- Rich embedded graph visualization
+
+---
+
+### Record Explorer
+
+Status: Foundation implemented (2026-06-29).
+
+Completed:
+- Record search, fields, keys, indexes, DDL, row count, sample rows, basic where-used API
+- `connectors/psdb.py` — `record_detail()`, `record_related()`, `record_storage()`, `RECTYPE_LABELS`
+- `routers/record.py` — 13 endpoints under `/api/record/` (all grant-aware via `_safe()` wrapper)
+- Registered in `main.py`
+- `/admin/record` — 9-tab dedicated UI (Overview/Fields/Keys/Indexes/Related/Components/Pages/DDL/Data)
+  - Overview: eager storage stats, child records, language/audit/view relationships
+  - Fields: USEEDIT flag decoding, key/search/required flags
+  - Related: parent, `_LANG` variant, audit, and views using this record
+  - Components/Pages: graceful ORA-00942 degradation (PSPNLGRPDEFN not granted)
+  - DDL/Data: sample rows with column headers
+
+Completed additions (2026-06-29):
+- **Record → UOM canonical page**: `record_object()`, `sections_for_record()`, `record_payload()` added
+  to `connectors/uom.py`; `canonical_object()` now routes `record` type to `record_object()`;
+  `/api/peoplesoft/object/record/{name}` replaced with UOM-based implementation in `routers/peoplesoft.py`.
+  Sections: Definition / Fields / Keys / Indexes / Related Records / Components / Pages / Storage / Graph Preview / Warnings.
+  All sections are grant-aware (components/pages degrade gracefully in HCM; keys/indexes degrade in HCM).
+  Graph: record → fields (up to 30), parent_record → record, record → components (up to 10).
+  `_links` includes `explorer` pointing to dedicated `/admin/record/{name}` UI.
+
+Completed additions (2026-06-29 pass 2):
+- **DDL section in canonical page**: `record_object()` fetches `record_ddl()` for SQL Table/Temp Table
+  types (rectype 0/7); result stored in `_metadata.ddl`; `sections_for_record()` emits a "DDL" section
+  with `data.ddl` (rendered as `<pre>` block by Object Explorer); non-SQL types show "DDL not applicable".
+
+Remaining:
+- Dependency graph integration (richer graph traversal, inbound/outbound, multi-hop)
+
+---
+
+### Dependency Graph
+
+Status: In progress.
+
+Completed:
+- Generic graph API for operator, role, permission list, component, page, record
+- `/admin/graph` UI for node and edge traversal
+
+Remaining:
+- Rich visual graph layout
+- Multi-hop expansion, inbound/outbound filters
+- PeopleCode and Application Engine integration
+- Oracle object integration
+
+---
+
+### Application Engine Explorer
+
+Status: Foundation implemented (2026-06-29).
+
+Completed:
+- `connectors/ae.py` with grant-aware AE metadata:
+  - `programs()`, `program()`, `sections()`, `steps()`, `state_records()`, `temp_tables()`, `process_definitions()`, `runtime_instances()`, `ae_peoplecode()`, `program_graph()`
+- OBJECT_REGISTRY: `application_engine`, `ae_section`, `ae_step`, `process` with discovery + search providers
+- UOM: `ae_object()`, `sections_for_ae()`, `ae_payload()`
+- `canonical_object()` handles `application_engine` type
+- REST APIs under `/api/peoplesoft/ae`: list, detail, sections, steps, state-records, process-definitions, runtime, peoplecode, graph
+- Process Explorer API: `GET /api/peoplesoft/processes`
+- Knowledge Graph provider: AE programs, sections, state records, process links
+- Object Explorer canonical pages: `/admin/object/application_engine/{name}`
+- Object type selectors updated in Graph Explorer and Object Explorer
+
+Completed additions (2026-06-29 pass 3):
+- **AE PeopleCode linkage**: `ae_peoplecode()` now correctly queries PSPCMPROG with `OBJECTID1=66` (the AE PeopleCode type) where OV1=AE applid; normalized via `normalize_program()` with `object_type_label="Application Engine"` and `parent_type="application_engine"`; AE UOM "PeopleCode" section deep-links each entry to PeopleCode Explorer; PeopleCode Explorer "Parent Object" section links back to AE Explorer
+
+Remaining:
+- SQL action content from PSSQLDDEFN / PSSQLTEXTDEFN (blocked — not accessible in either env)
+- Runtime drill-down: individual process instance detail page
+- Temp table actual-instance tracking (PS_AETMPTBL_* tables)
+- AE restart record analysis
+- AE comparison across environments
+
+---
+
+### Execution Model / Runtime Monitor
+
+Status: Foundation implemented (2026-06-29).
+
+Completed:
+- `connectors/execution.py` bridging Oracle V$ views and PeopleSoft process scheduler tables
+- Process Scheduler: queue, instance detail, status summary, active AE, user sessions
+- IB: `ib_queue_summary()` — pub/sub queue counts
+- Oracle: active sessions, top SQL, blocking chains, long ops, session counts
+- Combined `runtime_status()` snapshot call
+- All functions grant-aware; `_clean()` helper makes Oracle types JSON-safe
+- 12 REST APIs under `/api/runtime/`
+- `/admin/runtime` dashboard: env/DB selectors, process scheduler chips, tabbed process tables, IB queue summary, Oracle session bar, blocking chain alerts, active sessions, long ops, top SQL, 30-second auto-refresh
+
+Completed additions (2026-06-29):
+- **Process Instance Detail slide-in panel**: click any instance ID → slide-in panel with identity (type/program/operator/run-control/server/location/origination), visual timeline bar (queued → processing → complete), output/distribution details, cross-links to AE Explorer and Transaction Trace; replaces the former alert() popup
+- **SESSIONIDNUM compatibility fix**: `process_queue()`, `process_instance()`, `ae_running()` now use `select_existing_columns()` for optional columns so PSPRCSRQST queries work on all PS versions
+- `_PRCSRQST_LIST_COLS` and `_PRCSRQST_DETAIL_COLS` constant lists define full column candidates
+
+Remaining:
+- PeopleSoft Application Server / web server process monitoring
+- Process Scheduler server status (PSPRCSQUE)
+- IB individual message drill-down
+- Oracle wait event history (V$ACTIVE_SESSION_HISTORY, if licensed)
+- Runtime graph: EXECUTES / SPAWNS / SCHEDULES / BLOCKED_BY edge types
+- Alert notifications for stuck/blocked sessions
+
+---
+
+### Integration Broker Explorer
+
+Status: Active development (2026-06-29).
+
+Architecture notes:
+- This environment has two IB styles:
+  - **Application Services** (REST/SOAP): 13 entries in `PSIBAPPLDEFN`/`PSIBAPPLOPR`
+  - **Traditional IB pub/sub**: 2087+ routings in `PSIBRTNGDEFN`, 62 nodes in `PSMSGNODEDEFN`, 191 queues in `PSQUEUEDEFN`
+  - `PSIBOPERDEFN` / `PSIBSRVICEDEFN` not accessible; traditional service op identity resolved via `PSIBRTNGDEFN.IB_OPERATIONNAME`
+- All functions are grant-aware. Runtime tables (`PSAPMSGPUBHDR`, `PSAPMSGDOMSTAT`, etc.) may not be accessible.
+- PeopleCode for IB: objectid1=60 = Subscription (old-style), objectid1=104 = Handler (new-style)
+
+Completed:
+- `connectors/ib.py` — services, service_operations, routings, nodes, queues, queue_depth, transactions, domain_status, groups, dashboard, search
+- `routers/ib.py` — 14 GET endpoints under `/api/ib/`
+- `/admin/ib` — tabbed UI (Services / Routings / Nodes / Queues / Txns) with dashboard, search lists, detail views, cross-navigation hyperlinks, transaction pub/sub contracts
+- OBJECT_REGISTRY: `service_operation`, `queue`, `node`, `routing` registered with correct discovery tables
+
+Completed additions (2026-06-29 pass 3):
+- **UOM schemas for all 4 IB types**: `service_object()`, `node_object()`, `queue_object()`, `routing_object()` in `uom.py`; canonical Object Explorer pages at `/admin/object/{type}/{name}`
+- **Knowledge Graph IB provider**: `integration_broker()` provider in `graphdb.py` loads all nodes/queues/services/routings with ROUTES and USES edges
+- **IB Global Search**: `service_operation` search now uses `PSIBRTNGDEFN.IB_OPERATIONNAME` (DISTINCT) via custom `ib_service_operation` provider — covers both Application Services and traditional pub/sub operations; nodes/queues/routings use generic table providers
+- **Traditional IB service op fallback**: `ib_operation()` in `ib.py` resolves an operation name from `PSIBRTNGDEFN` when not found in `PSIBAPPLDEFN`; `service_object()` falls back to this and returns Definition (routing count + queues + nodes), Routings, PeopleCode, and Graph Preview sections
+- **IB PeopleCode linkage**: `service_peoplecode()` in `ib.py` returns PSPCMPROG entries (objectid1=60 Subscription + objectid1=104 Handler) for a service operation; service_operation UOM includes a "PeopleCode" section; normalized entries deep-link to PeopleCode Explorer; parent_type/parent_name in PeopleCode objects correctly set to "service_operation"
+
+Limitations / future:
+- IB domain dispatch status requires PSAPMSGDOMSTAT grant
+- Message payload inspection not yet implemented
+
+---
+
+### SQL Workspace
+
+Status: Foundation implemented (2026-06-29).
+
+Safety model:
+- `validate_readonly()` strips comments and string literals, then blocks any statement whose
+  leading keyword is not SELECT or WITH.
+- Blocked: all DML, DDL, PL/SQL, administrative statements, DBMS_*/UTL_* calls, EXECUTE IMMEDIATE,
+  multiple statements separated by semicolons.
+- Validation runs before any database connection is opened.
+
+Completed:
+- `connectors/sqlws.py`: normalize, classify, validate, extract_bind_names, execute_query (ROW_NUMBER paged), explain_query (EXPLAIN PLAN + DBMS_XPLAN), schema_search, schema_columns, export_csv, history/pin/delete, audit_write
+- `routers/sqlws.py`: 11 endpoints under `/api/sqlws/`
+- `/admin/sqlws`: environment selector, SQL editor, bind params textarea, validate/execute/explain/export buttons, pagination, column metadata headers, execution timing, query history sidebar, pinned queries sidebar, schema browser sidebar
+- History: `data/sqlws_history.jsonl`; Audit: `logs/sqlws_audit.jsonl`
+
+Remaining:
+- Bind variable type annotation (currently all strings)
+- Query cancellation / timeout enforcement
+- Schema browser: autocomplete in editor
+
+Completed 2026-06-29 (second pass):
+- Schema browser: prefix-filter chips (All / PS_ / SYSADM.) — clicking sets schemaQ and fires searchSchema()
+- History search/filter: `historyQ` input filters `_historyItems` cache client-side by SQL text or env name; `applyHistoryFilter()` called on `oninput` and after each `loadHistory()` fetch
+- Runtime Monitor correlation: link long-running Oracle sessions to workspace queries
+- Cross-env side-by-side query execution
+
+---
+
+### Environment Comparison
+
+Status: Foundation implemented (2026-06-29).
+
+Completed:
+- `connectors/envcompare.py`: generic `_compare()` diff engine; compare_records, compare_fields, compare_components, compare_permissions, compare_ae, compare_roles, summary()
+- `routers/envcompare.py`: 8 GET endpoints under `/api/envcompare/`
+- `/admin/envcompare`: env pair selectors, count-comparison sidebar, 6 comparison tabs, search/filter, diff stat boxes, expandable sections (Only in Env1 / Changed with inline diffs / Only in Env2)
+
+Confirmed:
+- HCM: 52,773 records / 521,999 fields
+- FSCM: 91,122 records / 1,190,909 fields (FSCM is ~2.3× larger — expected for financial/SC)
+- VENDOR record diff returns HCM-only vs FSCM-only vendor records correctly
+
+Limitations / future:
+- FSCM deathstar_mon lacks grants to PSPNLGRPDEFN, PSCLASSDEFN, PSAEAPPLDEFN, PSPNLDEFN, PSROLEDEFN
+- No per-field drill-down link from changed records table
+- Could add PeopleCode, SQL objects, portal content reference comparisons
+- Could add Knowledge Graph snapshot diff for structural change tracking
+
+---
+
+### Transaction Tracing
+
+Status: Foundation implemented (2026-06-29).
+
+Architecture:
+- Correlates activity across three data sources keyed by OPRID:
+  PSACCESSLOG (login history), PSPRCSRQST (process scheduler), V$SESSION (Oracle, via CLIENT_IDENTIFIER).
+- IB transaction correlation via PSAPMSGPUBHDR.PUBLISHER attempted; degrades when table is inaccessible.
+- Unified timeline sorted newest-first; each event carries type, status, title, detail, and links.
+
+Completed:
+- `connectors/tracing.py`:
+  - `operator_search(env, q, limit)` — PSOPRDEFN search for autocomplete
+  - `access_history(env, oprid, hours_back)` — PSACCESSLOG login/logout history by OPRID
+  - `recent_active_operators(env, limit)` — operators active in the last 24h (sidebar)
+  - `process_history(env, oprid, hours_back)` — PSPRCSRQST runs by OPRID + time window
+  - `oracle_sessions_for_oprid(db, oprid)` — V$SESSION where CLIENT_IDENTIFIER = OPRID
+  - `ib_transactions_for_oprid(env, oprid, hours_back)` — PSAPMSGPUBHDR by PUBLISHER
+  - `trace(env, db, oprid, hours_back)` — unified timeline merging all sources; summary counts
+- `routers/tracing.py` — 7 GET endpoints under `/api/tracing/`:
+  - `GET /api/tracing/config` — envs and dbs
+  - `GET /api/tracing/operators` — autocomplete search
+  - `GET /api/tracing/active` — recent active operators (sidebar data)
+  - `GET /api/tracing/trace` — unified trace for an OPRID
+  - `GET /api/tracing/sessions` — access log only
+  - `GET /api/tracing/processes` — process scheduler only
+  - `GET /api/tracing/oracle` — Oracle session correlation only
+- `/admin/tracing` UI:
+  - Topbar: env + DB selectors, OPRID input with live autocomplete from PSOPRDEFN, hours range, Trace button
+  - Sidebar: recently active operators (last 24h) — click to trace immediately
+  - Main: summary stat boxes (logins / processes / errors / Oracle sessions / IB txns)
+  - Vertical timeline: color-coded event cards (login=green, process=cyan, oracle=purple, IB=amber)
+  - Each card expandable: full key-value detail, SQL text block for Oracle events, status chips
+  - Filter buttons: All / Logins / Processes / Oracle / IB; Expand All / Collapse
+
+Limitations:
+- PSACCESSLOG not accessible in this environment (HCM deathstar_admin lacks grant);
+  login/logout timeline events not available; operator autocomplete and process history work fine
+- V$SESSION CLIENT_IDENTIFIER correlation depends on PeopleSoft setting it at the app server level;
+  may return empty if the application server doesn't populate CLIENT_IDENTIFIER
+- No historical Oracle session data (ASH requires Diagnostics Pack license)
+- IB correlation requires PSAPMSGPUBHDR grant (currently inaccessible)
+
+### Live Operations
+
+Status: Partial (live/router monitoring exists; roadmap expansion pending).
+
+### Logging Platform
+
+Status: Not started.
+
+### Deployment Center
+
+Status: Not started.
+
+### Automation
+
+Status: Not started.
+
+### Reporting
+
+Status: Not started.
+
+### AI Assistant
+
+Status: Not started.
+
+### Infrastructure Management
+
+Status: Partial (system, nginx, oracle, topology, live APIs exist; expansion pending).
+
+---
+
+## Next Recommended Slice
+
+**FSCM Field Types + Record Index Explorer + Global Search — implemented (2026-06-29)**
+
+- **FSCM Field Types in Field Explorer**: `field_definition()` now falls through to a PSDBFIELD-only
+  query when called without record context, returning `field_type` + `length` from PSDBFIELD when
+  accessible. `loadField()` in `/admin/field` now fetches definition in parallel with records and
+  populates `fieldTypeChip` (e.g. "Char") and `fieldLenChip` (e.g. "Len 11"); both chips are empty
+  in HCM (graceful degradation). New chip CSS: `.chip-def`, `.chip-len`.
+
+- **FSCM Record Index Explorer**: `renderIndexes(indexes, keys)` in `/admin/record` now accepts both
+  PSINDEXDEFN rows and PSKEYDEFN rows, shows uniqueflag/activeflag/custkeyorder badges, groups key
+  field composition (with ▼ for DESC) by index ID with labels (PK/Primary Search/Alt Search A–Z).
+  `renderKeys()` fixed to use actual PSKEYDEFN columns: indexid/keyposn/fieldname/ascdesc (was
+  using wrong field names: fieldnum/keytype/searchkey/duporder). `loadTab('indexes')` now fetches
+  both `/indexes` and `/keys` in parallel via `Promise.all`.
+
+- **Global Search enhancement**: `global_search()` in `ptmetadata.py` now filters out `error: True`
+  entries (inaccessible types) — clean results only. `/admin/object` `objectUrl()` now routes
+  `operator` → `/admin/operator/{name}`, `role` → `/admin/role/{name}`, `record` → `/admin/record/{name}`
+  for direct navigation to dedicated explorer UIs. `globalSearch()` rendering upgraded: type-colored
+  chips per object type, monospace names, status shows accessible count + inaccessible type count.
+
+**Record → UOM canonical page — implemented (2026-06-29)**
+
+`record_object()` / `sections_for_record()` / `record_payload()` added to `connectors/uom.py`.
+`/api/peoplesoft/object/record/{name}` now driven by UOM. Full section set: Definition, Fields,
+Keys, Indexes, Related Records, Components, Pages, Storage, Graph Preview, Warnings — all
+grant-aware. Graph includes record → fields (capped at 30), parent → record, record → component.
+
+**Operator → UOM / Role → UOM / Object Explorer Recently Viewed — implemented (2026-06-29)**
+
+- `operator_object()` / `role_object()` and their payload/sections functions added to `connectors/uom.py`
+- `canonical_object()` routes `operator` and `role` types to UOM; both `_links` include `explorer` deep-link
+- `attach_graph_context()` made idempotent — guards against duplicate "Knowledge Graph Neighbors" section
+- Object Explorer `/admin/object`: "Recently Viewed" localStorage panel (last 12 objects, type chips,
+  persists across sessions, Clear button); `TYPE_CHIP_CFG` constant shared between recent list and
+  search results; `pushRecent()` called on every `loadObject()` call
+
+**Permission List → UOM / adaptive PSAUTHITEM security traversal — implemented (2026-06-29)**
+
+- `permissionlist_object()` / `sections_for_permissionlist()` / `permissionlist_payload()` added to
+  `connectors/uom.py`; `/api/peoplesoft/object/permissionlist/{name}` now uses UOM. Sections:
+  Definition / Roles / Menus / Components / Graph Preview / Warnings. Graph includes role →
+  permission list and permission list → component edges.
+- `permission_list` remains a compatibility alias for object lookups, but canonical links now use
+  `permissionlist`.
+- `psdb.auth_component_source()` added for PeopleTools schema variation: uses `PSAUTHITEM.PNLGRPNAME`
+  when available, or resolves `PSAUTHITEM.PNLITEMNAME` through `PSPNLGROUP.PNLNAME` to derive the
+  component. This fixed permission-list components, component permission lists, component access,
+  operator components, and component menu placements in the current HCM/FSCM schemas.
+- Confirmed examples: HCM `CRM8000` resolves 1 role, 8 menus, 7 components; FSCM `ALLPAGES` resolves
+  13 roles, 8,295 menus, 37,401 component grants.
+
+**Security Explanation — first slice implemented (2026-06-29)**
+
+- `psdb.explain_operator_component_access(env, oprid, component)` added. It explains operator →
+  role → permission list → component access using the now-adaptive `PSAUTHITEM` traversal. The result
+  includes `has_access`, grant paths, matching permission lists, role/permission-list/component counts,
+  and warnings for degraded relationship lookups.
+- `GET /api/peoplesoft/security/explain?env=HCM&oprid={oprid}&component={component}` added.
+- `/admin/security` now has an "Explain Access" action that uses the existing OPRID and component
+  inputs to show grant paths when access exists, or the operator/component permission-list mismatch
+  when it does not.
+- Confirmed examples: `GUACUSER` → `GDP_SELECT_PRCS` returns 3 visible grant paths; `VP1` →
+  `GDP_SELECT_PRCS` returns no visible path and zero matching permission lists.
+- `attach_links()` corrected so component rows with `searchrecname` still link to the component
+  canonical page instead of being mistaken for record rows.
+
+**PeopleCode semantic path decoding — implemented (2026-06-29)**
+
+- `connectors/peoplecode.py` now emits richer normalized metadata for PSPCMPROG rows:
+  `event_label`, `event_scope`, `subtype`, `semantic_path`, and `semantic_path_text`.
+- Decoder is object-type aware for the observed PeopleTools structures:
+  - Record field PeopleCode: `record / field / event`
+  - Menu item PeopleCode: `menu / menu item slot / menu item / event`
+  - Component event PeopleCode: `component / event`
+  - Component record/field PeopleCode: `component / market / record / field / event`
+  - IB subscription/handler PeopleCode: `service operation / handler or subscription / event`
+  - Application Engine PeopleCode: `AE / section / market / DB type / effective date / step / event`
+  - Component Interface PeopleCode: `CI / event or methods`
+- Added event labels for `ItemSelected` and `OnSelect`; existing labels are normalized to readable
+  PeopleCode casing.
+- Object Explorer PeopleCode metadata and `/admin/peoplecode` detail view now show scope, subtype,
+  and semantic path.
+- Confirmed examples: `AAP_YEAR` record-field events, `ABS_CAL_POPUP` menu item `ItemSelected`,
+  `AA_MGMT_JPN` component record/field events, `AA_CONV_JPN` AE `OnExecute`, `ACCOUNT_CHARTFIELD_SYNC`
+  IB handler/subscription, and `CI_GROUP_INCR_BUDGET` CI methods.
+
+**Integration Broker graph expansion — implemented (2026-06-29)**
+
+- `connectors/graphdb.py` Integration Broker provider now adds richer relationships:
+  service operation → routing (`ROUTES`), routing → service operation (`BELONGS_TO`), sender node →
+  routing, routing → receiver node, routing → queue, service operation → queue, and service operation
+  → attached IB PeopleCode.
+- Traditional service operations discovered through `PSIBRTNGDEFN.IB_OPERATIONNAME` are tracked even
+  when they do not exist as PSIBAPPLDEFN application services; attached handler/subscription
+  PeopleCode is added via `ib.service_peoplecode()`.
+- Small non-persisted HCM graph build with `limit=20` completed with no graph warnings:
+  861 nodes / 1,422 edges, including 33 service operations, 20 routings, 20 queues, 28 nodes, and
+  32 PeopleCode nodes.
+
+**Environment Compare graph snapshot diff — implemented (2026-06-29)**
+
+- `graphdb.diff(env1, env2, node_types=None, limit=200)` added. It compares current/persisted
+  `knowledge_graph_<ENV>.json` snapshots by node id and edge id, returning:
+  only-in-env1 nodes/edges, only-in-env2 nodes/edges, metadata-changed nodes, metadata-changed edges,
+  summary counts, snapshot build timestamps, paths, and warnings for missing/empty snapshots.
+- REST endpoints added:
+  - `GET /api/graph/diff?env1=HCM&env2=FSCM&node_types=record,component&limit=200`
+  - `GET /api/envcompare/graph?env1=HCM&env2=FSCM&node_types=record,component&limit=200`
+- `/admin/envcompare` now has a **Graph** tab with node-type filter, snapshot warnings/build links,
+  summary stat boxes, and expandable sections for node/edge differences.
+- Verification:
+  - Empty/missing FSCM persisted graph returns a structured `graph_snapshot_empty` warning.
+  - Non-persisted paired build with `limit=15`: HCM 655 nodes / 1,033 edges, FSCM 700 nodes /
+  1,202 edges, zero graph warnings. Filtered graph diff returned 246 HCM nodes vs 234 FSCM nodes,
+  23 common nodes, 20 changed nodes, and no warnings.
+
+**Security Explanation page/menu slice — implemented (2026-06-29)**
+
+- `psdb.explain_operator_page_access(env, oprid, page)` added. It resolves page → component(s), then
+  composes the existing component-access explanation for each component. Results include visible
+  component matches, grant paths, decoded action modes, warnings, and a human explanation string.
+- `psdb.explain_operator_menu_access(env, oprid, menu)` added. It explains operator → role →
+  permission list → menu paths from `PSROLEUSER` / `PSROLECLASS` / `PSAUTHITEM`.
+- REST endpoints added:
+  - `GET /api/peoplesoft/security/explain-page?env=HCM&oprid={oprid}&page={page}`
+  - `GET /api/peoplesoft/security/explain-menu?env=HCM&oprid={oprid}&menu={menu}`
+- `/admin/security` now has **Explain Page** and **Explain Menu** actions using the existing OPRID
+  and target input. Results show matching components, grant paths, permission lists, menus, and pages.
+- Confirmed examples:
+  - `GUACUSER` → page `GDP_SELECT_PRCS`: access through 1 component and 3 grant paths
+  - `VP1` → page `GDP_SELECT_PRCS`: no visible component access path
+  - `GUACUSER` → menu `MANAGE_GUIDED_PROCESS`: 13 visible role/permission-list/menu paths
+  - `VP1` → menu `MANAGE_GUIDED_PROCESS`: no visible role/permission-list/menu path
+
+**Graph snapshot operations — implemented (2026-06-29)**
+
+- Added named graph snapshots under `data/graph_snapshots/` with `manifest.json` tracking snapshot id,
+  env, name, note, created time, graph build time, node/edge counts, warning count, and file path.
+- `connectors/graphdb.py` additions:
+  - `create_snapshot(env, name, note)`
+  - `list_snapshots(env=None)`
+  - `load_snapshot(snapshot_id)`
+  - `delete_snapshot(snapshot_id)`
+  - `diff_snapshots(snapshot1, snapshot2, node_types=None, limit=200)`
+- REST endpoints added:
+  - `POST /api/graph/snapshots?env=HCM&name={name}&note={note}`
+  - `GET /api/graph/snapshots?env=HCM`
+  - `GET /api/graph/snapshots/{snapshot_id}`
+  - `DELETE /api/graph/snapshots/{snapshot_id}`
+  - `GET /api/graph/snapshot-diff?snapshot1={id1}&snapshot2={id2}`
+- `/admin/graphdb` now has snapshot controls: create snapshot, refresh list, open JSON, delete.
+- Existing latest-graph behavior remains unchanged (`data/knowledge_graph_<ENV>.json` still backs
+  `/api/graph/stats`, export, search, and default diff).
+- Verification: connector and HTTP route checks created/listed/loaded/diffed/deleted temporary HCM
+  snapshots successfully; same-snapshot diff returned 104 common nodes / 196 common edges and no changes.
+- Follow-up UI completed: `/admin/graphdb` can now select two named snapshots, optionally filter by
+  node type, run `snapshot-diff`, and render summary counts plus sample changed/only-in nodes.
+
+**Security Explanation field-level page details — implemented (2026-06-29)**
+
+- `psdb.explain_operator_page_access()` now includes page field metadata from `PSPNLFIELD` and counts:
+  total fields, visible fields, invisible fields, and display-only fields.
+- `GET /api/peoplesoft/security/explain-page` returns linked field rows, so the explanation can jump
+  from page security to canonical field/record context.
+- `/admin/security` **Explain Page** results now show the page plus a sample of page fields with
+  record.field, label, Invisible, and Display Only indicators.
+- Confirmed example: `GUACUSER` → page `GDP_SELECT_PRCS` returns 17 fields, all visible, with 3
+  component grant paths.
+
+**Completed 2026-06-29:**
+- **SQL Workspace enhancements**: schema browser prefix-filter chips (All/PS_/SYSADM.); history search/filter
+  (client-side filter on cached items by SQL text or env)
+- **Environment Comparison drill-down**: `explorerLink(type, name)` appended to every name cell in
+  only_in_env1, changed, and only_in_env2 rows — links to `/admin/record/`, `/admin/role/`,
+  or `/admin/object/permission_list/` where applicable (↗ icon, opens in new tab)
+- Schema browser already had PSRECDEFN descriptions and Record Explorer links (discovered during audit;
+  items removed from Next up)
+
+**Next up:**
+- **AE SQL action display** — blocked (PSAESTEPDEFN/PSSQLDDEFN not accessible in either env)
+- **Security Explanation next slice**: include portal content references and navigation registry paths
+- **Graph snapshot next slice**: scheduled/automatic snapshot capture and retention pruning

@@ -1,0 +1,13 @@
+PeopleSoft Administrator:
+  - admins
+  - hcm
+
+Query Manager:
+  - hcm
+
+Portal Administrator:
+  - admins
+
+Employee:
+  - hcm
+

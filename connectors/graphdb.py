@@ -1,0 +1,962 @@
+import json
+import time
+from collections import defaultdict, deque
+from pathlib import Path
+
+from connectors import ae, ib, peoplecode, psdb, ptmetadata, uom
+
+DATA_DIR = Path("/opt/deathstar-api/data")
+SNAPSHOT_DIR = DATA_DIR / "graph_snapshots"
+SNAPSHOT_MANIFEST = SNAPSHOT_DIR / "manifest.json"
+GRAPHS = {}
+BUILD_STATE = {}
+
+EDGE_TYPES = {
+    "USES",
+    "CONTAINS",
+    "BELONGS_TO",
+    "CALLS",
+    "CALLED_BY",
+    "REFERENCES",
+    "REFERENCED_BY",
+    "SECURES",
+    "EXPOSES",
+    "OWNS",
+    "DEPENDS_ON",
+    "GENERATES",
+    "READS",
+    "WRITES",
+}
+
+EDGE_TYPES.add("ROUTES")
+
+DEPENDENCY_EDGES = {"USES", "CONTAINS", "REFERENCES", "DEPENDS_ON", "CALLS", "READS", "WRITES", "SECURES", "EXPOSES", "ROUTES"}
+
+
+def empty_graph(env="HCM"):
+    return {
+        "environment": env.upper(),
+        "nodes": {},
+        "edges": [],
+        "warnings": [],
+        "built_at": None,
+        "build_seconds": 0,
+        "providers": [],
+    }
+
+
+def graph_path(env):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    return DATA_DIR / f"knowledge_graph_{env.upper()}.json"
+
+
+def snapshot_dir():
+    SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    return SNAPSHOT_DIR
+
+
+def _safe_snapshot_name(name):
+    safe = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in (name or "").strip())
+    safe = safe.strip("._")
+    if not safe:
+        safe = time.strftime("snapshot_%Y%m%dT%H%M%SZ", time.gmtime())
+    return safe[:80]
+
+
+def _manifest():
+    snapshot_dir()
+    if SNAPSHOT_MANIFEST.exists():
+        return json.loads(SNAPSHOT_MANIFEST.read_text())
+    return {"snapshots": []}
+
+
+def _write_manifest(data):
+    snapshot_dir()
+    SNAPSHOT_MANIFEST.write_text(json.dumps(data, indent=2, default=str))
+    return data
+
+
+def current(env="HCM"):
+    env = env.upper()
+    if env not in GRAPHS:
+        path = graph_path(env)
+        if path.exists():
+            GRAPHS[env] = json.loads(path.read_text())
+        else:
+            GRAPHS[env] = empty_graph(env)
+    return GRAPHS[env]
+
+
+def save(env="HCM"):
+    graph = current(env)
+    graph_path(env).write_text(json.dumps(graph, indent=2, default=str))
+    return graph
+
+
+def create_snapshot(env="HCM", name="", note="", include_graph=True):
+    env = env.upper()
+    graph = current(env)
+    safe_name = _safe_snapshot_name(name)
+    created_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    filename = f"{env}_{created_at.replace(':', '').replace('-', '')}_{safe_name}.json"
+    path = snapshot_dir() / filename
+
+    payload = graph if include_graph else {
+        "environment": env,
+        "nodes": graph.get("nodes", {}),
+        "edges": graph.get("edges", []),
+        "warnings": graph.get("warnings", []),
+        "built_at": graph.get("built_at"),
+        "build_seconds": graph.get("build_seconds", 0),
+        "providers": graph.get("providers", []),
+    }
+    path.write_text(json.dumps(payload, indent=2, default=str))
+
+    entry = {
+        "id": path.stem,
+        "env": env,
+        "name": safe_name,
+        "note": note or "",
+        "created_at": created_at,
+        "built_at": graph.get("built_at"),
+        "node_count": len(graph.get("nodes", {})),
+        "edge_count": len(graph.get("edges", [])),
+        "warning_count": len(graph.get("warnings", [])),
+        "path": str(path),
+    }
+
+    manifest = _manifest()
+    manifest["snapshots"] = [
+        item for item in manifest.get("snapshots", [])
+        if item.get("id") != entry["id"]
+    ] + [entry]
+    manifest["snapshots"] = sorted(manifest["snapshots"], key=lambda item: item.get("created_at", ""), reverse=True)
+    _write_manifest(manifest)
+    return entry
+
+
+def list_snapshots(env=None):
+    env_filter = env.upper() if env else None
+    snapshots = _manifest().get("snapshots", [])
+    if env_filter:
+        snapshots = [item for item in snapshots if item.get("env") == env_filter]
+    return {"snapshots": snapshots, "count": len(snapshots), "path": str(SNAPSHOT_MANIFEST)}
+
+
+def _snapshot_entry(snapshot_id):
+    for entry in _manifest().get("snapshots", []):
+        if entry.get("id") == snapshot_id:
+            return entry
+    return None
+
+
+def load_snapshot(snapshot_id):
+    entry = _snapshot_entry(snapshot_id)
+    if not entry:
+        raise FileNotFoundError(f"Graph snapshot not found: {snapshot_id}")
+    path = Path(entry["path"])
+    if not path.exists():
+        raise FileNotFoundError(f"Graph snapshot file missing: {path}")
+    graph = json.loads(path.read_text())
+    return {"snapshot": entry, "graph": graph}
+
+
+def delete_snapshot(snapshot_id):
+    entry = _snapshot_entry(snapshot_id)
+    if not entry:
+        raise FileNotFoundError(f"Graph snapshot not found: {snapshot_id}")
+    path = Path(entry["path"])
+    if path.exists():
+        path.unlink()
+    manifest = _manifest()
+    manifest["snapshots"] = [
+        item for item in manifest.get("snapshots", [])
+        if item.get("id") != snapshot_id
+    ]
+    _write_manifest(manifest)
+    return {"deleted": snapshot_id, "path": str(path)}
+
+
+def prune_snapshots(env=None, keep=7):
+    """Delete oldest snapshots per environment, retaining at most `keep` per env."""
+    manifest = _manifest()
+    all_snaps = manifest.get("snapshots", [])
+    envs = [env.upper()] if env else sorted({s.get("env") for s in all_snaps if s.get("env")})
+    deleted_ids = set()
+    for e in envs:
+        env_snaps = sorted(
+            [s for s in all_snaps if s.get("env") == e],
+            key=lambda s: s.get("created_at", ""),
+            reverse=True,
+        )
+        for old in env_snaps[keep:]:
+            p = Path(old.get("path", ""))
+            if p.exists():
+                p.unlink()
+            deleted_ids.add(old.get("id"))
+    manifest["snapshots"] = [s for s in all_snaps if s.get("id") not in deleted_ids]
+    _write_manifest(manifest)
+    return {"deleted": sorted(deleted_ids), "count": len(deleted_ids)}
+
+
+def clear(env="HCM"):
+    env = env.upper()
+    GRAPHS[env] = empty_graph(env)
+    path = graph_path(env)
+    if path.exists():
+        path.unlink()
+    return stats(env)
+
+
+def node_id(node_type, name):
+    return uom.object_id(node_type, name)
+
+
+def node_url(node_type, name):
+    return uom.object_url(node_type, name)
+
+
+def icon_for(node_type):
+    return ptmetadata.OBJECT_REGISTRY.get(node_type, {}).get("icon", "circle")
+
+
+def add_node(graph, node_type, name, display_name=None, metadata=None, warnings=None):
+    if not name:
+        return None
+
+    node_type = node_type.lower()
+    name = str(name).upper()
+    node = {
+        "id": node_id(node_type, name),
+        "type": node_type,
+        "name": name,
+        "display_name": display_name or name,
+        "metadata": metadata or {},
+        "canonical_url": node_url(node_type, name),
+        "icon": icon_for(node_type),
+        "warnings": warnings or [],
+    }
+
+    existing = graph["nodes"].get(node["id"])
+    if existing:
+        existing["metadata"].update(node["metadata"])
+        existing["warnings"].extend(item for item in node["warnings"] if item not in existing["warnings"])
+        return existing
+
+    graph["nodes"][node["id"]] = node
+    return node
+
+
+def add_edge(graph, source_type, source_name, target_type, target_name, edge_type, metadata=None):
+    source = add_node(graph, source_type, source_name)
+    target = add_node(graph, target_type, target_name)
+
+    if not source or not target:
+        return None
+
+    edge_type = edge_type.upper()
+    edge = {
+        "id": f"{source['id']}->{edge_type}->{target['id']}",
+        "source": source["id"],
+        "target": target["id"],
+        "type": edge_type,
+        "metadata": metadata or {},
+    }
+
+    if not any(existing["id"] == edge["id"] for existing in graph["edges"]):
+        graph["edges"].append(edge)
+
+    return edge
+
+
+def add_warning(graph, provider, exc):
+    graph["warnings"].append(ptmetadata.warning(
+        "graph_provider_unavailable",
+        f"{provider} provider unavailable: {exc}",
+        detail={"provider": provider},
+    ))
+
+
+def provider(graph, name, loader):
+    start = time.time()
+    try:
+        count = loader()
+        graph["providers"].append({
+            "name": name,
+            "status": "ok",
+            "items": count or 0,
+            "seconds": round(time.time() - start, 3),
+        })
+    except Exception as exc:
+        add_warning(graph, name, exc)
+        graph["providers"].append({
+            "name": name,
+            "status": "warning",
+            "items": 0,
+            "seconds": round(time.time() - start, 3),
+            "warning": str(exc),
+        })
+
+
+def build(env="HCM", limit=50, persist=True):
+    env = env.upper()
+    limit = max(1, min(int(limit), 250))
+    graph = empty_graph(env)
+    start = time.time()
+    BUILD_STATE[env] = {"status": "building", "started_at": start}
+
+    def operators():
+        rows = psdb.search_oprids(env, "", limit)
+        for row in rows:
+            add_node(graph, "operator", row.get("oprid"), row.get("oprid"), row)
+            for role in psdb.oprid_roles(row.get("oprid"), env, columns="summary"):
+                add_node(graph, "role", role.get("rolename"), role.get("rolename"), role)
+                add_edge(graph, "operator", row.get("oprid"), "role", role.get("rolename"), "OWNS", role)
+        return len(rows)
+
+    def roles():
+        rows = psdb.roles(env, "", limit)
+        for row in rows:
+            add_node(graph, "role", row.get("rolename"), row.get("rolename"), row)
+            for permissionlist in psdb.role_permissionlists(env, row.get("rolename"))[:limit]:
+                add_node(graph, "permissionlist", permissionlist.get("classid"), permissionlist.get("classid"), permissionlist)
+                add_edge(graph, "role", row.get("rolename"), "permissionlist", permissionlist.get("classid"), "CONTAINS", permissionlist)
+        return len(rows)
+
+    def permissionlists():
+        rows = psdb.permissionlists(env, "", limit)
+        for row in rows:
+            add_node(graph, "permissionlist", row.get("classid"), row.get("classid"), row)
+            for component in psdb.permissionlist_components(env, row.get("classid"))[:limit]:
+                add_node(graph, "component", component.get("pnlgrpname"), component.get("pnlgrpname"), component)
+                add_edge(graph, "permissionlist", row.get("classid"), "component", component.get("pnlgrpname"), "SECURES", component)
+                if component.get("menuname"):
+                    add_node(graph, "menu", component.get("menuname"), component.get("menuname"), component)
+                    add_edge(graph, "menu", component.get("menuname"), "component", component.get("pnlgrpname"), "CONTAINS", component)
+        return len(rows)
+
+    def components():
+        rows = psdb.components(env, "", limit)
+        for row in rows:
+            component = row.get("pnlgrpname")
+            add_node(graph, "component", component, component, row)
+            for key, rel in (("searchrecname", "USES"), ("addsearchrecname", "USES")):
+                if row.get(key):
+                    add_node(graph, "record", row.get(key), row.get(key), {"source": key})
+                    add_edge(graph, "component", component, "record", row.get(key), rel, {"source": key})
+            for page in psdb.component_pages(env, component)[:limit]:
+                add_node(graph, "page", page.get("pnlname"), page.get("pnlname"), page)
+                add_edge(graph, "component", component, "page", page.get("pnlname"), "CONTAINS", page)
+        return len(rows)
+
+    def pages():
+        rows = psdb.pages(env, "", limit)
+        for row in rows:
+            page = row.get("pnlname")
+            add_node(graph, "page", page, page, row)
+            for field in psdb.page_fields(env, page)[:limit]:
+                record = field.get("recname")
+                fieldname = field.get("fieldname")
+                if record:
+                    add_node(graph, "record", record, record, field)
+                    add_edge(graph, "page", page, "record", record, "USES", field)
+                if record and fieldname:
+                    full_field = f"{record}.{fieldname}"
+                    add_node(graph, "field", full_field, full_field, field)
+                    add_edge(graph, "page", page, "field", full_field, "EXPOSES", field)
+                    add_edge(graph, "record", record, "field", full_field, "CONTAINS", field)
+        return len(rows)
+
+    def fields():
+        rows = psdb.fields(env, "", limit)
+        for row in rows:
+            record = row.get("recname")
+            field = row.get("fieldname")
+            if record and field:
+                full_field = f"{record}.{field}"
+                add_node(graph, "record", record, record, row)
+                add_node(graph, "field", full_field, full_field, row)
+                add_edge(graph, "record", record, "field", full_field, "CONTAINS", row)
+        return len(rows)
+
+    def peoplecode_programs():
+        rows = peoplecode.programs(env, "", limit)
+        for row in rows["items"]:
+            reference = row.get("reference")
+            if not reference:
+                continue
+
+            add_node(graph, "peoplecode", row.get("encoded_reference") or peoplecode.encode_reference(reference), reference, row, rows.get("warnings", []))
+
+            if row.get("parent_type") and row.get("parent_name"):
+                add_node(graph, row["parent_type"], row["parent_name"], row["parent_name"], {})
+                add_edge(
+                    graph,
+                    "peoplecode",
+                    row.get("encoded_reference") or peoplecode.encode_reference(reference),
+                    row["parent_type"],
+                    row["parent_name"],
+                    "BELONGS_TO",
+                    row,
+                )
+
+            refs = peoplecode.references(reference, env)
+            for record in refs["references"].get("records", []):
+                add_node(graph, "record", record, record, {})
+                add_edge(graph, "peoplecode", row.get("encoded_reference") or peoplecode.encode_reference(reference), "record", record, "REFERENCES")
+            for field in refs["references"].get("fields", []):
+                add_node(graph, "field", field, field, {})
+                add_edge(graph, "peoplecode", row.get("encoded_reference") or peoplecode.encode_reference(reference), "field", field, "REFERENCES")
+            for sql_name in refs["references"].get("sql_definitions", []):
+                add_node(graph, "sql_definition", sql_name, sql_name, {})
+                add_edge(graph, "peoplecode", row.get("encoded_reference") or peoplecode.encode_reference(reference), "sql_definition", sql_name, "USES")
+            for call in refs.get("calls", []):
+                add_node(graph, "function", call.get("name"), call.get("name"), call)
+                add_edge(graph, "peoplecode", row.get("encoded_reference") or peoplecode.encode_reference(reference), "function", call.get("name"), "CALLS", call)
+
+        if rows["warnings"]:
+            for item in rows["warnings"]:
+                graph["warnings"].append(item)
+
+        return len(rows["items"])
+
+    def application_engines():
+        result = ae.programs(env, "", limit)
+        for row in result["items"]:
+            applid = row.get("ae_applid")
+            if not applid:
+                continue
+
+            add_node(graph, "application_engine", applid, applid, row)
+
+            sect_result = ae.sections(env, applid)
+            for sect in sect_result["items"]:
+                sect_name = sect.get("ae_section")
+                if sect_name:
+                    sect_node_name = f"{applid}.{sect_name}"
+                    add_node(graph, "ae_section", sect_node_name, sect_name, sect)
+                    add_edge(graph, "application_engine", applid, "ae_section", sect_node_name, "CONTAINS", sect)
+
+            state_result = ae.state_records(env, applid)
+            for state in state_result["items"]:
+                recname = state.get("recname")
+                if recname:
+                    add_node(graph, "record", recname, recname, state)
+                    add_edge(graph, "application_engine", applid, "record", recname, "USES", state)
+
+            proc_result = ae.process_definitions(env, applid)
+            for proc in proc_result["items"]:
+                prcsname = proc.get("prcsname")
+                if prcsname:
+                    add_node(graph, "process", prcsname, prcsname, proc)
+                    add_edge(graph, "application_engine", applid, "process", prcsname, "GENERATES", proc)
+
+        if result.get("warnings"):
+            for w in result["warnings"]:
+                if w:
+                    graph["warnings"].append(w)
+
+        return len(result["items"])
+
+    def integration_broker():
+        seen_ops = set()
+
+        # Nodes from PSMSGNODEDEFN
+        node_result = ib.nodes(env, "", min(limit, 200))
+        for row in node_result.get("items", []):
+            nodename = row.get("msgnodename")
+            if nodename:
+                add_node(graph, "node", nodename, nodename, row)
+
+        # Queues from PSQUEUEDEFN
+        queue_result = ib.queues(env, "", min(limit, 200))
+        for row in queue_result.get("items", []):
+            queuename = row.get("queuename")
+            if queuename:
+                add_node(graph, "queue", queuename, queuename, row)
+
+        # Services from PSIBAPPLDEFN
+        svc_result = ib.services(env, "", min(limit, 200))
+        for row in svc_result.get("items", []):
+            svcname = row.get("ptibapplname")
+            if svcname:
+                seen_ops.add(svcname.upper())
+                add_node(graph, "service_operation", svcname, svcname, row)
+                svc_detail = ib.service(env, svcname)
+                for routing in (svc_detail.get("item") or {}).get("routings", [])[:limit]:
+                    rname = routing.get("routingdefnname")
+                    if rname:
+                        add_node(graph, "routing", rname, rname, routing)
+                        add_edge(graph, "service_operation", svcname, "routing", rname, "ROUTES", routing)
+                pc_result = ib.service_peoplecode(env, svcname)
+                for pc in pc_result.get("items", [])[:limit]:
+                    ref = pc.get("reference")
+                    encoded = pc.get("encoded_reference") or (peoplecode.encode_reference(ref) if ref else None)
+                    if encoded and ref:
+                        add_node(graph, "peoplecode", encoded, ref, pc)
+                        add_edge(graph, "service_operation", svcname, "peoplecode", encoded, "CONTAINS", pc)
+
+        # Routings with edges: service_operation -> routing -> queue/nodes
+        rtng_result = ib.routings(env, "", min(limit, 300))
+        for row in rtng_result.get("items", []):
+            rname = row.get("routingdefnname")
+            op    = row.get("ib_operationname")
+            sender   = row.get("sendernodename")
+            receiver = row.get("receivernodename")
+            queue = row.get("queuename")
+            if not rname:
+                continue
+            add_node(graph, "routing", rname, rname, row)
+            if op:
+                seen_ops.add(op.upper())
+                add_node(graph, "service_operation", op, op, {})
+                add_edge(graph, "service_operation", op, "routing", rname, "ROUTES", row)
+                add_edge(graph, "routing", rname, "service_operation", op, "BELONGS_TO", row)
+            if sender:
+                add_node(graph, "node", sender, sender, {})
+                add_edge(graph, "node", sender, "routing", rname, "USES", row)
+            if receiver:
+                add_node(graph, "node", receiver, receiver, {})
+                add_edge(graph, "routing", rname, "node", receiver, "USES", row)
+            if queue:
+                add_node(graph, "queue", queue, queue, {})
+                add_edge(graph, "routing", rname, "queue", queue, "USES", row)
+                if op:
+                    add_edge(graph, "service_operation", op, "queue", queue, "USES", row)
+
+        # Traditional IB operations may not exist in PSIBAPPLDEFN; attach their PeopleCode too.
+        for opname in sorted(seen_ops)[:limit]:
+            pc_result = ib.service_peoplecode(env, opname)
+            for pc in pc_result.get("items", [])[:limit]:
+                ref = pc.get("reference")
+                encoded = pc.get("encoded_reference") or (peoplecode.encode_reference(ref) if ref else None)
+                if encoded and ref:
+                    add_node(graph, "peoplecode", encoded, ref, pc)
+                    add_edge(graph, "service_operation", opname, "peoplecode", encoded, "CONTAINS", pc)
+
+        total = (
+            len(node_result.get("items", []))
+            + len(queue_result.get("items", []))
+            + len(svc_result.get("items", []))
+            + len(rtng_result.get("items", []))
+        )
+        for warnings_list in (node_result, queue_result, svc_result, rtng_result):
+            for w in warnings_list.get("warnings", []):
+                if w:
+                    graph["warnings"].append(w)
+        return total
+
+    for name, loader in (
+        ("operators", operators),
+        ("roles", roles),
+        ("permissionlists", permissionlists),
+        ("components", components),
+        ("pages", pages),
+        ("fields", fields),
+        ("peoplecode", peoplecode_programs),
+        ("application_engines", application_engines),
+        ("integration_broker", integration_broker),
+    ):
+        provider(graph, name, loader)
+
+    graph["built_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    graph["build_seconds"] = round(time.time() - start, 3)
+    GRAPHS[env] = graph
+    if persist:
+        save(env)
+    BUILD_STATE[env] = {"status": "ready", "completed_at": time.time()}
+    return stats(env)
+
+
+def adjacency(graph, reverse=False, edge_types=None):
+    edge_types = {item.upper() for item in edge_types} if edge_types else None
+    adjacent = defaultdict(list)
+    for edge in graph["edges"]:
+        if edge_types and edge["type"] not in edge_types:
+            continue
+        source = edge["target"] if reverse else edge["source"]
+        target = edge["source"] if reverse else edge["target"]
+        adjacent[source].append((target, edge))
+    return adjacent
+
+
+def stats(env="HCM"):
+    graph = current(env)
+    by_type = defaultdict(int)
+    in_degree = defaultdict(int)
+    out_degree = defaultdict(int)
+
+    for node in graph["nodes"].values():
+        by_type[node["type"]] += 1
+
+    for edge in graph["edges"]:
+        out_degree[edge["source"]] += 1
+        in_degree[edge["target"]] += 1
+
+    disconnected = [
+        node_id for node_id in graph["nodes"]
+        if not in_degree[node_id] and not out_degree[node_id]
+    ]
+    orphaned = [
+        node_id for node_id in graph["nodes"]
+        if in_degree[node_id] and not out_degree[node_id]
+    ]
+
+    return {
+        "environment": graph["environment"],
+        "node_count": len(graph["nodes"]),
+        "edge_count": len(graph["edges"]),
+        "object_counts": dict(sorted(by_type.items())),
+        "graph_health": "warning" if graph["warnings"] else "ok",
+        "warning_count": len(graph["warnings"]),
+        "warnings": graph["warnings"],
+        "disconnected_count": len(disconnected),
+        "disconnected_objects": disconnected[:100],
+        "orphaned_count": len(orphaned),
+        "orphaned_nodes": orphaned[:100],
+        "built_at": graph["built_at"],
+        "build_seconds": graph["build_seconds"],
+        "cache_status": {
+            "memory_loaded": graph["environment"] in GRAPHS,
+            "persisted": graph_path(env).exists(),
+            "path": str(graph_path(env)),
+            "build_state": BUILD_STATE.get(graph["environment"], {"status": "idle"}),
+        },
+        "providers": graph["providers"],
+    }
+
+
+def get_node(env, node):
+    return current(env)["nodes"].get(node)
+
+
+def neighbors(env, node, direction="both", depth=1, edge_types=None):
+    graph = current(env)
+    depth = max(1, min(int(depth), 5))
+    edge_types = {item.upper() for item in edge_types.split(",")} if isinstance(edge_types, str) and edge_types else edge_types
+    forward = adjacency(graph, False, edge_types)
+    reverse = adjacency(graph, True, edge_types)
+    seen = {node}
+    queue = deque([(node, 0)])
+    nodes = []
+    edges = []
+
+    while queue:
+        current_node, current_depth = queue.popleft()
+        if current_depth >= depth:
+            continue
+        candidates = []
+        if direction in ("out", "both"):
+            candidates.extend(forward.get(current_node, []))
+        if direction in ("in", "both"):
+            candidates.extend(reverse.get(current_node, []))
+        for target, edge in candidates:
+            edges.append(edge)
+            if target not in seen:
+                seen.add(target)
+                if graph["nodes"].get(target):
+                    nodes.append(graph["nodes"][target])
+                queue.append((target, current_depth + 1))
+
+    return {
+        "root": node,
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+
+def shortest_path(env, source, target, edge_types=None):
+    graph = current(env)
+    adjacent = adjacency(graph, False, edge_types)
+    reverse = adjacency(graph, True, edge_types)
+    queue = deque([(source, [])])
+    seen = {source}
+
+    while queue:
+        node, path = queue.popleft()
+        if node == target:
+            ids = [source]
+            for edge in path:
+                ids.append(edge["target"] if edge["source"] == ids[-1] else edge["source"])
+            return {
+                "found": True,
+                "nodes": [graph["nodes"][node_id] for node_id in ids if node_id in graph["nodes"]],
+                "edges": path,
+                "length": len(path),
+            }
+
+        for next_node, edge in forward_reverse_neighbors(adjacent, reverse, node):
+            if next_node not in seen:
+                seen.add(next_node)
+                queue.append((next_node, path + [edge]))
+
+    return {"found": False, "nodes": [], "edges": [], "length": None}
+
+
+def forward_reverse_neighbors(forward, reverse, node):
+    yield from forward.get(node, [])
+    yield from reverse.get(node, [])
+
+
+def dependency_tree(env, node, reverse=False, depth=3):
+    direction = "in" if reverse else "out"
+    return neighbors(env, node, direction=direction, depth=depth, edge_types=DEPENDENCY_EDGES)
+
+
+def connected_components(env):
+    graph = current(env)
+    forward = adjacency(graph, False)
+    reverse = adjacency(graph, True)
+    seen = set()
+    components = []
+
+    for node in graph["nodes"]:
+        if node in seen:
+            continue
+        group = []
+        queue = deque([node])
+        seen.add(node)
+        while queue:
+            current_node = queue.popleft()
+            group.append(current_node)
+            for target, _ in forward_reverse_neighbors(forward, reverse, current_node):
+                if target not in seen:
+                    seen.add(target)
+                    queue.append(target)
+        components.append(group)
+
+    return sorted(components, key=len, reverse=True)
+
+
+def cycles(env):
+    graph = current(env)
+    forward = adjacency(graph, False)
+    visited = set()
+    stack = set()
+    found = []
+
+    def visit(node, path):
+        if node in stack:
+            found.append(path[path.index(node):] if node in path else path)
+            return
+        if node in visited:
+            return
+        visited.add(node)
+        stack.add(node)
+        for target, _ in forward.get(node, []):
+            visit(target, path + [target])
+        stack.remove(node)
+
+    for node in graph["nodes"]:
+        visit(node, [node])
+    return found[:100]
+
+
+def topological_order(env):
+    graph = current(env)
+    indegree = defaultdict(int)
+    outgoing = defaultdict(list)
+    for edge in graph["edges"]:
+        if edge["type"] in DEPENDENCY_EDGES:
+            outgoing[edge["source"]].append(edge["target"])
+            indegree[edge["target"]] += 1
+            indegree.setdefault(edge["source"], 0)
+
+    queue = deque([node for node in graph["nodes"] if indegree[node] == 0])
+    order = []
+    while queue:
+        node = queue.popleft()
+        order.append(node)
+        for target in outgoing.get(node, []):
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                queue.append(target)
+    return {
+        "complete": len(order) == len(graph["nodes"]),
+        "order": order,
+        "cycle_count": 0 if len(order) == len(graph["nodes"]) else len(cycles(env)),
+    }
+
+
+def _stable_json(value):
+    return json.dumps(value or {}, sort_keys=True, default=str)
+
+
+def _edge_key(edge):
+    return edge.get("id") or f"{edge.get('source')}->{edge.get('type')}->{edge.get('target')}"
+
+
+def _diff_graphs(g1, g2, env1="HCM", env2="FSCM", node_types=None, limit=200, snapshot_meta=None):
+    limit = max(1, min(int(limit), 1000))
+    type_filter = None
+    if node_types:
+        if isinstance(node_types, str):
+            type_filter = {item.strip().lower() for item in node_types.split(",") if item.strip()}
+        else:
+            type_filter = {str(item).lower() for item in node_types if item}
+
+    nodes1 = {
+        node_id: node for node_id, node in g1.get("nodes", {}).items()
+        if not type_filter or node.get("type") in type_filter
+    }
+    nodes2 = {
+        node_id: node for node_id, node in g2.get("nodes", {}).items()
+        if not type_filter or node.get("type") in type_filter
+    }
+
+    only1_ids = sorted(set(nodes1) - set(nodes2))
+    only2_ids = sorted(set(nodes2) - set(nodes1))
+    common_ids = sorted(set(nodes1) & set(nodes2))
+
+    changed_nodes = []
+    for node_id in common_ids:
+        n1 = nodes1[node_id]
+        n2 = nodes2[node_id]
+        diffs = []
+        for field in ("display_name", "canonical_url", "icon"):
+            if str(n1.get(field) or "") != str(n2.get(field) or ""):
+                diffs.append({"field": field, "env1": n1.get(field), "env2": n2.get(field)})
+        if _stable_json(n1.get("metadata")) != _stable_json(n2.get("metadata")):
+            diffs.append({"field": "metadata", "env1": n1.get("metadata"), "env2": n2.get("metadata")})
+        if diffs:
+            changed_nodes.append({"id": node_id, "env1": n1, "env2": n2, "diffs": diffs})
+
+    allowed_nodes = set(nodes1) | set(nodes2)
+    edges1 = {
+        _edge_key(edge): edge for edge in g1.get("edges", [])
+        if edge.get("source") in allowed_nodes and edge.get("target") in allowed_nodes
+    }
+    edges2 = {
+        _edge_key(edge): edge for edge in g2.get("edges", [])
+        if edge.get("source") in allowed_nodes and edge.get("target") in allowed_nodes
+    }
+
+    only_edge1 = sorted(set(edges1) - set(edges2))
+    only_edge2 = sorted(set(edges2) - set(edges1))
+
+    changed_edges = []
+    for edge_id in sorted(set(edges1) & set(edges2)):
+        e1 = edges1[edge_id]
+        e2 = edges2[edge_id]
+        if _stable_json(e1.get("metadata")) != _stable_json(e2.get("metadata")):
+            changed_edges.append({"id": edge_id, "env1": e1, "env2": e2})
+
+    return {
+        "env1": env1.upper(),
+        "env2": env2.upper(),
+        "node_types": sorted(type_filter) if type_filter else [],
+        "limit": limit,
+        "summary": {
+            "env1_nodes": len(nodes1),
+            "env2_nodes": len(nodes2),
+            "common_nodes": len(common_ids),
+            "only_in_env1_nodes": len(only1_ids),
+            "only_in_env2_nodes": len(only2_ids),
+            "changed_nodes": len(changed_nodes),
+            "env1_edges": len(edges1),
+            "env2_edges": len(edges2),
+            "only_in_env1_edges": len(only_edge1),
+            "only_in_env2_edges": len(only_edge2),
+            "changed_edges": len(changed_edges),
+        },
+        "only_in_env1_nodes": [nodes1[node_id] for node_id in only1_ids[:limit]],
+        "only_in_env2_nodes": [nodes2[node_id] for node_id in only2_ids[:limit]],
+        "changed_nodes": changed_nodes[:limit],
+        "only_in_env1_edges": [edges1[edge_id] for edge_id in only_edge1[:limit]],
+        "only_in_env2_edges": [edges2[edge_id] for edge_id in only_edge2[:limit]],
+        "changed_edges": changed_edges[:limit],
+        "snapshot": {
+            "env1_built_at": g1.get("built_at"),
+            "env2_built_at": g2.get("built_at"),
+            "env1_path": str(graph_path(env1)),
+            "env2_path": str(graph_path(env2)),
+            **(snapshot_meta or {}),
+        },
+        "warnings": [
+            item for item in [
+                ptmetadata.warning("graph_snapshot_empty", f"{env1.upper()} graph snapshot is empty; build it with /api/graph/build?env={env1}") if not g1.get("nodes") else None,
+                ptmetadata.warning("graph_snapshot_empty", f"{env2.upper()} graph snapshot is empty; build it with /api/graph/build?env={env2}") if not g2.get("nodes") else None,
+            ] if item
+        ],
+    }
+
+
+def diff(env1="HCM", env2="FSCM", node_types=None, limit=200):
+    """Compare two persisted/current knowledge graph snapshots."""
+    return _diff_graphs(current(env1), current(env2), env1, env2, node_types=node_types, limit=limit)
+
+
+def diff_snapshots(snapshot1, snapshot2, node_types=None, limit=200):
+    left = load_snapshot(snapshot1)
+    right = load_snapshot(snapshot2)
+    env1 = left["snapshot"].get("env") or left["graph"].get("environment") or "SNAPSHOT1"
+    env2 = right["snapshot"].get("env") or right["graph"].get("environment") or "SNAPSHOT2"
+    return _diff_graphs(
+        left["graph"],
+        right["graph"],
+        env1,
+        env2,
+        node_types=node_types,
+        limit=limit,
+        snapshot_meta={
+            "snapshot1": left["snapshot"],
+            "snapshot2": right["snapshot"],
+            "env1_path": left["snapshot"].get("path"),
+            "env2_path": right["snapshot"].get("path"),
+        },
+    )
+
+
+def search(env="HCM", q="", limit=50):
+    graph = current(env)
+    q = q.upper()
+    limit = max(1, min(int(limit), 200))
+    rows = []
+
+    for node in graph["nodes"].values():
+        haystack = " ".join([
+            node.get("id", ""),
+            node.get("type", ""),
+            node.get("name", ""),
+            node.get("display_name", ""),
+            json.dumps(node.get("metadata", {}), default=str),
+        ]).upper()
+        if q in haystack:
+            score = 10
+            if node["name"] == q or node["id"].upper() == q:
+                score += 100
+            elif node["name"].startswith(q):
+                score += 50
+            rows.append({**node, "score": score})
+
+    return sorted(rows, key=lambda item: (-item["score"], item["type"], item["name"]))[:limit]
+
+
+def export_json(env="HCM"):
+    return current(env)
+
+
+def export_dot(env="HCM"):
+    graph = current(env)
+    lines = ["digraph DeathStar {"]
+    for node in graph["nodes"].values():
+        safe_id = node["id"].replace(":", "_").replace(".", "_").replace("-", "_")
+        label = f"{node['type']}:{node['name']}".replace('"', "'")
+        lines.append(f'  "{safe_id}" [label="{label}"];')
+    for edge in graph["edges"]:
+        source = edge["source"].replace(":", "_").replace(".", "_").replace("-", "_")
+        target = edge["target"].replace(":", "_").replace(".", "_").replace("-", "_")
+        lines.append(f'  "{source}" -> "{target}" [label="{edge["type"]}"];')
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def export_graphml(env="HCM"):
+    graph = current(env)
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">', '<graph edgedefault="directed">']
+    for node in graph["nodes"].values():
+        lines.append(f'<node id="{node["id"]}"><data key="type">{node["type"]}</data><data key="name">{node["name"]}</data></node>')
+    for edge in graph["edges"]:
+        lines.append(f'<edge id="{edge["id"]}" source="{edge["source"]}" target="{edge["target"]}"><data key="type">{edge["type"]}</data></edge>')
+    lines.extend(["</graph>", "</graphml>"])
+    return "\n".join(lines)
