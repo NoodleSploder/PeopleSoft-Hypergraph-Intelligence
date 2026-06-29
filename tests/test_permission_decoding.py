@@ -28,6 +28,7 @@ class PermissionDecodingTests(unittest.TestCase):
         self.assertEqual(result["grant_paths"][0]["permissionlist_detail"]["classid"], "PL1")
         self.assertEqual(result["grant_paths"][0]["permissionlist_detail"]["classdefndesc"], "Payroll Access")
         self.assertEqual(result["grant_paths"][0]["decoded_actions"], ["Add", "Update/Display"])
+        self.assertIn("permissionlist:PL1", result["grant_paths"][0]["path_summary"])
 
     def test_explain_operator_menu_access_enriches_grant_paths_with_permissionlist_detail(self):
         fake_menus = [{
@@ -48,6 +49,7 @@ class PermissionDecodingTests(unittest.TestCase):
         self.assertEqual(result["grant_paths"][0]["permissionlist_detail"]["classid"], "PL1")
         self.assertEqual(result["grant_paths"][0]["permissionlist_detail"]["classdefndesc"], "Payroll Access")
         self.assertEqual(result["grant_paths"][0]["decoded_actions"], ["Add", "Update/Display All"])
+        self.assertIn("menu:MENU1", result["grant_paths"][0]["path_summary"])
 
 
 if __name__ == "__main__":

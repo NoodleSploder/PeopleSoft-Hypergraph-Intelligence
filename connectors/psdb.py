@@ -1986,6 +1986,11 @@ def explain_operator_component_access(env_name, oprid, component_name):
             {"type": "permissionlist", "name": classid},
             {"type": "component", "name": item.get("pnlgrpname") or component_name},
         ]
+        item["path_summary"] = " → ".join(
+            f"{step['type']}:{step['name']}"
+            for step in item["path"]
+            if step.get("name")
+        )
         grant_paths.append(item)
 
     return {
@@ -2115,6 +2120,11 @@ def explain_operator_menu_access(env_name, oprid, menu_name):
             {"type": "permissionlist", "name": classid},
             {"type": "menu", "name": item.get("menuname")},
         ]
+        item["path_summary"] = " → ".join(
+            f"{step['type']}:{step['name']}"
+            for step in item["path"]
+            if step.get("name")
+        )
         grant_paths.append(item)
 
     return {
