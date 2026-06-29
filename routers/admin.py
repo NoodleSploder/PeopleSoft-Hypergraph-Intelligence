@@ -4251,6 +4251,22 @@ tr:hover td{background:rgba(0,229,255,.04);}
      border-bottom:2px solid transparent;margin-bottom:-1px;}
 .tab.on{color:#00e5ff;border-bottom-color:#00e5ff;}
 .pane{display:none;} .pane.on{display:block;}
+.bind-row{display:flex;gap:3px;align-items:center;margin-bottom:3px;}
+.bnd-name{width:72px;font-family:monospace;font-size:11px;padding:2px 4px;
+  background:#050b12;color:#9ab;border:1px solid #00e5ff33;}
+.bnd-val{flex:1;min-width:0;font-family:monospace;font-size:11px;padding:2px 4px;
+  background:#050b12;color:#d7faff;border:1px solid #00e5ff33;}
+.bnd-rm{background:transparent;border:none;color:#445;cursor:pointer;padding:0 3px;font-size:13px;line-height:1;}
+.bnd-rm:hover{color:#ff4444;}
+#sqlAC{position:fixed;z-index:9999;background:#0b1b24;border:1px solid #00e5ff55;
+  min-width:260px;max-width:480px;max-height:220px;overflow-y:auto;display:none;
+  box-shadow:0 4px 16px #000a;}
+.ac-item{padding:4px 10px;cursor:pointer;display:flex;justify-content:space-between;
+  align-items:center;gap:8px;font-size:11px;}
+.ac-item:hover,.ac-item.ac-sel{background:#0e2a3a;}
+.ac-label{font-family:monospace;color:#d7faff;}
+.ac-detail{color:#445;font-size:10px;text-align:right;}
+.ac-type-col{color:#00e5ff44;font-size:9px;text-transform:uppercase;}
 </style>
 </head>
 <body>
@@ -4313,12 +4329,20 @@ tr:hover td{background:rgba(0,229,255,.04);}
   <div class="editor-panel">
     <div style="display:flex;gap:8px;align-items:flex-start;">
       <div style="flex:1;">
-        <label class="lbl">SQL Query</label>
+        <label class="lbl">SQL Query <span style="color:#445;font-size:9px;font-weight:normal;">Ctrl+Space to autocomplete</span></label>
         <textarea id="sqlInput" rows="8" placeholder="SELECT * FROM SYSADM.PSOPRDEFN FETCH FIRST 10 ROWS ONLY"></textarea>
       </div>
-      <div style="width:200px;">
-        <label class="lbl">Bind Parameters (JSON)</label>
-        <textarea id="bindsInput" rows="8" placeholder='{"oprid": "VP1"}'>{}</textarea>
+      <div id="sqlAC"></div>
+      <div style="width:200px;display:flex;flex-direction:column;">
+        <label class="lbl">Bind Parameters
+          <button class="sec" onclick="addBind()" style="font-size:9px;padding:1px 5px;margin-left:4px;">+ Add</button>
+          <button class="sec" onclick="clearBinds()" style="font-size:9px;padding:1px 5px;margin-left:2px;">Clear</button>
+        </label>
+        <div id="bindsEditor" style="flex:1;overflow-y:auto;min-height:60px;max-height:160px;
+          border:1px solid #00e5ff44;padding:4px 6px;background:#0b1b24;"></div>
+        <div class="muted" id="bindsHint" style="font-size:9px;color:#445;padding:2px 0;">
+          Bind vars from SQL e.g. :oprid → "oprid"
+        </div>
       </div>
     </div>
 
@@ -4373,10 +4397,33 @@ const $ = id => document.getElementById(id);
 function env()      { return $('envSel').value || 'HCM'; }
 function sqlText()  { return $('sqlInput').value.trim(); }
 function bindsObj() {
-  const raw = $('bindsInput').value.trim();
-  if (!raw || raw === '{}') return {};
-  try { return JSON.parse(raw); }
-  catch(e) { alert('Bind parameters are not valid JSON: ' + e.message); throw e; }
+  const obj = {};
+  document.querySelectorAll('#bindsEditor .bind-row').forEach(row => {
+    const name = row.querySelector('.bnd-name').value.trim().replace(/^:/, '');
+    const val  = row.querySelector('.bnd-val').value;
+    if (name) obj[name] = val;
+  });
+  return obj;
+}
+
+function addBind(name, val) {
+  const ed  = $('bindsEditor');
+  const row = document.createElement('div');
+  row.className = 'bind-row';
+  row.innerHTML = `<input class="bnd-name" placeholder="name" value="${esc(name||'')}">` +
+                  `<input class="bnd-val"  placeholder="value" value="${esc(val!=null?val:'')}">` +
+                  `<button class="bnd-rm" onclick="this.parentElement.remove()" title="Remove">×</button>`;
+  ed.appendChild(row);
+  row.querySelector('.bnd-name').focus();
+}
+
+function clearBinds() {
+  $('bindsEditor').innerHTML = '';
+}
+
+function setBinds(obj) {
+  clearBinds();
+  Object.entries(obj || {}).forEach(([k,v]) => addBind(k, v));
 }
 
 function showTab(name) {
@@ -4689,6 +4736,174 @@ function insertColumnRef(table, col) {
   ta.selectionStart = ta.selectionEnd = sel + col.length;
 }
 
+// ── SQL Autocomplete ────────────────────────────────────────────────────
+let _acItems = [];
+let _acSel   = -1;
+let _acTimer = null;
+const _acColCache = {};
+
+function _tokenBeforeCursor() {
+  const ta  = $('sqlInput');
+  const txt = ta.value.slice(0, ta.selectionStart);
+  const m   = txt.match(/[\w.]+$/);
+  return m ? m[0] : '';
+}
+
+function _extractAliases(sql) {
+  const map = {};
+  const re = /(?:FROM|JOIN)\s+(?:SYSADM\.)?(\w+)\s+(?:AS\s+)?(\w+)/gi;
+  let m;
+  const KEYWORDS = new Set(['WHERE','ON','INNER','LEFT','RIGHT','OUTER','CROSS','FULL','FETCH','ORDER','GROUP','HAVING','SET','AND','OR']);
+  while ((m = re.exec(sql)) !== null) {
+    const tbl   = m[1].toUpperCase();
+    const alias = m[2].toUpperCase();
+    if (!KEYWORDS.has(alias)) {
+      map[alias] = tbl;
+      map[tbl]   = tbl;
+    }
+  }
+  return map;
+}
+
+function _acContext() {
+  const tok = _tokenBeforeCursor();
+  if (!tok) return null;
+  if (tok.includes('.')) {
+    const dot  = tok.lastIndexOf('.');
+    const pre  = tok.slice(0, dot);
+    const suf  = tok.slice(dot + 1);
+    const owner = pre.includes('.') ? pre.split('.').pop() : pre;
+    return { type: 'column', qualifier: owner, prefix: suf, replaceLen: suf.length };
+  }
+  if (tok.length >= 2) return { type: 'table', prefix: tok, replaceLen: tok.length };
+  return null;
+}
+
+async function _fetchAC(ctx) {
+  if (!ctx) return [];
+  if (ctx.type === 'table') {
+    try {
+      const res  = await fetch(`/api/sqlws/schema/search?env=${encodeURIComponent(env())}&q=${encodeURIComponent(ctx.prefix)}`);
+      const data = await res.json();
+      return (data.results || []).slice(0, 12).map(r => ({
+        label: r.object_name,
+        insert: r.object_name,
+        detail: r.description || (r.source === 'peoplesoft' ? 'PS' : (r.object_type || '')),
+      }));
+    } catch(e) { return []; }
+  }
+  if (ctx.type === 'column') {
+    const aliases = _extractAliases($('sqlInput').value);
+    const tblName = aliases[ctx.qualifier.toUpperCase()] || ctx.qualifier.toUpperCase();
+    const cacheKey = `${env()}|${tblName}`;
+    if (!_acColCache[cacheKey]) {
+      try {
+        const res  = await fetch(`/api/sqlws/schema/SYSADM/${encodeURIComponent(tblName)}/columns?env=${encodeURIComponent(env())}`);
+        const data = await res.json();
+        _acColCache[cacheKey] = data.columns || [];
+      } catch(e) { _acColCache[cacheKey] = []; }
+    }
+    const cols = _acColCache[cacheKey];
+    const pfx  = ctx.prefix.toUpperCase();
+    return cols
+      .filter(c => !pfx || c.column_name.toUpperCase().startsWith(pfx))
+      .slice(0, 16)
+      .map(c => ({ label: c.column_name, insert: c.column_name, detail: c.data_type || '' }));
+  }
+  return [];
+}
+
+function _showAC(items, replaceLen) {
+  const box = $('sqlAC');
+  if (!items.length) { _hideAC(); return; }
+  _acItems = items;
+  _acSel   = -1;
+  box.innerHTML = items.map((it, i) =>
+    `<div class="ac-item" data-i="${i}" onmousedown="event.preventDefault();_acCommit(${i})">
+      <span class="ac-label">${esc(it.label)}</span>
+      <span class="ac-detail">${esc(it.detail)}</span>
+    </div>`
+  ).join('');
+  const ta  = $('sqlInput');
+  const r   = ta.getBoundingClientRect();
+  box.style.left = r.left + 'px';
+  box.style.top  = (r.bottom + 2) + 'px';
+  box.style.display = 'block';
+  box._replaceLen = replaceLen;
+}
+
+function _hideAC() {
+  $('sqlAC').style.display = 'none';
+  _acItems = [];
+  _acSel   = -1;
+}
+
+function _acRenderSel() {
+  document.querySelectorAll('#sqlAC .ac-item').forEach((el, i) => {
+    el.classList.toggle('ac-sel', i === _acSel);
+  });
+}
+
+function _acCommit(i) {
+  const item = _acItems[i];
+  if (!item) return;
+  const ta  = $('sqlInput');
+  const pos = ta.selectionStart;
+  const txt = ta.value;
+  const rl  = $('sqlAC')._replaceLen || 0;
+  ta.value  = txt.slice(0, pos - rl) + item.insert + txt.slice(pos);
+  ta.selectionStart = ta.selectionEnd = pos - rl + item.insert.length;
+  ta.focus();
+  _hideAC();
+}
+
+function _acTrigger() {
+  clearTimeout(_acTimer);
+  _acTimer = setTimeout(async () => {
+    const ctx   = _acContext();
+    const items = await _fetchAC(ctx);
+    _showAC(items, ctx ? ctx.replaceLen : 0);
+  }, 200);
+}
+
+(function _wireAC() {
+  const ta = $('sqlInput');
+  if (!ta) return;
+
+  ta.addEventListener('keydown', e => {
+    const box = $('sqlAC');
+    if (box.style.display === 'none') {
+      if (e.ctrlKey && e.key === ' ') { e.preventDefault(); _acTrigger(); }
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      _acSel = Math.min(_acSel + 1, _acItems.length - 1);
+      _acRenderSel();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      _acSel = Math.max(_acSel - 1, -1);
+      _acRenderSel();
+    } else if ((e.key === 'Enter' || e.key === 'Tab') && _acSel >= 0) {
+      e.preventDefault();
+      _acCommit(_acSel);
+    } else if (e.key === 'Escape') {
+      _hideAC();
+    } else if (e.ctrlKey && e.key === ' ') {
+      e.preventDefault();
+      _acTrigger();
+    }
+  });
+
+  ta.addEventListener('input', () => {
+    const tok = _tokenBeforeCursor();
+    if (!tok || tok.length < 2) { _hideAC(); return; }
+    _acTrigger();
+  });
+
+  ta.addEventListener('blur', () => setTimeout(_hideAC, 150));
+})();
+
 // ── history ─────────────────────────────────────────────────────────────
 let _historyItems = [];
 let _pinnedItems  = [];
@@ -4733,12 +4948,12 @@ function renderHistoryList(items, targetId, pinnedView) {
           <span class="ts">${esc(ts)}</span>
           <span style="color:${statusColor};font-size:10px;">${status} ${esc(item.env)}</span>
         </div>
-        <div class="sql-preview" onclick="loadQueryFromHistory(${JSON.stringify(JSON.stringify(item.sql))})"
+        <div class="sql-preview" onclick="loadQueryFromHistory(${JSON.stringify(JSON.stringify(item.sql))},${JSON.stringify(JSON.stringify(item.binds||{}))})"
              title="${esc(item.sql)}" style="cursor:pointer;">${esc(item.sql)}</div>
         <div style="display:flex;gap:4px;margin-top:3px;flex-wrap:wrap;">
           <button class="sec pin-btn" onclick="togglePin('${esc(item.id)}',${!item.pinned})">${pinLabel}</button>
           <button class="sec pin-btn" onclick="deleteHistory('${esc(item.id)}')">Delete</button>
-          <button class="sec pin-btn" onclick="loadQueryFromHistory(${JSON.stringify(JSON.stringify(item.sql))})">Load</button>
+          <button class="sec pin-btn" onclick="loadQueryFromHistory(${JSON.stringify(JSON.stringify(item.sql))},${JSON.stringify(JSON.stringify(item.binds||{}))})">Load</button>
           ${item.elapsed_ms ? `<span class="ts">${item.elapsed_ms}ms</span>` : ''}
           ${item.row_count  ? `<span class="ts">${item.row_count}r</span>`   : ''}
         </div>
@@ -4746,9 +4961,25 @@ function renderHistoryList(items, targetId, pinnedView) {
   }).join('');
 }
 
-function loadQueryFromHistory(sqlJsonStr) {
+function loadQueryFromHistory(sqlJsonStr, bindsJsonStr) {
   const sql = JSON.parse(sqlJsonStr);
   $('sqlInput').value = sql;
+  if (bindsJsonStr) {
+    try { setBinds(JSON.parse(bindsJsonStr)); } catch(e) {}
+  } else {
+    _detectBinds(sql);
+  }
+}
+
+function _detectBinds(sql) {
+  const existing = new Set(
+    [...document.querySelectorAll('#bindsEditor .bnd-name')].map(el => el.value.trim().replace(/^:/, ''))
+  );
+  const matches = (sql || '').match(/:([a-zA-Z_][a-zA-Z0-9_]*)/g) || [];
+  matches.forEach(m => {
+    const name = m.slice(1);
+    if (!existing.has(name)) { addBind(name, ''); existing.add(name); }
+  });
 }
 
 async function togglePin(id, pin) {
@@ -4775,6 +5006,13 @@ async function deleteHistory(id) {
     $('pageSizeInput').value = cfg.default_page_size || 100;
   }
   loadHistory();
+
+  // Auto-detect bind vars when SQL changes (debounced)
+  let _bindDetectTimer = null;
+  $('sqlInput').addEventListener('input', () => {
+    clearTimeout(_bindDetectTimer);
+    _bindDetectTimer = setTimeout(() => _detectBinds($('sqlInput').value), 400);
+  });
 })();
 </script>
 </body>

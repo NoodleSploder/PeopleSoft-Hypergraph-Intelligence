@@ -668,6 +668,39 @@ Verification:
 
 ------------------------------------------------------------------------
 
+### SQL Workspace Autocomplete and Typed Bind Parameters
+
+**SQL Autocomplete** (`routers/admin.py` — `admin_sqlws()`):
+
+- Added `<div id="sqlAC">` fixed-position overlay with `position:fixed;z-index:9999` — appears below the SQL textarea when triggered.
+- `_tokenBeforeCursor()`: extracts the current word from the textarea before the cursor (including dots).
+- `_acContext()`: determines whether the token is a table reference (no dot, ≥2 chars → `{type:"table", prefix}`) or a column reference (contains dot → `{type:"column", qualifier, prefix}`).
+- `_extractAliases(sql)`: regex over FROM/JOIN clauses to build `alias → table` map (skips SQL keywords).
+- `_fetchAC(ctx)`: calls `/api/sqlws/schema/search` for table completion; calls `/api/sqlws/schema/SYSADM/{table}/columns` for column completion after resolving the qualifier via alias map. Column results are cached per `env|table`.
+- `_showAC()`: positions dropdown using `getBoundingClientRect()`, renders items with label + detail; `_acCommit(i)` splices the selected token into the textarea at cursor position.
+- Keyboard: ArrowUp/Down to navigate, Enter/Tab to commit (when item selected), Escape to close, Ctrl+Space to trigger manually.
+- Fires automatically on `input` (debounced 200ms) when token ≥2 chars; hides on `blur` with 150ms delay.
+- Hint label "Ctrl+Space to autocomplete" added to SQL Query label.
+
+**Typed Bind Parameters** (`routers/admin.py` — `admin_sqlws()`):
+
+- Replaced raw JSON `<textarea id="bindsInput">` with a structured editor `<div id="bindsEditor">`.
+- Each bind is a row: `[name input] [value input] [× remove button]`.
+- `addBind(name, val)`: creates a new bind row.
+- `clearBinds()`: removes all rows.
+- `setBinds(obj)`: clears and repopulates from a `{name: value}` object.
+- `bindsObj()`: iterates `.bind-row` elements, strips leading `:` from names, returns `{name: value}` dict.
+- `_detectBinds(sql)`: regex-scans SQL for `:name` placeholders, adds missing ones as empty rows — fires automatically on SQL input (debounced 400ms) and when loading from history.
+- History "Load" now passes saved binds as second argument to `loadQueryFromHistory(sqlJson, bindsJson)`, restoring bind rows from history.
+- CSS: `.bind-row`, `.bnd-name`, `.bnd-val`, `.bnd-rm` with monospace styling consistent with the dark theme.
+
+Verification:
+- `admin_sqlws()` HTML contains `bindsEditor`, `addBind`, `clearBinds`, `setBinds`, `_detectBinds`, `bnd-name` (CSS), and no `bindsInput`.
+- `admin_sqlws()` HTML contains `sqlAC`, `_acTrigger`, `_extractAliases`, and `Ctrl+Space` hint text.
+- Schema browser API confirmed: table search returns `PSOPRDEFN` etc., column search returns `OPRID, OPRDEFNDESC, EMPLID` for `PSOPRDEFN`.
+
+------------------------------------------------------------------------
+
 ### PS Query Explorer
 
 Added full PS Query object type support via the UOM pattern:

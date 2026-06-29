@@ -110,11 +110,14 @@
 -   `/api/graph/snapshots/prune` manual prune endpoint
 -   Force-directed SVG visualization in Graph Explorer (Visual tab)
 
+### Completed
+
+-   Security traversal: operator → role → permission list → component edges in graph build; graph API already supports multi-hop traversal via `/api/graph/neighbors/{node}?depth=N` and shortest path via `/api/graph/path`
+
 ### Remaining
 
 -   Graph compaction
 -   Large-environment indexing
--   Security traversal
 
 ------------------------------------------------------------------------
 
@@ -354,11 +357,14 @@
 -   Export
 -   Search filters
 
+### Completed
+
+-   SQL autocomplete: Ctrl+Space or typing triggers dropdown — table names from schema search, column names from alias resolution (table alias extracted from SQL), column cache per session; Arrow/Enter/Tab/Escape navigation
+-   Typed bind parameters: Structured key/value bind editor replaces raw JSON textarea; auto-detects `:name` placeholders from SQL as you type; history load restores saved binds; rows add/remove individually
+
 ### Remaining
 
--   Typed bind variables
 -   Timeout / cancellation
--   Autocomplete
 
 ------------------------------------------------------------------------
 
