@@ -1135,11 +1135,13 @@ def sections_for_role(role):
     # Dynamic membership: show query/PeopleCode/LDAP rule when role type is dynamic
     qryname = str(raw.get("qryname") or "").strip()
     pc_func = str(raw.get("pc_function_name") or "").strip()
-    ldap_on = str(raw.get("ldap_rule_on") or "").strip().upper()
+    ldap_on = str(raw.get("ldap_rule_on") or raw.get("ldap_rule_on") or "").strip().upper()
+    role_query_on = str(raw.get("role_query_rule_on") or "").strip().upper()
+    role_pcode_on = str(raw.get("role_pcode_rule_on") or "").strip().upper()
     roletype = str(raw.get("roletype") or "").strip().upper()
-    if roletype in ("Q", "P") or qryname or pc_func or ldap_on == "Y":
+    if roletype in ("Q", "P") or qryname or pc_func or ldap_on == "Y" or role_query_on == "Y" or role_pcode_on == "Y":
         dynamic_items = []
-        rule_type = raw.get("roletype_label") or roletype
+        rule_type = raw.get("roletype_label") or roletype or ("Dynamic Query" if role_query_on == "Y" else "Dynamic Role")
         if qryname:
             dynamic_items.append({
                 "type": "query", "name": qryname,

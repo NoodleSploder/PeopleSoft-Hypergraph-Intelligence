@@ -3129,7 +3129,8 @@ def role_detail(env_name, rolename):
         ["DESCR", "ROLETYPE", "ROLESTATUS", "QRYNAME", "RECNAME", "FIELDNAME",
          "PC_EVENT_TYPE", "QRYNAME_SEC", "PC_FUNCTION_NAME",
          "ROLE_QUERY_RULE_ON", "ROLE_PCODE_RULE_ON", "LDAP_RULE_ON",
-         "ALLOWNOTIFY", "ALLOWLOOKUP", "LASTUPDDTTM", "LASTUPDOPRID", "DESCRLONG"],
+         "ALLOWNOTIFY", "ALLOWLOOKUP", "LASTUPDDTTM", "LASTUPDOPRID", "DESCRLONG",
+         "DYNAMIC_SW"],
         required=["ROLENAME"],
     )
     rd_sel = ", ".join(c for c in rd_cols)
@@ -3145,6 +3146,14 @@ def role_detail(env_name, rolename):
     rs = str(row.get("rolestatus") or "").strip()
     row["roletype_label"] = ROLETYPE_LABELS.get(rt, rt or "General")
     row["rolestatus_label"] = ROLESTATUS_LABELS.get(rs, rs)
+
+    if "role_query_rule_on" not in row and "role_query_rule_on" in {c.lower() for c in rd_cols}:
+        row["role_query_rule_on"] = None
+    if "role_pcode_rule_on" not in row and "role_pcode_rule_on" in {c.lower() for c in rd_cols}:
+        row["role_pcode_rule_on"] = None
+    if "ldap_rule_on" not in row and "ldap_rule_on" in {c.lower() for c in rd_cols}:
+        row["ldap_rule_on"] = None
+
     return row
 
 
