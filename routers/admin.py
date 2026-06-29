@@ -4355,15 +4355,20 @@ tr:hover td{background:rgba(0,229,255,.04);}
         <label class="lbl">Page Size</label>
         <input id="pageSizeInput" type="number" value="100" min="1" max="1000" style="width:70px;">
       </div>
+      <div>
+        <label class="lbl">Timeout (s)</label>
+        <input id="timeoutInput" type="number" value="30" min="0" max="600" style="width:78px;">
+      </div>
     </div>
 
     <div class="btn-row">
-      <button onclick="validateSQL()">Validate</button>
-      <button onclick="executeSQL()">Execute</button>
-      <button class="sec" onclick="explainSQL()">Explain Plan</button>
-      <button class="sec" onclick="exportCSV()">Export CSV</button>
-      <button class="sec" onclick="exportJSON()">Export JSON</button>
-      <button class="sec" onclick="clearResults()">Clear</button>
+      <button id="validateBtn" onclick="validateSQL()">Validate</button>
+      <button id="execBtn" onclick="executeSQL()">Execute</button>
+      <button id="cancelBtn" class="sec" onclick="cancelSQL()" style="display:none;">&#9632; Cancel</button>
+      <button id="explainBtn" class="sec" onclick="explainSQL()">Explain Plan</button>
+      <button id="exportCsvBtn" class="sec" onclick="exportCSV()">Export CSV</button>
+      <button id="exportJsonBtn" class="sec" onclick="exportJSON()">Export JSON</button>
+      <button id="clearBtn" class="sec" onclick="clearResults()">Clear</button>
     </div>
 
     <div id="validationBox" style="margin-top:8px;display:none;"></div>
@@ -4506,22 +4511,67 @@ async function validateSQL() {
 }
 
 // ── execute ────────────────────────────────────────────────────────────
+let currentAbortController = null;
+
+function _setExecRunning(running) {
+  const buttons = ['validateBtn','execBtn','explainBtn','exportCsvBtn','exportJsonBtn','clearBtn'];
+  buttons.forEach(id => { const el = $(id); if (el) el.disabled = running; });
+  $('execBtn').disabled = running;
+  $('cancelBtn').style.display = running ? 'inline-block' : 'none';
+}
+
+function getTimeoutSecs() {
+  const raw = parseInt($('timeoutInput').value, 10);
+  if (!Number.isFinite(raw)) return 0;
+  return Math.max(0, Math.min(raw, 600));
+}
+
+function cancelSQL() {
+  if (currentAbortController) {
+    currentAbortController.abort();
+    currentAbortController = null;
+  }
+}
+
 async function executeSQL(page) {
   const sql = sqlText();
   if (!sql) { alert('Enter a SQL query first.'); return; }
-  const binds    = bindsObj();
-  const pageSize = parseInt($('pageSizeInput').value) || 100;
+  const binds      = bindsObj();
+  const pageSize   = parseInt($('pageSizeInput').value) || 100;
+  const timeoutSecs = getTimeoutSecs();
   page = page || parseInt($('pageInput').value) || 1;
 
   lastSQL = sql; lastBinds = binds; lastPageSize = pageSize; currentPage = page;
   $('pageInput').value = page;
 
-  const res = await api('/api/sqlws/execute', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({env:env(), sql, binds, page, page_size:pageSize}),
-  });
-  const data = await res.json();
+  currentAbortController = new AbortController();
+  _setExecRunning(true);
+
+  let data;
+  try {
+    const res = await api('/api/sqlws/execute', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({env:env(), sql, binds, page, page_size:pageSize, timeout_secs:timeoutSecs}),
+      signal: currentAbortController.signal,
+    });
+    data = await res.json();
+  } catch (e) {
+    _setExecRunning(false);
+    if (e.name === 'AbortError') {
+      $('timingBox').style.display = 'block';
+      $('timingBox').textContent = 'Query cancelled by user.';
+      setWarnings([], ['Query cancelled by user.']);
+      $('resultsBox').innerHTML = '<div class="empty">Execution cancelled.</div>';
+      $('paginationBox').style.display = 'none';
+    } else {
+      setWarnings([], [`Request failed: ${e.message}`]);
+    }
+    return;
+  } finally {
+    currentAbortController = null;
+  }
+  _setExecRunning(false);
   lastResult = data;
 
   setValidationBox({
@@ -4537,7 +4587,8 @@ async function executeSQL(page) {
 
   const timing = $('timingBox');
   timing.style.display = 'block';
-  timing.textContent = `${data.row_count} rows · ${data.elapsed_ms} ms · Page ${data.page}${data.truncated ? ' (more rows available)' : ''}`;
+  const statusSuffix = data.timed_out ? ' — TIMED OUT' : (data.cancelled ? ' — CANCELLED' : '');
+  timing.textContent = `${data.row_count} rows · ${data.elapsed_ms} ms · Page ${data.page}${data.truncated ? ' (more rows available)' : ''}${statusSuffix}`;
 
   renderTable(data);
   renderPagination(data);
@@ -5750,6 +5801,7 @@ a.obj-link:hover{text-decoration:underline;}
     <div class="tab"     onclick="switchTab('peoplecode')">PeopleCode</div>
     <div class="tab"     onclick="switchTab('sql_definitions')">SQL Defs</div>
     <div class="tab"     onclick="switchTab('portals')">Portals</div>
+    <div class="tab"     onclick="switchTab('queries')">PS Queries</div>
     <div class="tab"     onclick="switchTab('graph')">Graph</div>
   </div>
 
@@ -5844,6 +5896,16 @@ a.obj-link:hover{text-decoration:underline;}
     <div id="res-portals"></div>
   </div>
 
+  <!-- PS Queries tab -->
+  <div id="pane-queries" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="queryQ" type="text" placeholder="Search public PS Query name or description…" style="width:300px;" onkeydown="if(event.key==='Enter')runCompare('queries')">
+      <button onclick="runCompare('queries')">Compare</button>
+      <span class="spinner" id="spin-queries">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-queries"></div>
+  </div>
+
   <!-- Graph tab -->
   <div id="pane-graph" class="pane" style="display:none;">
     <div class="ctrl">
@@ -5860,7 +5922,7 @@ a.obj-link:hover{text-decoration:underline;}
 
 <script>
 const $ = id => document.getElementById(id);
-const TABS = ['records','fields','components','permissions','ae','roles','peoplecode','sql_definitions','portals','graph'];
+const TABS = ['records','fields','components','permissions','ae','roles','peoplecode','sql_definitions','portals','queries','graph'];
 let currentTab = 'records';
 
 function env1() { return $('env1Sel').value || 'HCM'; }
@@ -5914,7 +5976,7 @@ async function loadSummary() {
 // ─── Generic compare (records / components / permissions / ae / roles) ────────
 const Q_IDS = {
   records: 'recQ', components: 'compQ', permissions: 'permQ', ae: 'aeQ', roles: 'roleQ',
-  peoplecode: 'pcQ', sql_definitions: 'sqlQ', portals: 'portalQ',
+  peoplecode: 'pcQ', sql_definitions: 'sqlQ', portals: 'portalQ', queries: 'queryQ',
 };
 
 async function runCompare(type) {

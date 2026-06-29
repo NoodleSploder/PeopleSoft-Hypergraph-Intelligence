@@ -298,6 +298,28 @@ def _build_paged_sql(inner_sql: str, start_row: int, end_row: int) -> str:
     )
 
 
+MAX_TIMEOUT_SECS = 600
+
+
+def _normalize_timeout_secs(value) -> int:
+    """Normalize timeout input to a safe integer number of seconds."""
+    if value is None or isinstance(value, bool):
+        return 0
+    if isinstance(value, (int, float)):
+        try:
+            seconds = int(value)
+        except (TypeError, ValueError):
+            return 0
+    else:
+        try:
+            seconds = int(str(value).strip())
+        except (TypeError, ValueError):
+            return 0
+    if seconds < 0:
+        return 0
+    return min(seconds, MAX_TIMEOUT_SECS)
+
+
 def execute_query(
     env_name: str,
     sql: str,
@@ -305,26 +327,29 @@ def execute_query(
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
     max_rows: int = None,
+    timeout_secs: int = 0,
 ) -> dict:
     """
     Execute a read-only SELECT against the named PeopleSoft environment.
 
     Parameters
     ----------
-    env_name  : PeopleSoft environment name (e.g. "HCM")
-    sql       : User-provided SQL text
-    binds     : Bind variable dict  {name: value}
-    page      : 1-based page number
-    page_size : Rows per page (capped at MAX_PAGE_SIZE)
-    max_rows  : Hard limit on total rows returned (defaults to page_size)
+    env_name     : PeopleSoft environment name (e.g. "HCM")
+    sql          : User-provided SQL text
+    binds        : Bind variable dict  {name: value}
+    page         : 1-based page number
+    page_size    : Rows per page (capped at MAX_PAGE_SIZE)
+    max_rows     : Hard limit on total rows returned (defaults to page_size)
+    timeout_secs : Server-side call timeout in seconds (0 = no timeout, capped at MAX_TIMEOUT_SECS)
 
     Returns a structured result dict suitable for direct JSON serialisation.
     """
-    binds     = binds or {}
-    page      = max(1, int(page))
-    page_size = max(1, min(int(page_size), MAX_PAGE_SIZE))
-    max_rows  = int(max_rows) if max_rows else page_size
-    max_rows  = max(1, min(max_rows, MAX_PAGE_SIZE))
+    binds        = binds or {}
+    page         = max(1, int(page))
+    page_size    = max(1, min(int(page_size), MAX_PAGE_SIZE))
+    max_rows     = int(max_rows) if max_rows else page_size
+    max_rows     = max(1, min(max_rows, MAX_PAGE_SIZE))
+    timeout_secs = _normalize_timeout_secs(timeout_secs)
 
     # Reserved paging bind names — reject if user accidentally uses them.
     reserved = {"sqlws_rn_s", "sqlws_rn_e"}
@@ -398,6 +423,7 @@ def execute_query(
     t0 = time.monotonic()
     status = "success"
     error_msg = None
+    timed_out = False
     columns = []
     rows = []
 
@@ -405,6 +431,11 @@ def execute_query(
         conn = _connect(env_name)
         try:
             cur = conn.cursor()
+            if timeout_secs and hasattr(cur, "callTimeout"):
+                try:
+                    cur.callTimeout = timeout_secs * 1000
+                except Exception:
+                    warnings.append("Execution timeout is not supported by the current Oracle driver configuration.")
             cur.execute(paged_sql, exec_binds)
 
             # Build column metadata from cursor description, skip the rn sentinel.
@@ -429,6 +460,13 @@ def execute_query(
                 rows.append(row)
         finally:
             conn.close()
+    except oracledb.Error as exc:
+        status = "error"
+        error_msg = str(exc)
+        if "DPI-1067" in error_msg or "call timeout" in error_msg.lower():
+            timed_out = True
+            status = "timeout"
+            error_msg = f"Query exceeded the {timeout_secs}s timeout and was cancelled."
     except Exception as exc:
         status = "error"
         error_msg = str(exc)
@@ -441,6 +479,9 @@ def execute_query(
     if error_msg:
         warnings.append(f"Execution error: {error_msg}")
 
+    if timed_out:
+        status = "timeout"
+
     _history_append({
         "id": query_id,
         "timestamp": ts,
@@ -452,6 +493,7 @@ def execute_query(
         "status": status,
         "blocked_reason": None,
         "pinned": False,
+        "timed_out": timed_out,
     })
 
     audit_write("execute", {
@@ -478,6 +520,8 @@ def execute_query(
         "warnings": warnings,
         "blocked": False,
         "blocked_reason": None,
+        "timed_out": timed_out,
+        "cancelled": False,
         "query_id": query_id,
     }
 

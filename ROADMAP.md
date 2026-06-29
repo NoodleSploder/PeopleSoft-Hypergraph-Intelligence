@@ -362,9 +362,9 @@
 -   SQL autocomplete: Ctrl+Space or typing triggers dropdown — table names from schema search, column names from alias resolution (table alias extracted from SQL), column cache per session; Arrow/Enter/Tab/Escape navigation
 -   Typed bind parameters: Structured key/value bind editor replaces raw JSON textarea; auto-detects `:name` placeholders from SQL as you type; history load restores saved binds; rows add/remove individually
 
-### Remaining
+### Completed
 
--   Timeout / cancellation
+-   Timeout / cancellation: server-side timeout propagation, client-side cancel button, explicit timed-out/cancelled messaging, and history status markers
 
 ------------------------------------------------------------------------
 
@@ -382,6 +382,7 @@
 -   SQL Definition comparison (PSSQLDEFN catalog)
 -   Portal Registry comparison (PSPRSMDEFN catalog)
 -   Object count summary expanded: PeopleCode programs, SQL definitions, Portal entries
+-   PS Query comparison: `compare_queries()` against PSQRYDEFN (public queries, OPRID=\' \'); PS Queries tab in `/admin/envcompare`; count in summary
 
 ### Remaining
 

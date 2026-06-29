@@ -67,6 +67,19 @@ Verification:
 - Compiled graph and IB modules.
 - Smoke-tested representative IB object payloads and graph neighborhoods.
 
+### SQL Workspace Timeout and Cancellation
+
+- Added server-side execution timeout normalization and propagation from the SQL Workspace router into the connector execution path.
+- The connector now applies `cursor.callTimeout` when available, returns a clear `timed_out` flag for timed-out queries, and records timeout status in history/audit entries.
+- The admin SQL Workspace page now exposes a timeout input, a Cancel button, and client-side `AbortController` handling so execution can be interrupted cleanly and the UI surfaces cancelled/timed-out feedback without leaving the interface in a stuck state.
+- Preserved the existing read-only execution, pagination, explain-plan, export, and history behavior while keeping successful query execution unchanged.
+
+Verification:
+
+- Ran `python -m unittest -q tests.test_sqlws_timeout`.
+- Ran `python -m py_compile routers/admin.py routers/sqlws.py connectors/sqlws.py connectors/uom.py connectors/psdb.py connectors/envcompare.py routers/envcompare.py`.
+- Smoke-tested `/api/sqlws/config` and `/api/envcompare/queries` after service restart.
+
 ### Graph Snapshot, Diff, and Environment Compare
 
 - Added graph snapshot creation, listing, loading, deletion, and manifest

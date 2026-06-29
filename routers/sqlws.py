@@ -31,6 +31,7 @@ class ExecuteRequest(BaseModel):
     page: int = 1
     page_size: int = sqlws.DEFAULT_PAGE_SIZE
     max_rows: int = None
+    timeout_secs: int = 0
 
 
 class ExplainRequest(BaseModel):
@@ -71,12 +72,13 @@ def validate_sql(req: ValidateRequest):
 def execute_sql(req: ExecuteRequest):
     """Execute a read-only SQL statement with optional bind parameters and paging."""
     return sqlws.execute_query(
-        env_name  = req.env,
-        sql       = req.sql,
-        binds     = req.binds,
-        page      = req.page,
-        page_size = req.page_size,
-        max_rows  = req.max_rows,
+        env_name     = req.env,
+        sql          = req.sql,
+        binds        = req.binds,
+        page         = req.page,
+        page_size    = req.page_size,
+        max_rows     = req.max_rows,
+        timeout_secs = req.timeout_secs,
     )
 
 
