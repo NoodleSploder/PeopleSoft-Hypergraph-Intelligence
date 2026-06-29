@@ -29,6 +29,26 @@ class PermissionDecodingTests(unittest.TestCase):
         self.assertEqual(result["grant_paths"][0]["permissionlist_detail"]["classdefndesc"], "Payroll Access")
         self.assertEqual(result["grant_paths"][0]["decoded_actions"], ["Add", "Update/Display"])
 
+    def test_explain_operator_menu_access_enriches_grant_paths_with_permissionlist_detail(self):
+        fake_menus = [{
+            "menuname": "MENU1",
+            "rolename": "ROLE1",
+            "classid": "PL1",
+            "barname": "NAV",
+            "baritemname": "ITEM1",
+            "authorizedactions": 5,
+            "displayonly": "N",
+        }]
+
+        with patch.object(psdb, "operator_menus", return_value=fake_menus), \
+             patch.object(psdb, "permissionlist", return_value={"classid": "PL1", "classdefndesc": "Payroll Access"}):
+            result = psdb.explain_operator_menu_access("HCM", "JSMITH", "MENU1")
+
+        self.assertTrue(result["has_access"])
+        self.assertEqual(result["grant_paths"][0]["permissionlist_detail"]["classid"], "PL1")
+        self.assertEqual(result["grant_paths"][0]["permissionlist_detail"]["classdefndesc"], "Payroll Access")
+        self.assertEqual(result["grant_paths"][0]["decoded_actions"], ["Add", "Update/Display All"])
+
 
 if __name__ == "__main__":
     unittest.main()

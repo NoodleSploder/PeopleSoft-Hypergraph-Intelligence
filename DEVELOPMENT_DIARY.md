@@ -30,6 +30,7 @@ Verification:
 ### Security Explorer Expansion
 
 - Added Permission List UOM and permission-list object payloads.
+- Enriched menu-access grant paths with permission-list detail and decoded authorization actions, matching the existing component/page explanation experience.
 - Added adaptive `PSAUTHITEM` component traversal for PeopleTools schemas that
   expose `PNLGRPNAME` directly and schemas that require `PNLITEMNAME` to
   `PSPNLGROUP` resolution.

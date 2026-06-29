@@ -182,7 +182,7 @@
 -   Operator comparison: role/permission list/component set diff (`/api/peoplesoft/security/compare-operators`)
 -   Security reports: 6 canned audit reports via `/api/peoplesoft/security/reports?report=<type>`, Reports card in `/admin/security`
 -   Dynamic-membership enrichment for role and permission-list UOM views
--   Permission-decoding grant-path enrichment with permission-list detail and decoded actions
+-   Permission-decoding grant-path enrichment with permission-list detail and decoded actions for component, page, and menu access explanations
 -   Canonical object routing for permission-list aliases in the Object Explorer
 
 ### Remaining
