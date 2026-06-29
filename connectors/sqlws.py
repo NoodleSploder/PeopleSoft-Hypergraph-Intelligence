@@ -426,6 +426,7 @@ def execute_query(
     timed_out = False
     columns = []
     rows = []
+    warnings = validation.get("warnings", [])
 
     try:
         conn = _connect(env_name)
@@ -474,7 +475,6 @@ def execute_query(
     elapsed_ms = round((time.monotonic() - t0) * 1000)
     row_count  = len(rows)
     truncated  = row_count == page_size
-    warnings   = validation.get("warnings", [])
 
     if error_msg:
         warnings.append(f"Execution error: {error_msg}")
