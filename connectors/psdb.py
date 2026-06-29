@@ -1967,10 +1967,23 @@ def explain_operator_component_access(env_name, oprid, component_name):
         if str(row.get("roleuser") or "").upper() != oprid:
             continue
         item = dict(row)
+        classid = str(item.get("classid") or "").strip()
+        permissionlist_detail = None
+        if classid:
+            try:
+                permissionlist_detail = permissionlist(env_name, classid)
+            except Exception:
+                permissionlist_detail = None
+        action_info = decode_authorized_actions(
+            item.get("authorizedactions"),
+            item.get("displayonly"),
+        )
+        item.update(action_info)
+        item["permissionlist_detail"] = permissionlist_detail or {"classid": classid}
         item["path"] = [
             {"type": "operator", "name": oprid},
             {"type": "role", "name": item.get("rolename")},
-            {"type": "permissionlist", "name": item.get("classid")},
+            {"type": "permissionlist", "name": classid},
             {"type": "component", "name": item.get("pnlgrpname") or component_name},
         ]
         grant_paths.append(item)
