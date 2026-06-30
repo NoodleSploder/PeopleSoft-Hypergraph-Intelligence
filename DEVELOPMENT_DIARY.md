@@ -210,6 +210,96 @@ Verification:
 - `/api/runtime/graph?env=HCM&process_limit=10&session_limit=10` returned
   `200` with root `environment:HCM`.
 
+### Shared Frontend Shell and Navigation
+
+- Added `/static` frontend assets:
+  - `/static/index.html`
+  - `/static/app.css`
+  - `/static/app.js`
+- Mounted static assets in FastAPI with `StaticFiles`.
+- Added root `/` route redirecting to `/static/index.html`.
+- Added a sticky shared top banner with links to Home, API Docs, Tracing Config,
+  Live Events, IB Nodes, Build HCM Graph, and Build FSCM Graph.
+- Added active-link highlighting in `/static/app.js` where the current path and
+  query string can be matched.
+- Added HTML shell injection in `main.py` so existing frontend HTML pages load
+  the shared CSS/JS without removing existing routers or API behavior.
+- Updated README, Architecture, and Roadmap documentation for the frontend shell
+  layer.
+
+Verification:
+
+- `python -m py_compile main.py routers/admin.py routers/tracing.py connectors/uom.py`
+  completed successfully. Existing inline-JS regex `SyntaxWarning` messages in
+  `routers/admin.py` remain pre-existing.
+- Import smoke confirmed `main.app` mounts `/static` and exposes root `/`.
+- `/` returned `307` redirecting to `/static/index.html`.
+- `/static/index.html` returned `200` and includes `/static/app.css` and
+  `/static/app.js`.
+- `/admin/` and `/docs` returned `200` with injected shared shell assets.
+- `/api/tracing/config` returned JSON without injected frontend assets.
+- Required banner targets returned `200`: `/api/live/events` (SSE stream),
+  `/api/ib/nodes`, `/api/graph/build?env=HCM`, and
+  `/api/graph/build?env=FSCM`.
+
+### Runtime Oracle Sub-Tab Active State Fix
+
+- Fixed `/admin/runtime` Oracle DB sub-tabs so Blocking, Long Ops, and Top SQL
+  illuminate when selected.
+- Replaced brittle `.card:nth-child(...) .tab` selectors with explicit
+  `.proc-tabs .tab` and `.ora-tabs .tab` selectors. This keeps tab highlighting
+  stable now that the shared frontend shell injects a sticky banner into admin
+  pages.
+- Preserved existing pane switching and data-loading behavior.
+
+Verification:
+
+- `python -m py_compile routers/admin.py main.py` completed successfully.
+  Existing inline-JS regex `SyntaxWarning` messages in `routers/admin.py`
+  remain pre-existing.
+- `/admin/runtime` returned `200` and contains `proc-tabs`, `ora-tabs`, and the
+  scoped selector calls.
+
+### Security Explorer Mixed-Case Role Permission Lists
+
+- Fixed role-to-permission-list lookup for mixed-case PeopleSoft role names.
+- `connectors/psdb.py::role_permissionlists()` now compares
+  `upper(rc.rolename) = upper(:rolename)` instead of comparing the stored
+  mixed-case role name to an uppercased bind value.
+- This restores Security Explorer role selection for roles such as
+  `PeopleSoft Administrator`, `PeopleSoft Guest`, and `PeopleSoft HCM User`.
+
+Verification:
+
+- `PeopleSoft Administrator` now returns permission list `PSADMIN`.
+- `PeopleSoft Guest` now returns `PTPT1400`.
+- `PeopleSoft HCM User` now returns 9 permission lists in HCM.
+- Temp HTTP smoke:
+  `/api/peoplesoft/roles/PeopleSoft%20Administrator/permissionlists?env=HCM`
+  returned `200` with `PSADMIN`.
+- `/admin/security` returned `200`.
+- Live service restart was attempted but blocked by interactive system
+  authentication; restart `deathstar-api` from an authenticated shell to deploy
+  the fix on port 8088.
+
+### Graph Explorer Explore Button Fix
+
+- Fixed `/admin/graph` Explore button appearing to do nothing.
+- `loadGraph()` referenced `normalizedType` before it was defined, causing a
+  JavaScript exception before the graph API call was made.
+- Added `const normalizedType = type;` and wrapped graph loading in a visible
+  `try/catch` so future API/client failures appear in the status line.
+
+Verification:
+
+- `python -m py_compile routers/admin.py routers/peoplesoft.py` completed
+  successfully. Existing inline-JS regex `SyntaxWarning` messages remain
+  pre-existing.
+- `/admin/graph` returned `200` and contains the fixed `normalizedType`
+  assignment and visible `Graph load failed` status path.
+- `/api/peoplesoft/graph/component/JOB_DATA?env=HCM` returned `200` with
+  58 nodes and 286 edges.
+
 ------------------------------------------------------------------------
 
 ## 2026-06-29 (continued)

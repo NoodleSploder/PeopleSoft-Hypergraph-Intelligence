@@ -120,6 +120,10 @@ Every subsystem must:
 - **Expose runtime state where applicable** — live status, counts, activity
 - **Expose diagnostics** — warnings, grant gaps, degraded capabilities are surfaced explicitly
 - **Expose admin UI** — every module has a corresponding `/admin/<module>` page
+- **Expose frontend shell** — static frontend assets live under `/static`; `/`
+  redirects to `/static/index.html`; shared navigation is injected into HTML
+  frontend pages through `main.py` and implemented in `/static/app.css` and
+  `/static/app.js`
 - **Expose OpenAPI** — FastAPI auto-generates docs at `/docs`
 - **Degrade gracefully** — missing grants, missing tables, missing data → structured warnings,
   not 500 errors. Never crash on the absence of an optional capability.
@@ -144,8 +148,9 @@ enable later ones — build vertically, not horizontally.
 | 7 | **Runtime Provider** | `connectors/execution.py` or domain connector | Live state: active instances, queue depths, error counts |
 | 8 | **Object Explorer Page** | via `connectors/uom.py` → `canonical_object()` | Object page at `/admin/object/<type>/<name>` rendered by the UOM renderer |
 | 9 | **Admin Page** | `routers/admin.py` | Module-level UI at `/admin/<module>` |
-| 10 | **Validation** | compile check + smoke test | `python -c "import main"` passes; key HTTP routes return 200 |
-| 11 | **ROADMAP update** | `ROADMAP.md` | Status, completed items, limitations documented |
+| 10 | **Frontend Shell** | `static/` + `main.py` | Shared sticky banner/navigation, root redirect, common CSS/JS assets |
+| 11 | **Validation** | compile check + smoke test | `python -c "import main"` passes; key HTTP routes return 200 |
+| 12 | **ROADMAP update** | `ROADMAP.md` | Status, completed items, limitations documented |
 
 Providers 7 and 8 are optional when the domain has no runtime state or no object-level
 canonical page (e.g., environment comparison has no single "object" to navigate to).

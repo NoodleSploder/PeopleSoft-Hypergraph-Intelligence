@@ -11,6 +11,27 @@
 
 # Module Status
 
+## Frontend Shell
+
+**Status:** Foundation Complete
+
+### Completed
+
+-   `/static` frontend asset mount
+-   Root `/` redirect to `/static/index.html`
+-   Shared sticky top banner
+-   Banner links for Home, API Docs, Tracing Config, Live Events, IB Nodes, and HCM/FSCM graph builds
+-   Active-link highlighting where the current page can be matched
+-   Shared CSS in `/static/app.css`
+-   Shared frontend behavior in `/static/app.js`
+-   HTML shell injection for existing frontend pages
+
+### Remaining
+
+-   Broader visual design unification across legacy admin pages
+
+------------------------------------------------------------------------
+
 ## Object Explorer Architecture
 
 **Status:** In Progress

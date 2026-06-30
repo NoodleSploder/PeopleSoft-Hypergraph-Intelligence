@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PeopleSoft Explorer</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <main class="pe-home">
+        <section class="pe-hero">
+            <p class="pe-kicker">PeopleSoft Explorer</p>
+            <h1>Read-only PeopleSoft operations, metadata, and runtime navigation.</h1>
+            <p>
+                Use the banner above to jump into API docs, tracing, live events,
+                Integration Broker nodes, or graph builds for HCM and FSCM.
+            </p>
+            <div class="pe-actions">
+                <a href="/admin/">Admin Console</a>
+                <a href="/admin/object">Object Explorer</a>
+                <a href="/admin/sqlws">SQL Workspace</a>
+                <a href="/admin/envcompare">Environment Compare</a>
+            </div>
+        </section>
+
+        <section class="pe-grid">
+            <a class="pe-card" href="/admin/runtime">
+                <span>Runtime</span>
+                Monitor processes, sessions, Integration Broker, and runtime graph.
+            </a>
+            <a class="pe-card" href="/admin/portal">
+                <span>Portal</span>
+                Explore content references, breadcrumbs, targets, and security paths.
+            </a>
+            <a class="pe-card" href="/admin/ib">
+                <span>Integration Broker</span>
+                Browse services, nodes, queues, routings, and runtime transactions.
+            </a>
+            <a class="pe-card" href="/admin/graph">
+                <span>Graph</span>
+                Explore metadata and runtime relationships as a graph.
+            </a>
+        </section>
+    </main>
+    <script src="/static/app.js" defer></script>
+</body>
+</html>

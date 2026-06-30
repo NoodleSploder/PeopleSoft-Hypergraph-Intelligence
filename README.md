@@ -153,8 +153,12 @@ uvicorn main:app --host 0.0.0.0 --port 8088
 Browse to:
 
 ``` text
-http://localhost:8088/docs
+http://localhost:8088/
 ```
+
+The root route redirects to `/static/index.html`, which loads the shared
+PeopleSoft Explorer frontend shell and sticky navigation banner. API
+documentation remains available at `/docs`.
 
 ------------------------------------------------------------------------
 
@@ -185,6 +189,11 @@ sudo systemctl start deathstar-api
 ## Common Endpoints
 
 ``` text
+GET /
+GET /static/index.html
+GET /static/app.css
+GET /static/app.js
+
 GET /docs
 
 GET /api/graph/build?env=HCM

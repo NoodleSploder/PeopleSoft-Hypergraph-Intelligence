@@ -1439,16 +1439,21 @@ function renderGraph(graph) {
 async function loadGraph() {
     const type = document.getElementById('objectType').value;
     const name = document.getElementById('objectName').value.trim();
+    const normalizedType = type;
 
     if (!name) {
         setStatus('Enter an object name.');
         return;
     }
 
-    setStatus(`Loading ${normalizedType}:${name}...`);
-    const graph = await api(`/api/peoplesoft/graph/${encodeURIComponent(normalizedType)}/${encodeURIComponent(name)}?env=${ENV}`);
-    renderGraph(graph);
-    setStatus(`Loaded ${graph.nodes.length} nodes and ${graph.edges.length} edges.`);
+    try {
+        setStatus(`Loading ${normalizedType}:${name}...`);
+        const graph = await api(`/api/peoplesoft/graph/${encodeURIComponent(normalizedType)}/${encodeURIComponent(name)}?env=${ENV}`);
+        renderGraph(graph);
+        setStatus(`Loaded ${graph.nodes.length} nodes and ${graph.edges.length} edges.`);
+    } catch (err) {
+        setStatus(`Graph load failed: ${err.message || err}`);
+    }
 }
 
 document.getElementById('objectName').addEventListener('keydown', event => {
@@ -3577,7 +3582,7 @@ nav a{color:#00e5ff;text-decoration:none;} nav a:hover{text-decoration:underline
 <div class="card">
   <h2>Process Scheduler</h2>
   <div id="procBar" class="status-bar"></div>
-  <div class="tab-row">
+  <div class="tab-row proc-tabs">
     <div class="tab on"  onclick="procTab('active')">Active / Queued</div>
     <div class="tab"     onclick="procTab('errors')">Errors</div>
     <div class="tab"     onclick="procTab('ae')">App Engine</div>
@@ -3600,7 +3605,7 @@ nav a{color:#00e5ff;text-decoration:none;} nav a:hover{text-decoration:underline
   <h2>Oracle DB &mdash; <span id="dbLabel"></span></h2>
   <div id="oraBar" class="status-bar"></div>
   <div id="blockAlert"></div>
-  <div class="tab-row">
+  <div class="tab-row ora-tabs">
     <div class="tab on" onclick="oraTab('sessions')">Active Sessions</div>
     <div class="tab"    onclick="oraTab('blocking')">Blocking</div>
     <div class="tab"    onclick="oraTab('longops')">Long Ops</div>
@@ -3660,8 +3665,8 @@ function esc(s) {
 
 // ── tab switching ──────────────────────────────────────
 function procTab(name) {
+  const tabs = document.querySelectorAll('.proc-tabs .tab');
   ['active','errors','ae','all'].forEach((n,i) => {
-    const tabs = document.querySelectorAll('.card:nth-child(3) .tab');
     if (tabs[i]) tabs[i].classList.toggle('on', n === name);
     const p = $(`pane${n.charAt(0).toUpperCase()+n.slice(1)}`);
     if (p) p.classList.toggle('on', n === name);
@@ -3669,8 +3674,8 @@ function procTab(name) {
 }
 
 function oraTab(name) {
+  const tabs = document.querySelectorAll('.ora-tabs .tab');
   ['sessions','blocking','longops','topsql'].forEach((n,i) => {
-    const tabs = document.querySelectorAll('.card:nth-child(5) .tab');
     if (tabs[i]) tabs[i].classList.toggle('on', n === name);
     const cap = n.charAt(0).toUpperCase()+n.slice(1);
     const p = $(`pane${cap}`);

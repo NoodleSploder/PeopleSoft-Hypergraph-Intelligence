@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 from connectors import scheduler
 from routers import health
@@ -33,6 +36,58 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="DeathStar Operations API", lifespan=lifespan)
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+def _inject_frontend_shell(html: str) -> str:
+    if "/static/app.css" not in html:
+        html = html.replace(
+            "</head>",
+            '    <link rel="stylesheet" href="/static/app.css">\n</head>',
+            1,
+        )
+    if "/static/app.js" not in html:
+        html = html.replace(
+            "</body>",
+            '    <script src="/static/app.js" defer></script>\n</body>',
+            1,
+        )
+    return html
+
+
+@app.middleware("http")
+async def frontend_shell_middleware(request: Request, call_next):
+    response = await call_next(request)
+    content_type = response.headers.get("content-type", "")
+
+    if "text/html" not in content_type:
+        return response
+
+    body = b""
+    async for chunk in response.body_iterator:
+        body += chunk
+
+    text = body.decode("utf-8")
+    text = _inject_frontend_shell(text)
+    headers = dict(response.headers)
+    headers.pop("content-length", None)
+    headers.pop("content-encoding", None)
+
+    return Response(
+        content=text,
+        status_code=response.status_code,
+        headers=headers,
+        media_type="text/html",
+    )
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/static/index.html")
+
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 app.include_router(health.router)
 app.include_router(nginx.router)

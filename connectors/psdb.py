@@ -971,7 +971,7 @@ def role_permissionlists(env_name, rolename):
     sql = f"""
         select {select_columns}
           from sysadm.psroleclass rc
-         where rc.rolename = upper(:rolename)
+         where upper(rc.rolename) = upper(:rolename)
          order by rc.classid
     """
 
