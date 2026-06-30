@@ -25,6 +25,21 @@ body {
 }
 
 /* ── Global navigation bar ──────────────────────────────────────────────── */
+.ds-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ds-brand-logo {
+    width: 24px;
+    height: 24px;
+    display: block;
+    flex: 0 0 24px;
+    object-fit: contain;
+    filter: drop-shadow(0 0 6px rgba(0,229,255,.55));
+}
+
 .ds-nav {
     position: sticky; top: 0; z-index: 9999;
     display: flex; align-items: center; gap: 2px;

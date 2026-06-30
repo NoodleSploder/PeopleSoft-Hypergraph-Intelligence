@@ -39,7 +39,9 @@
         fetch('/api/sqlws/config')
             .then(r => r.json())
             .then(data => {
-                const envs = (data.environments || []).map(e => e.name || e);
+                /* config returns either envs[] (flat) or environments[] (objects) */
+                const raw = data.envs || data.environments || [];
+                const envs = raw.map(e => (typeof e === 'string' ? e : (e.name || e)));
                 selects.forEach(sel => {
                     const cur = sel.value || saved;
                     sel.innerHTML = '';

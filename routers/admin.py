@@ -8,19 +8,19 @@ router = APIRouter(prefix="/admin", tags=["DeathStar Admin"])
 # ── Navigation items ───────────────────────────────────────────────────────
 _NAV = [
     ("home",       "Home",          "/admin/"),
-    ("users",      "Users",         "/admin/users"),
     ("runtime",    "Runtime",       "/admin/runtime"),
     ("sqlws",      "SQL Workspace", "/admin/sqlws"),
     ("ib",         "IB Explorer",   "/admin/ib"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
     ("docs",       "Docs",          "/admin/docs"),
+    ("users",      "Users",         "/admin/users"),
 ]
 
 
 def _shell(title: str, active: str, content: str, env: bool = True, noscroll: bool = False) -> str:
     """Render a complete HTML page with the standard two-level shell."""
-    nav_links = '<a class="ds-brand" href="/admin">&#x25cf; PeopleSoft Explorer</a>'
+    nav_links = '<a class="ds-brand" href="/admin/">PeopleSoft Explorer</a>'
     for key, label, href in _NAV:
         cls = "ds-nav-link ds-active" if key == active else "ds-nav-link"
         nav_links += f'<a class="{cls}" href="{href}">{label}</a>'
@@ -40,11 +40,28 @@ def _shell(title: str, active: str, content: str, env: bool = True, noscroll: bo
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DeathStar — {title}</title>
+<link rel="icon" type="image/svg+xml" href="/static/images/empire_logo_sith.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/images/favicon-32.png">
+<link rel="apple-touch-icon" href="/static/images/apple-touch-icon.png">
 <link rel="stylesheet" href="/static/app.css">
 <script src="/static/app.js"></script>
 </head>
 <body>
-<nav class="ds-nav">{nav_links}</nav>
+<nav class="ds-nav">
+    <a class="ds-brand" href="/admin">
+        <img
+            src="/static/images/empire_logo_sith_cyan.svg"
+            class="ds-brand-logo"
+            alt="PeopleSoft Explorer">
+      <!--
+        <div class="ds-brand-text">
+            <span class="ds-brand-title">PeopleSoft Explorer</span>
+            <span class="ds-brand-subtitle">Enterprise Administration Console</span>
+        </div>
+      -->
+    </a>
+    {nav_links}
+  </nav>
 <div class="ds-page-hdr">
   <span class="ds-page-title">{title}</span>
   {env_html}
@@ -3516,11 +3533,10 @@ button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;
 button.sec{background:transparent;border:1px solid #00e5ff33;color:#00e5ff;}
 select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
        padding:5px 8px;font-size:12px;}
-.ctrl{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
-.lbl{font-size:10px;color:#667;text-transform:uppercase;letter-spacing:1px;
-     display:block;margin-bottom:3px;}
-nav{font-size:12px;margin-bottom:16px;color:#445;}
-nav a{color:#00e5ff;text-decoration:none;} nav a:hover{text-decoration:underline;}
+ .ctrl{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+ .lbl{font-size:10px;color:#667;text-transform:uppercase;letter-spacing:1px;
+   display:block;margin-bottom:3px;}
+.runtime-nav{font-size:12px;margin-bottom:16px;color:#445;}
 .mono{font-family:monospace;}
 .empty{color:#445;font-style:italic;padding:10px 0;font-size:12px;}
 .warn-msg{color:#ffaa00;font-size:11px;margin:2px 0;}
@@ -4179,6 +4195,15 @@ async function loadRtGraph() {
   await refresh();
   arTimer = setTimeout(refresh, INTERVAL);
 })();
+// Hide the top-right ENV control in the shared shell header (keep page-local ENV controls visible)
+try {
+  const hdrEnv = document.querySelector('.ds-page-hdr .ds-env');
+  if (hdrEnv) { hdrEnv.style.display = 'none'; }
+  else {
+    const tbSel = document.querySelector('.topbar select#envSel');
+    if (tbSel && tbSel.parentElement) tbSel.parentElement.style.display = 'none';
+  }
+} catch(e) {}
 </script>""")
 
 
@@ -4391,7 +4416,7 @@ let lastResult = null;
 // ── helpers ────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
-function env()      { return $('envSel').value || 'HCM'; }
+function env()      { return (window.dsGetEnv && window.dsGetEnv()) || 'HCM'; }
 function sqlText()  { return $('sqlInput').value.trim(); }
 function bindsObj() {
   const obj = {};
@@ -4676,7 +4701,7 @@ async function explainSQL() {
   }
 
   let html = '<pre style="font-family:monospace;font-size:11px;color:#9ab;background:#0b1b24;padding:12px;overflow-x:auto;">';
-  data.plan.forEach(line => { html += esc(line) + '\n'; });
+  data.plan.forEach(line => { html += esc(line) + '\\n'; });
   html += '</pre>';
   $('timingBox').style.display = 'block';
   $('timingBox').textContent = `EXPLAIN PLAN · ${data.elapsed_ms} ms`;
@@ -5059,9 +5084,6 @@ async function deleteHistory(id) {
   const res = await api('/api/sqlws/config').catch(() => null);
   if (res && res.ok) {
     const cfg = await res.json();
-    $('envSel').innerHTML = (cfg.envs || ['HCM']).map(e =>
-      `<option value="${e}">${e}</option>`
-    ).join('');
     $('pageSizeInput').value = cfg.default_page_size || 100;
   }
   loadHistory();
@@ -5089,6 +5111,7 @@ h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;bord
 nav a{color:#00e5ff;text-decoration:none;font-size:12px;}
 nav a:hover{text-decoration:underline;}
 .topbar{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+  .brand-logo{width:36px;height:36px;object-fit:contain;margin-right:8px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.6));}
 .main{display:flex;flex:1;overflow:hidden;flex-direction:column;min-height:0;}
 /* master-detail layout */
 .explorer{display:flex;flex:1;overflow:hidden;min-height:0;}
@@ -5287,7 +5310,7 @@ a.obj-link:hover{text-decoration:underline;}
 const $ = id => document.getElementById(id);
 let currentTab = 'overview';
 
-function env() { return $('envSel').value || 'HCM'; }
+function env() { return (window.dsGetEnv && window.dsGetEnv()) || 'HCM'; }
 
 function esc(s) {
   if (s == null) return '';
@@ -5980,15 +6003,6 @@ function reload() {
 (async () => {
   renderBreadcrumb();
 
-  // Reuse sqlws config for env list.
-  try {
-    const cfg = await (await fetch('/api/sqlws/config')).json();
-    if (cfg && cfg.envs) {
-      $('envSel').innerHTML = cfg.envs.map(e => `<option value="${e}">${e}</option>`).join('');
-    }
-  } catch(e) {
-    $('envSel').innerHTML = '<option>HCM</option><option>FSCM</option>';
-  }
   await Promise.all([loadDashboard(), loadServices(), loadNodes(), loadQueues()]);
 
   // Deep-link: /admin/ib?tab=services&show=MY_SERVICE  (from Object Explorer global search)
@@ -6634,7 +6648,7 @@ function collapsibleSection(header, rows, headers, id, open) {
     ? headers.map(h => `<th>${esc(h)}</th>`).join('')
     : '';
   return `<div class="card" style="margin-bottom:8px;">
-    <div class="section-head" onclick="toggleSection('sec-${id}', this)">
+    <div class="section-head" data-section-id="sec-${id}" role="button" tabindex="0" aria-expanded="${open ? 'true' : 'false'}">
       ${header}
       <span class="toggle">${open ? '▾' : '▸'}</span>
     </div>
@@ -6646,11 +6660,18 @@ function collapsibleSection(header, rows, headers, id, open) {
 
 function toggleSection(id, head) {
   const el = $(id);
-  const tog = head.querySelector('.toggle');
   if (!el) return;
-  const hidden = el.style.display === 'none';
-  el.style.display = hidden ? '' : 'none';
+  const resolvedHead = head || document.querySelector(`[data-section-id="${id}"]`);
+  const tog = resolvedHead ? resolvedHead.querySelector('.toggle') : null;
+  const hidden = getComputedStyle(el).display === 'none';
+  el.style.display = hidden ? 'block' : 'none';
   if (tog) tog.textContent = hidden ? '▾' : '▸';
+  if (resolvedHead) resolvedHead.setAttribute('aria-expanded', hidden ? 'true' : 'false');
+}
+
+function toggleSectionById(sectionKey) {
+  const id = sectionKey && sectionKey.startsWith('sec-') ? sectionKey : `sec-${sectionKey}`;
+  toggleSection(id);
 }
 
 function toggleDetail(tr) {
@@ -6666,8 +6687,29 @@ function toggleDetail(tr) {
   }
 }
 
+document.addEventListener('click', event => {
+  const head = event.target.closest('.section-head[data-section-id]');
+  if (!head || event.target.closest('a,button,input,select,textarea')) return;
+  toggleSection(head.dataset.sectionId, head);
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const head = event.target.closest('.section-head[data-section-id]');
+  if (!head) return;
+  event.preventDefault();
+  toggleSection(head.dataset.sectionId, head);
+});
+
 function sBox(n, label, cls, filterId) {
-  return `<div class="stat-box" title="Click to jump">
+  const sectionId = {
+    'filter-only1': 'only1',
+    'filter-changed': 'changed',
+    'filter-only2': 'only2',
+    'filter-same': 'same',
+  }[filterId] || filterId || '';
+  const click = sectionId ? ` onclick="toggleSectionById('${sectionId}')"` : '';
+  return `<div class="stat-box" title="${sectionId ? 'Click to expand/collapse section' : ''}"${click}>
     <div class="stat-num ${cls}">${n}</div>
     <div class="stat-lbl">${label}</div>
   </div>`;
