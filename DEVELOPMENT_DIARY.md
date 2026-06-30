@@ -1357,3 +1357,104 @@ explorer with master-detail navigation.
 - Messages table in operation detail: queue names now clickable.
 - Routing table in service detail: sender/receiver nodes now clickable.
 - `showNode()` guards against null/undefined names.
+
+------------------------------------------------------------------------
+
+## 2026-06-30
+
+### Navigation Architecture Redesign
+
+Completed a full navigation overhaul of the admin shell (`routers/admin.py`,
+`static/app.css`, `static/app.js`).
+
+**`static/app.css`** — full rewrite with design-system tokens:
+- `--nav-h: 42px`, `--hdr-h: 46px`, `--bg`, `--panel`, `--line`, `--text`,
+  `--muted`, `--cyan` CSS variables.
+- `.ds-nav` sticky global navbar; `.ds-page-hdr` per-page header strip;
+  `.ds-env` / `.ds-env-sel` environment selector.
+- `.ds-content` (scrollable) and `.ds-content.ds-noscroll` (overflow:hidden
+  flex-column, for master-detail layouts).
+- `.ds-toolbar` for page-specific action bars.
+- Preserved `.pe-home`, `.pe-hero`, `.pe-kicker`, `.pe-grid`, `.pe-card` for
+  the landing page.
+
+**`static/app.js`** — full rewrite:
+- `localStorage['ps_env']` persistence for environment selector across pages.
+- `initGlobalEnv()` populates all `.ds-env-sel` selects from
+  `/api/sqlws/config` and restores saved selection.
+- `syncPageEnvSel(val)` syncs legacy per-page `#envSel` selects.
+- `window.dsGetEnv()`, `window.dsSetEnv()`, `window.dsGetStoredEnv()` helpers.
+
+**`routers/admin.py`** — major refactor:
+- `_NAV` list + `_shell(title, active, content, env=True, noscroll=False)`
+  function replaces per-page HTML boilerplate. One `<!DOCTYPE html>` in the
+  entire file.
+- Navigation: `Home · Users · Runtime · SQL Workspace · IB Explorer · Env
+  Compare · Tools · Docs`.
+- New `/admin/users` page (moved user management from `/admin/`).
+- New `/admin/` landing page with `.pe-hero` + `.pe-grid` module cards.
+- New `/admin/docs` page linking to Swagger UI and ReDoc.
+- All 18 page functions use `return _shell(...)`.
+- Fixed `noscroll=True` on Runtime Monitor (was preventing scroll through
+  stacked Process Scheduler / IB / Oracle sections).
+- Removed `body { padding: 40px }` inline overrides that created dead space
+  above the nav bar on Home, Runtime, Security, Graph, Portal, Metadata,
+  Knowledge Graph, and Object Explorer pages.
+- Fixed double `<style>` tag in `object_explorer_page()` (migration artifact).
+
+**Verification:**
+- `python -m py_compile routers/admin.py` — OK.
+- `scripts/smoke_admin_shell.py` — all core pages return 200.
+- All 25 routes registered; server boots clean on port 8088.
+
+------------------------------------------------------------------------
+
+### Object Explorer Visual Hierarchy
+
+Improved the Object Explorer (`/admin/object`) rendering without touching the
+UOM or API layer.
+
+**`routers/admin.py`** (JavaScript/HTML/CSS in `object_explorer_page()`):
+
+**Layout change** — the left panel no longer has separate "Overview" and
+"Actions" cards. Instead the right panel opens with a single rich
+`#objectHeader` (`div.obj-hdr`) card that shows:
+- Type chip (color-coded, using `TYPE_CHIP_CFG`) + monospace object name.
+- Description subtitle (from `overview.description`).
+- Up to 12 key-value pairs from the object overview (`.kv-grid`/`.kv-key`/
+  `.kv-val` from `app.css`; skips `id`, `display_name`, `description`,
+  `status`).
+- Action links as compact button chips (`div.obj-hdr-actions > a`).
+- Section count in small muted text.
+
+**Section cards**:
+- `<h2>` now includes a `span.count-badge` when `section.items.length > 0`
+  (e.g., "Fields (24)", "Pages (75)").
+- Sections containing DDL or PeopleCode source get class `section-wide`
+  which spans both columns of the `.sections` grid (`grid-column: 1 / -1`).
+- The "Warnings" section gets class `section-warn` (amber border + amber h2).
+
+**`renderKeyValues(target, data)`** — replaced custom `<dl>/<dt>/<dd>` with
+`.kv-grid`/`.kv-key`/`.kv-val` from `app.css`; also filters out null/empty
+values and skips `ddl`/`source` keys.
+
+**`renderRows(target, rows)`** — each row now renders:
+- `div.row-header` flex container holding a `span.rel-chip` (if
+  `row.relationship` is set) + the title span + a `span.row-arrow` (→) for
+  clickable rows.
+- The old `"relationship: labelFor(row)"` prefix text replaced by the chip.
+
+**`renderActions()`** — stubbed (logic folded into `renderObject()`).
+
+New CSS classes: `.obj-hdr`, `.obj-hdr-row`, `.obj-hdr-name`, `.obj-type-chip`,
+`.obj-hdr-desc`, `.obj-hdr-actions`, `.count-badge`, `.section-wide`,
+`.section-warn`, `.row-header`, `.rel-chip`, `.row-arrow`.
+
+**Verification:**
+- `python -m py_compile routers/admin.py` — OK.
+- `scripts/smoke_admin_shell.py` — all core pages pass (including `/admin/object`).
+- `GET /admin/object/record/PSRECDEFN`: obj-hdr, type chip, description,
+  kv-grid, action links, count badges on Fields/Keys/Indexes sections, DDL
+  section spans full width.
+- API `GET /api/peoplesoft/object/record/PSRECDEFN?env=HCM` — 15 sections,
+  unchanged shape.

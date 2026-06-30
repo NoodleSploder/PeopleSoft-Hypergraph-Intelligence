@@ -30,6 +30,9 @@
     and `deathstar:envchange` event emission for migrated admin pages
 -   Headless browser smoke harness for core admin shell pages, including
     shared-shell render checks and high-risk tab/sidebar interaction checks
+-   Full navigation architecture redesign: two-level shell (global nav bar +
+    page header), `_shell()` function, `_NAV` list, global env selector,
+    `localStorage` persistence, new landing page, `/admin/users`, `/admin/docs`
 
 ### Remaining
 
@@ -59,10 +62,12 @@
 -   Recently Viewed: relative timestamps, descriptions, per-item remove button
 
 -   SQL syntax highlighting in Object Explorer: `highlightSQL()` tokenizer for `data.ddl` sections and inline SQL step items (SQL keywords in blue, PeopleSoft meta-SQL in purple, strings in orange, comments in green)
+-   Visual hierarchy redesign: merged object header (type chip + name + description +
+    overview kv-grid + action links); count badges on section h2; DDL/source sections
+    span full grid width; Warnings section with amber treatment; relationship chip in
+    rows; `renderKeyValues` uses app.css `.kv-grid`
 
 ### Remaining
-
--   Improved visual hierarchy
 
 ------------------------------------------------------------------------
 

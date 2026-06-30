@@ -1,99 +1,61 @@
 You are continuing development on the **DeathStar / PeopleSoft Explorer** project.
 
-Before changing code, read these files in the repository root:
+Before changing code, read and reconcile:
 
 1. `ARCHITECTURE.md`
-   - Use this for the overall system architecture, design principles, provider contracts, naming conventions, and long-term platform direction.
-
 2. `ROADMAP.md`
-   - Use this to stay aligned with current implementation status and remaining work.
-   - Do not turn this file into a changelog.
-   - Keep it concise and status-oriented.
-
 3. `DEVELOPMENT_DIARY.md`
-   - Use this as the chronological engineering journal.
-   - Record meaningful code changes, discoveries, fixes, verification steps, blockers, and next steps here.
+4. `README.md`
+5. Existing code patterns in `connectors/`, `routers/`, `static/`, and `scripts/`
 
-Your job is to continue development while keeping all three documents synchronized.
+Follow the architecture exactly:
 
-## Documentation rules
+* SQL belongs in `connectors/`, not routers.
+* Routers stay thin.
+* All database access must be grant-aware and read-only.
+* Missing PeopleSoft tables, Oracle views, grants, or optional metadata must produce warnings, not crashes.
+* Preserve existing endpoint shapes and URLs.
+* Prefer UOM/provider-based object implementation.
+* Keep `/` redirect, `/static`, `/admin`, and port `8088` assumptions intact unless explicitly instructed otherwise.
 
-When you complete meaningful work:
+Documentation rules:
 
-- Update `ROADMAP.md` if current status or remaining work changed.
-- Append a dated entry to `DEVELOPMENT_DIARY.md` describing:
-  - What was changed
-  - Why it was changed
-  - Files/modules touched
-  - Database/table discoveries
-  - API/UI behavior added or changed
-  - Bugs fixed
-  - Verification performed
-  - Blockers or limitations
-  - Recommended next step
-- Update `ARCHITECTURE.md` only when a design principle, provider contract, subsystem boundary, or architectural rule changes.
+* `ARCHITECTURE.md` = design rules, subsystem boundaries, provider contracts.
+* `ROADMAP.md` = current status and remaining work only.
+* `DEVELOPMENT_DIARY.md` = dated chronological engineering journal.
+* Do not duplicate large blocks between them.
+* Update `ARCHITECTURE.md` only for architecture changes.
+* Update `ROADMAP.md` when status or remaining work changes.
+* Append to `DEVELOPMENT_DIARY.md` after meaningful work with changed files, reason, behavior, verification, blockers, and next step.
 
-Do not duplicate large blocks between the files.
+Current development priorities:
 
-Use this separation:
+1. Improve Object Explorer visual hierarchy.
+2. Extract/shared relationship provider registration for UOM and graph relationships.
+3. Improve rich portal reconstruction and portal comparison.
+4. Improve access-path visualization and broader permission decoding.
+5. Add graph compaction and large-environment indexing.
+6. Improve Application Engine runtime detail and restart analysis.
+7. Add App Server monitoring and runtime alerts.
+8. Expand PeopleCode parsing, especially Application Package parsing and larger-source pagination.
+9. Add CI/deployment wiring for the admin shell smoke harness.
+10. Continue SQL Definition Explorer only where grants allow, especially PeopleCode cross-reference if feasible.
 
-- `ARCHITECTURE.md` = system design and rules
-- `ROADMAP.md` = current status and future work
-- `DEVELOPMENT_DIARY.md` = chronological engineering history
+Verification expectations:
 
-## Development priorities
+* Run syntax checks/tests available in the repo.
+* At minimum, run `python -m py_compile` or equivalent against touched Python files.
+* Run/import `main.py` if possible.
+* Use `scripts/smoke_admin_shell.py` when frontend/admin shell behavior changes.
+* Verify affected API endpoints with `curl`.
+* Verify affected `/admin` pages in browser when practical.
+* Record verification results in `DEVELOPMENT_DIARY.md`.
 
-Continue from the current roadmap. Prioritize:
+Working style:
 
-1. Component UOM completion
-2. Page UOM completion
-3. Portal Registry / Content Reference Explorer
-4. Portal security explanation
-5. Scheduled graph snapshots and retention pruning
-6. Runtime graph visualization
-7. Richer Knowledge Graph UI
-8. SQL object explorer, if metadata grants allow it
-
-Respect blockers already recorded in the roadmap and diary.
-
-## Coding rules
-
-- Preserve the existing architecture.
-- Prefer provider-based connectors.
-- Keep all database access grant-aware.
-- Gracefully degrade when PeopleSoft tables or Oracle views are not accessible.
-- Do not assume every PeopleTools environment has the same table structure.
-- Use metadata helpers such as `has_table()`, `has_column()`, `select_existing_columns()`, and existing warning models where available.
-- Do not hardcode schema assumptions unless verified.
-- Keep REST APIs read-only unless the project explicitly defines otherwise.
-- Keep object pages canonical and UOM-driven where possible.
-- Add warnings instead of crashing when metadata is unavailable.
-- Avoid breaking existing endpoints.
-
-## Verification expectations
-
-After code changes:
-
-- Run available syntax checks/tests.
-- Start or reload the API if appropriate.
-- Verify affected endpoints with `curl`.
-- Verify affected admin pages in the browser where possible.
-- Confirm graceful degradation for missing grants.
-- Record verification results in `DEVELOPMENT_DIARY.md`.
-
-## Working style
-
-Work in small, coherent slices.
-
-For each slice:
-
-1. Inspect relevant existing code.
-2. Identify the intended architecture from `ARCHITECTURE.md`.
-3. Implement the smallest complete vertical slice.
-4. Verify it.
-5. Update `ROADMAP.md` and `DEVELOPMENT_DIARY.md`.
-6. Leave the repository in a runnable state.
-
-Do not make broad rewrites unless necessary.
-
-When unsure, prefer the existing project patterns over inventing new ones.
+* Work in small vertical slices.
+* Inspect existing implementation before changing anything.
+* Prefer existing project patterns over new abstractions.
+* Do not broad-rewrite working modules.
+* Leave the repo runnable.
+* If blocked by grants, missing tables, or unavailable metadata, implement graceful degradation and document the blocker.

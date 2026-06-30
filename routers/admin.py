@@ -1781,6 +1781,50 @@ def object_explorer_page(object_type="", object_name=""):
             overflow-wrap: anywhere;
         }
 
+        /* ── Object header ──────────────────────────────────────────── */
+        .obj-hdr {
+            border: 1px solid rgba(0,229,255,.4);
+            background: rgba(0,20,35,.95);
+            padding: 14px 18px 12px;
+            margin-top: 20px;
+            box-shadow: 0 0 20px rgba(0,229,255,.12);
+        }
+        .obj-hdr-row { display:flex; align-items:center; gap:8px; margin-bottom:3px; }
+        .obj-hdr-name { font-family:monospace; font-size:17px; font-weight:bold; color:#d7faff; letter-spacing:.5px; }
+        .obj-type-chip { font-size:9px; font-weight:bold; padding:2px 6px; border-radius:2px; white-space:nowrap; flex-shrink:0; }
+        .obj-hdr-desc { color:#7faab2; font-size:12px; margin:2px 0 6px; }
+        .obj-hdr-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,229,255,.1); }
+        .obj-hdr-actions a {
+            font-size:11px; padding:3px 10px;
+            border:1px solid rgba(0,229,255,.3); border-radius:3px;
+            color:#00e5ff; white-space:nowrap; text-decoration:none;
+        }
+        .obj-hdr-actions a:hover { background:rgba(0,229,255,.1); }
+
+        /* ── Section improvements ────────────────────────────────────── */
+        .count-badge {
+            font-size:9px; font-weight:bold; padding:1px 6px; border-radius:10px;
+            background:rgba(0,229,255,.08); border:1px solid rgba(0,229,255,.2);
+            color:#7faab2; margin-left:7px; vertical-align:middle;
+        }
+        .section-wide { grid-column: 1 / -1; }
+        .section-warn { border-color:#ffaa00 !important; box-shadow:0 0 8px rgba(255,170,0,.15) !important; }
+        .section-warn h2 { color:#ffaa00 !important; }
+        .section-meta { font-size:10px; color:#446; margin-top:4px; }
+
+        /* ── Row improvements ────────────────────────────────────────── */
+        .row { display:flex; flex-direction:column; position:relative; padding-right:20px; }
+        .row-header { display:flex; align-items:baseline; gap:6px; flex-wrap:nowrap; overflow:hidden; }
+        .rel-chip {
+            font-size:9px; font-weight:bold; padding:1px 5px; border-radius:2px;
+            background:rgba(0,229,255,.07); border:1px solid rgba(0,229,255,.2);
+            color:#7faab2; white-space:nowrap; flex-shrink:0;
+        }
+        .row-arrow {
+            position:absolute; right:8px; top:8px;
+            color:rgba(0,229,255,.35); font-size:11px; pointer-events:none;
+        }
+
         @media (max-width: 1000px) {
             .layout, .sections {
                 grid-template-columns: 1fr;
@@ -1840,22 +1884,19 @@ def object_explorer_page(object_type="", object_name=""):
                 <div id="recentList" class="muted">No objects viewed yet.</div>
             </div>
 
-            <div class="card">
-                <h2>Overview</h2>
-                <div id="overview" class="muted">No object loaded.</div>
-            </div>
-
-            <div class="card">
-                <h2>Actions</h2>
-                <div id="actions" class="muted">No object loaded.</div>
-            </div>
         </div>
 
         <div>
-            <div class="card">
-                <nav id="breadcrumb" style="font-size:12px;color:#7faab2;margin-bottom:8px;display:none"></nav>
-                <h2 id="objectTitle">Object</h2>
-                <div id="objectMeta" class="muted">Load an object to view canonical sections.</div>
+            <div class="obj-hdr" id="objectHeader">
+                <nav id="breadcrumb" style="font-size:11px;color:#446;margin-bottom:8px;display:none"></nav>
+                <div class="obj-hdr-row">
+                    <span id="objectTypeChip" class="obj-type-chip" style="display:none"></span>
+                    <span id="objectTitle" class="obj-hdr-name">Object Explorer</span>
+                </div>
+                <div id="objectDesc" class="obj-hdr-desc" style="display:none"></div>
+                <div id="overview" style="margin:8px 0 4px"></div>
+                <div id="actions" class="obj-hdr-actions" style="display:none"></div>
+                <div id="objectMeta" class="muted" style="font-size:11px;margin-top:6px">Load an object to view canonical sections.</div>
             </div>
 
             <div id="sections" class="sections"></div>
@@ -2055,40 +2096,41 @@ function highlightSQL(sql) {
 
 function renderKeyValues(target, data) {
     target.innerHTML = '';
-    const dl = document.createElement('dl');
-
-    Object.keys(data || {}).filter(key => !key.startsWith('_') && key !== 'ddl' && key !== 'source').forEach(key => {
-        const dt = document.createElement('dt');
-        dt.textContent = key;
-        const dd = document.createElement('dd');
+    const keys = Object.keys(data || {}).filter(k =>
+        !k.startsWith('_') && k !== 'ddl' && k !== 'source' &&
+        data[k] !== null && data[k] !== undefined && data[k] !== '' && data[k] !== ' '
+    );
+    if (!keys.length) return;
+    const grid = document.createElement('div');
+    grid.className = 'kv-grid';
+    keys.forEach(key => {
+        const kEl = document.createElement('div');
+        kEl.className = 'kv-key';
+        kEl.textContent = key.replace(/_/g, ' ');
+        const vEl = document.createElement('div');
+        vEl.className = 'kv-val';
         const value = data[key];
         const url = typeof value === 'string' ? inferObject({[key]: value}) : null;
-
         if (url) {
             const a = document.createElement('a');
-            a.href = url;
-            a.textContent = value;
-            dd.appendChild(a);
+            a.href = url; a.textContent = value;
+            vEl.appendChild(a);
         } else {
-            dd.textContent = typeof value === 'object' ? JSON.stringify(value) : value;
+            vEl.textContent = typeof value === 'object' ? JSON.stringify(value) : String(value ?? '');
         }
-
-        dl.appendChild(dt);
-        dl.appendChild(dd);
+        grid.appendChild(kEl);
+        grid.appendChild(vEl);
     });
-
-    target.appendChild(dl);
+    target.appendChild(grid);
 }
 
 function renderRows(target, rows) {
     target.innerHTML = '';
-
     if (!rows.length) {
         target.className = 'muted';
         target.textContent = 'No items.';
         return;
     }
-
     target.className = '';
     rows.forEach(row => {
         const div = document.createElement('div');
@@ -2097,21 +2139,40 @@ function renderRows(target, rows) {
         if (row.level !== undefined && row.level !== null) {
             div.style.marginLeft = `${Math.min(Number(row.level) || 0, 4) * 18}px`;
         }
-        if (url) {
-            div.onclick = () => window.location.href = url;
+        if (url) div.onclick = () => window.location.href = url;
+
+        const hdr = document.createElement('div');
+        hdr.className = 'row-header';
+
+        if (row.relationship) {
+            const chip = document.createElement('span');
+            chip.className = 'rel-chip';
+            chip.textContent = row.relationship;
+            hdr.appendChild(chip);
         }
 
         const title = document.createElement('span');
         title.className = 'title';
-        title.textContent = row.relationship ? `${row.relationship}: ${labelFor(row)}` : labelFor(row);
-        div.appendChild(title);
+        title.textContent = labelFor(row);
+        hdr.appendChild(title);
 
-        const detail = document.createElement('span');
-        detail.className = 'detail';
-        detail.textContent = detailFor(row);
-        div.appendChild(detail);
+        if (url) {
+            const arrow = document.createElement('span');
+            arrow.className = 'row-arrow';
+            arrow.textContent = '→';
+            hdr.appendChild(arrow);
+        }
 
-        // Render inline SQL if the item carries data.ddl (e.g., SQL Steps in AE)
+        div.appendChild(hdr);
+
+        const detailText = detailFor(row);
+        if (detailText) {
+            const detail = document.createElement('span');
+            detail.className = 'detail';
+            detail.textContent = detailText;
+            div.appendChild(detail);
+        }
+
         if (row.data && row.data.ddl) {
             const pre = document.createElement('pre');
             pre.style.cssText = 'margin:6px 0 0;padding:6px;background:#050c14;border:1px solid #1e3344;font-size:11px';
@@ -2123,24 +2184,7 @@ function renderRows(target, rows) {
     });
 }
 
-function renderActions(object) {
-    const actions = document.getElementById('actions');
-    actions.className = '';
-    actions.innerHTML = '';
-
-    Object.keys(object._links || {}).forEach(name => {
-        const a = document.createElement('a');
-        a.href = object._links[name];
-        a.textContent = name;
-        actions.appendChild(a);
-        actions.appendChild(document.createElement('br'));
-    });
-
-    if (!actions.innerHTML) {
-        actions.className = 'muted';
-        actions.textContent = 'No actions.';
-    }
-}
+function renderActions(object) { /* folded into renderObject */ }
 
 function buildBreadcrumbs(type, name) {
     const crumb = (label, href) => href
@@ -2205,49 +2249,108 @@ function buildBreadcrumbs(type, name) {
 }
 
 function renderObject(object) {
-    document.getElementById('objectTitle').textContent = `${object.type}: ${object.name}`;
-    document.getElementById('objectMeta').textContent = `${object.sections.length} sections`;
-    renderKeyValues(document.getElementById('overview'), object.overview || {});
-    renderActions(object);
+    // ── Object header ──────────────────────────────────────────────────────
+    const chip = document.getElementById('objectTypeChip');
+    const c = TYPE_CHIP_CFG[object.type] || {label: object.type, bg:'#111', border:'#334', color:'#778'};
+    chip.textContent = (c.label || object.type).toUpperCase();
+    chip.style.cssText = `background:${c.bg};border:1px solid ${c.border};color:${c.color}`;
+    chip.style.display = '';
 
+    document.getElementById('objectTitle').textContent = object.name;
+
+    const desc = (object.overview || {}).description || object.description || '';
+    const descEl = document.getElementById('objectDesc');
+    descEl.textContent = desc;
+    descEl.style.display = desc ? '' : 'none';
+
+    // Overview key-values — skip meta/noise keys, cap at 12
+    const OV_SKIP = new Set(['id','display_name','description','status']);
+    const ovKeys = Object.keys(object.overview || {})
+        .filter(k => !OV_SKIP.has(k) && !k.startsWith('_') && object.overview[k] !== null &&
+                     object.overview[k] !== undefined && object.overview[k] !== '' && object.overview[k] !== ' ')
+        .slice(0, 12);
+    const ovData = {};
+    ovKeys.forEach(k => ovData[k] = object.overview[k]);
+    renderKeyValues(document.getElementById('overview'), ovData);
+
+    // Action links
+    const actEl = document.getElementById('actions');
+    actEl.innerHTML = '';
+    const linkKeys = Object.keys(object._links || {}).filter(k => k !== 'self');
+    linkKeys.forEach(name => {
+        const a = document.createElement('a');
+        a.href = object._links[name];
+        a.textContent = name;
+        actEl.appendChild(a);
+    });
+    actEl.style.display = linkKeys.length ? '' : 'none';
+
+    const metaEl = document.getElementById('objectMeta');
+    metaEl.style.display = object.sections.length ? '' : 'none';
+    metaEl.textContent = `${object.sections.length} sections`;
+
+    // Breadcrumbs
     const bc = document.getElementById('breadcrumb');
     bc.innerHTML = buildBreadcrumbs(object.type, object.name);
     bc.style.display = '';
 
+    // ── Sections ───────────────────────────────────────────────────────────
     const sections = document.getElementById('sections');
     sections.innerHTML = '';
 
     object.sections.forEach(section => {
-        const card = document.createElement('div');
-        card.className = 'card';
+        const hasDDL = !!(section.data && section.data.ddl);
+        const hasSrc = !!(section.data && section.data.source);
+        const itemCount = (section.items || []).length;
+        const dataKeys = Object.keys(section.data || {}).filter(k => k !== 'ddl' && k !== 'source' && !k.startsWith('_'));
+        const hasData  = dataKeys.some(k => section.data[k] !== null && section.data[k] !== undefined && section.data[k] !== '' && section.data[k] !== ' ');
+        const isEmpty  = !itemCount && !hasDDL && !hasSrc && !hasData;
+        const isWarn   = section.name === 'Warnings';
+        const isWide   = hasDDL || hasSrc;
 
+        const card = document.createElement('div');
+        let cls = 'card';
+        if (isWide) cls += ' section-wide';
+        if (isWarn) cls += ' section-warn';
+        card.className = cls;
+
+        // Section header with count badge
         const h = document.createElement('h2');
-        h.textContent = section.name;
+        h.style.cssText = 'display:flex;align-items:center;margin:0 0 8px';
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = section.name;
+        h.appendChild(nameSpan);
+        if (itemCount > 0) {
+            const badge = document.createElement('span');
+            badge.className = 'count-badge';
+            badge.textContent = itemCount;
+            h.appendChild(badge);
+        }
         card.appendChild(h);
 
-        if (section.data && Object.keys(section.data).length) {
-            const data = document.createElement('div');
-            renderKeyValues(data, section.data);
-            card.appendChild(data);
+        if (hasData) {
+            const dataDiv = document.createElement('div');
+            renderKeyValues(dataDiv, section.data);
+            card.appendChild(dataDiv);
         }
 
-        if (section.data && section.data.ddl) {
+        if (hasDDL) {
             const pre = document.createElement('pre');
             pre.innerHTML = highlightSQL(section.data.ddl);
             card.appendChild(pre);
         }
 
-        if (section.data && section.data.source) {
+        if (hasSrc) {
             const pre = document.createElement('pre');
             pre.innerHTML = highlightPeopleCode(section.data.source);
             card.appendChild(pre);
         }
 
-        if (section.items && section.items.length) {
-            const rows = document.createElement('div');
-            renderRows(rows, section.items);
-            card.appendChild(rows);
-        } else if (!section.data || !Object.keys(section.data).length) {
+        if (itemCount > 0) {
+            const rowsDiv = document.createElement('div');
+            renderRows(rowsDiv, section.items);
+            card.appendChild(rowsDiv);
+        } else if (isEmpty) {
             const empty = document.createElement('div');
             empty.className = 'muted';
             empty.textContent = 'No data.';
