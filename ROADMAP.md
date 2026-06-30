@@ -229,6 +229,40 @@ Examples:
 
 ---
 
+# Phase 8 — Platform Extensibility
+
+## Plugin SDK
+
+Support:
+
+- Custom object providers
+- Custom graph providers
+- Custom runtime providers
+- Custom dashboards
+- Custom health checks
+- Organization-specific plugins
+- Third-party integrations
+
+---
+
+# Phase X — Digital Twin Persistence
+
+Persist everything.
+
+Support:
+
+- historical runtime
+- graph snapshots
+- deployment history
+- configuration history
+- security history
+- runtime replay
+- change history
+
+The platform evolves from a live explorer into a persistent Digital Twin of the PeopleSoft enterprise.
+
+---
+
 ## Root Cause Analysis
 
 Correlate:
