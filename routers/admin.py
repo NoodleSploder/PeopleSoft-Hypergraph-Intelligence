@@ -10,6 +10,7 @@ _NAV = [
     ("home",       "Home",          "/admin/"),
     ("runtime",    "Runtime",       "/admin/runtime"),
     ("infra",      "Infra",         "/admin/infra"),
+    ("tracing",    "Tracing",       "/admin/tracing"),
     ("sqlws",      "SQL Workspace", "/admin/sqlws"),
     ("ib",         "IB Explorer",   "/admin/ib"),
     ("query",      "Queries",       "/admin/query"),

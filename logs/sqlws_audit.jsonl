@@ -112,3 +112,7 @@
 {"timestamp": "2026-06-30T06:00:05.878122+00:00", "action": "execute", "query_id": "46535f05-b610-4bad-a1c8-8cbdced5ca0c", "env": "FSCM", "sql": "SELECT OPRID, OPRDEFNDESC, EMPLID, EMAILID, ACCTLOCK, OPRTYPE, LASTSIGNONDTTM, FAILEDLOGINS FROM SYSADM.PSOPRDEFN WHERE ROWNUM <= 3", "elapsed_ms": 66, "row_count": 3, "status": "success", "page": 1, "page_size": 100}
 {"timestamp": "2026-06-30T15:24:50.678071+00:00", "action": "validate", "sql": "SELECT OPRID, OPRDEFNDESC, EMPLID, EMAILID, ACCTLOCK, OPRTYPE, LASTSIGNONDTTM, FAILEDLOGINS FROM SYSADM.PSOPRDEFN WHERE ROWNUM <= 3", "allowed": true, "statement_type": "SELECT", "blocked_reason": null}
 {"timestamp": "2026-06-30T15:24:51.680239+00:00", "action": "execute", "query_id": "4d6cb330-d1a7-4534-9a49-2955374972ad", "env": "HCM", "sql": "SELECT OPRID, OPRDEFNDESC, EMPLID, EMAILID, ACCTLOCK, OPRTYPE, LASTSIGNONDTTM, FAILEDLOGINS FROM SYSADM.PSOPRDEFN WHERE ROWNUM <= 3", "elapsed_ms": 24, "row_count": 3, "status": "success", "page": 1, "page_size": 100}
+{"timestamp": "2026-06-30T16:37:16.052432+00:00", "action": "schema_search", "env": "HCM", "q": "JOB"}
+{"timestamp": "2026-06-30T16:37:17.650677+00:00", "action": "schema_columns", "env": "HCM", "owner": "SYSADM", "object_name": "PS_JOB"}
+{"timestamp": "2026-06-30T16:37:22.220530+00:00", "action": "schema_columns", "env": "HCM", "owner": "SYSADM", "object_name": "PS_JOB"}
+{"timestamp": "2026-06-30T16:37:35.179389+00:00", "action": "schema_columns", "env": "HCM", "owner": "SYSADM", "object_name": "PS_JOBCDGRD_FEDSBR"}
