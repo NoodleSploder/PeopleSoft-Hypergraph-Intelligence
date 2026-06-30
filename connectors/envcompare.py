@@ -180,26 +180,34 @@ def compare_fields(env1, env2, record_name):
 
 def compare_components(env1, env2, q="", limit=500):
     """Diff PSPNLGRPDEFN (component catalog) between two environments."""
-    sql = """
-        SELECT PNLGRPNAME,
-               SEARCHRECNAME,
-               ADDRECNAME,
-               DESCR,
-               ACTIONS
-        FROM SYSADM.PSPNLGRPDEFN
-        WHERE MARKET = 'GBL'
-          AND (:q IS NULL OR UPPER(PNLGRPNAME) LIKE :q OR UPPER(DESCR) LIKE :q)
-        ORDER BY PNLGRPNAME
-        FETCH FIRST {limit} ROWS ONLY
-    """.format(limit=int(limit))
     pattern = f"%{q.upper()}%" if q else None
     params = {"q": pattern}
+    warnings = []
+    all_rows = []
 
-    rows1, w1 = _run(env1, sql, params)
-    rows2, w2 = _run(env2, sql, params)
-    warnings = [w for w in [w1, w2] if w]
+    for env in (env1, env2):
+        cols = psdb.table_columns(env, "PSPNLGRPDEFN")
+        addsrch = "ADDSRCHRECNAME" if "addsrchrecname" in cols else "NULL AS ADDSRCHRECNAME"
+        actions = "ACTIONS" if "actions" in cols else "NULL AS ACTIONS"
+        sql = f"""
+            SELECT PNLGRPNAME,
+                   SEARCHRECNAME,
+                   {addsrch},
+                   DESCR,
+                   {actions}
+            FROM SYSADM.PSPNLGRPDEFN
+            WHERE MARKET = 'GBL'
+              AND (:q IS NULL OR UPPER(PNLGRPNAME) LIKE :q OR UPPER(DESCR) LIKE :q)
+            ORDER BY PNLGRPNAME
+            FETCH FIRST {int(limit)} ROWS ONLY
+        """
+        rows, w = _run(env, sql, params)
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
 
-    diff = _compare(rows1, rows2, "pnlgrpname", ["searchrecname", "addrecname", "actions"])
+    rows1, rows2 = all_rows
+    diff = _compare(rows1, rows2, "pnlgrpname", ["searchrecname", "addsrchrecname", "actions"])
     diff.update({"env1": env1, "env2": env2, "object_type": "component",
                  "query": q, "warnings": warnings})
     return diff
