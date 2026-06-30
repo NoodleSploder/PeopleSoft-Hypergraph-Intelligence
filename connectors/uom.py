@@ -4378,6 +4378,108 @@ def message_catalog_payload(env, name):
     }
 
 
+_XPUB_DATASRC_CHIP = {
+    "A": ("chip-info",  "App Engine"),
+    "Q": ("chip-info",  "PS Query"),
+    "S": ("chip-info",  "SQL"),
+    "C": ("chip-info",  "Connected Query"),
+    "G": ("chip-info",  "Group"),
+    "F": ("chip-info",  "File"),
+}
+
+_XPUB_STATUS_CHIP = {
+    "A": ("chip-ok",    "Active"),
+    "I": ("chip-muted", "Inactive"),
+}
+
+
+def xpub_report_object(env, reportid):
+    data = psdb.get_xpub_report(env, reportid.upper())
+    defn = data.get("definition")
+    return {
+        "environment": env.upper(),
+        "type": "xml_publisher_report",
+        "name": reportid.upper(),
+        "display_name": reportid.upper(),
+        "description": str(defn.get("descr") or "").strip() if defn else "",
+        "status": "resolved" if defn else "not_found",
+        "data": data,
+        "warnings": [{"code": w, "message": w} for w in data.get("warnings", [])],
+        "_links": {"admin": object_url("xml_publisher_report", reportid.upper())},
+    }
+
+
+def sections_for_xpub_report(obj):
+    data = obj.get("data") or {}
+    defn = data.get("definition") or {}
+    datasrc = data.get("datasource") or {}
+    templates = data.get("templates") or []
+    sections = []
+
+    overview = {}
+    if defn.get("descr"):
+        overview["Description"] = str(defn["descr"]).strip()
+    if defn.get("objectownerid"):
+        overview["Owner"] = str(defn["objectownerid"]).strip()
+    if defn.get("datasrcid"):
+        overview["Data Source"] = str(defn["datasrcid"]).strip()
+    if datasrc.get("datasrctype_label"):
+        overview["Data Source Type"] = datasrc["datasrctype_label"]
+    if defn.get("lastupdoprid"):
+        overview["Last Updated By"] = str(defn["lastupdoprid"]).strip()
+    if defn.get("lastupddttm"):
+        overview["Last Updated"] = str(defn["lastupddttm"])
+    if overview:
+        sections.append({"name": "Definition", "items": [], "data": overview})
+
+    if templates:
+        tmpl_items = []
+        for t in templates:
+            lang = str(t.get("psfbdilangcd") or "").strip()
+            fmt = t.get("templateformat_label") or str(t.get("templateformat") or "")
+            out = t.get("outputformat_label") or str(t.get("outputformat") or "")
+            effdt = str(t.get("effdt") or "")[:10]
+            eff_status = str(t.get("eff_status") or "").strip()
+            _, status_label = _XPUB_STATUS_CHIP.get(eff_status, ("chip-muted", eff_status))
+            tmpl_items.append({
+                "title": f"{lang} — {fmt} → {out}",
+                "relationship": status_label,
+                "effdt": effdt,
+            })
+        sections.append({"name": "Templates", "items": tmpl_items, "count": len(tmpl_items)})
+
+    return [s for s in sections if s.get("data") or s.get("items")]
+
+
+def xpub_report_payload(env, reportid):
+    obj = xpub_report_object(env, reportid)
+    data = obj.get("data") or {}
+    defn = data.get("definition") or {}
+    datasrc = data.get("datasource") or {}
+    counts = data.get("counts") or {}
+    return {
+        "environment": env.upper(),
+        "type": "xml_publisher_report",
+        "name": reportid.upper(),
+        "display_name": reportid.upper(),
+        "description": obj.get("description", ""),
+        "status": obj.get("status", "unknown"),
+        "overview": {
+            "description": str(defn.get("descr") or "").strip(),
+            "owner": str(defn.get("objectownerid") or "").strip() or None,
+            "datasrcid": str(defn.get("datasrcid") or "").strip() or None,
+            "datasrc_descr": str(datasrc.get("descr") or "").strip() or None,
+            "datasrc_type": str(datasrc.get("datasrctype") or "").strip() or None,
+            "datasrc_type_label": datasrc.get("datasrctype_label") or None,
+            "template_count": counts.get("templates", 0),
+        },
+        "sections": sections_for_xpub_report(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
 def canonical_object(env, object_type, name):
     object_type = object_type.lower()
     if object_type == "component_interface":
@@ -4431,6 +4533,8 @@ def canonical_object(env, object_type, name):
         return message_catalog_object(env, name)
     if object_type == "approval":
         return approval_object(env, name)
+    if object_type == "xml_publisher_report":
+        return xpub_report_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])

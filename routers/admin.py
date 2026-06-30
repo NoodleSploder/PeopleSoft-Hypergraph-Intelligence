@@ -20,6 +20,7 @@ _NAV = [
     ("pcsearch",   "PC Search",     "/admin/pcsearch"),
     ("msgcat",     "Messages",      "/admin/msgcat"),
     ("approval",   "Approvals",     "/admin/approval"),
+    ("xpub",       "XML Publisher", "/admin/xpub"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -3032,7 +3033,10 @@ const TYPE_CHIP_CFG = {
     query:              {label:'PS Query',      bg:'#001820',border:'#0099bb44',color:'#00bbdd'},
     tree:               {label:'Tree',          bg:'#001a0a',border:'#00bb6644',color:'#00bb66'},
     ci:                 {label:'CI',            bg:'#001a1a',border:'#00aaaa44',color:'#00cccc'},
-    sql_definition:     {label:'SQL Def',       bg:'#1a1200',border:'#ddaa0044',color:'#ddaa00'},
+    sql_definition:         {label:'SQL Def',       bg:'#1a1200',border:'#ddaa0044',color:'#ddaa00'},
+    approval:               {label:'Approval',      bg:'#001814',border:'#00cc8844',color:'#00cc88'},
+    xml_publisher_report:   {label:'XPub Report',   bg:'#1a0a18',border:'#cc44aa44',color:'#cc44aa'},
+    xml_publisher_datasource:{label:'XPub DataSrc', bg:'#180814',border:'#aa336644',color:'#aa3366'},
 };
 
 function typeChipHtml(type) {
@@ -10994,6 +10998,195 @@ async function selectApproval(awdefnid, idx) {
   }
 
   detail.innerHTML = html;
+}
+
+doSearch();
+</script>""")
+
+
+@router.get("/xpub", response_class=HTMLResponse)
+def admin_xpub():
+    return _shell("XML Publisher Explorer", "xpub", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#cc44aa;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #cc44aa33;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #cc44aa22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;min-width:220px;border-right:1px solid #cc44aa22;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input,select{background:#0b1b24;color:#d7faff;border:1px solid #cc44aa44;padding:5px 8px;font-size:12px}
+input:focus,select:focus{outline:none;border-color:#cc44aa}
+button{background:#cc44aa;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#fff;font-weight:bold}
+button.sec{background:#1a0a18;border:1px solid #cc44aa44;color:#cc44aa}
+button.sec.active{background:#cc44aa22;border-color:#cc44aa;color:#fff}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(204,68,170,.07);border-left-color:#cc44aa55}
+.item.sel{background:rgba(204,68,170,.12);border-left-color:#cc44aa}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;margin-right:3px}
+.chip-ok{background:#002800;border:1px solid #00cc66;color:#00cc66}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778}
+.chip-info{background:#1a0818;border:1px solid #cc44aa44;color:#cc44aa}
+.chip-ds{background:#180814;border:1px solid #aa336644;color:#aa6688}
+.stat{display:inline-block;padding:4px 12px;border:1px solid #cc44aa33;background:#1a0818;font-size:11px;margin:2px}
+.stat b{color:#cc44aa;font-size:16px;display:block}
+.tmpl-row{padding:6px 10px;border-bottom:1px solid #1a0818;font-size:11px;display:flex;gap:8px;align-items:center}
+.tmpl-row:hover{background:#130810}
+.kv-grid{display:grid;grid-template-columns:140px 1fr;gap:3px 12px;font-size:12px;margin-bottom:10px}
+.kv-key{color:#556;text-align:right;padding-top:2px}
+.kv-val{color:#d7faff;font-family:monospace}
+a{color:#cc44aa;text-decoration:none} a:hover{text-decoration:underline}
+.muted{color:#556;font-style:italic}
+.tab-strip{display:flex;gap:6px;margin-bottom:10px}
+</style>
+<div class="topbar">
+  <div class="tab-strip" id="modeTabs">
+    <button class="sec active" id="modeReports"   onclick="switchMode('reports')">Reports</button>
+    <button class="sec"        id="modeDatasources" onclick="switchMode('datasources')">Data Sources</button>
+  </div>
+  <input id="xpubSearch" type="text" placeholder="Search report ID or description..." style="width:260px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2 id="sidebarTitle">Reports</h2>
+    <div id="list" class="muted">Search to load XML Publisher objects.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Object</h2>
+    <div id="detail" class="muted">Select an item from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+let _mode = 'reports';
+
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function dsChip(type) {
+  const labels = {A:'App Engine',Q:'PS Query',S:'SQL',C:'Connected Query',G:'Group',F:'File'};
+  const label = labels[String(type||'')] || String(type||'');
+  return label ? `<span class="chip chip-ds">${esc(label)}</span>` : '';
+}
+
+function switchMode(mode) {
+  _mode = mode;
+  document.getElementById('modeReports').classList.toggle('active', mode==='reports');
+  document.getElementById('modeDatasources').classList.toggle('active', mode==='datasources');
+  document.getElementById('sidebarTitle').textContent = mode === 'reports' ? 'Reports' : 'Data Sources';
+  document.getElementById('xpubSearch').placeholder = mode === 'reports'
+    ? 'Search report ID or description...'
+    : 'Search data source ID or description...';
+  document.getElementById('detail').innerHTML = '<div class="muted">Select an item from the list.</div>';
+  doSearch();
+}
+
+async function doSearch() {
+  const q = document.getElementById('xpubSearch').value.trim();
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading...</div>';
+  const params = new URLSearchParams({env: ENV, limit: 200});
+  if (q) params.set('q', q);
+  const url = _mode === 'reports'
+    ? `/api/peoplesoft/xpub/reports?${params}`
+    : `/api/peoplesoft/xpub/datasources?${params}`;
+  const d = await api(url);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
+  const items = d.items || [];
+  document.getElementById('stats').textContent = `${items.length} result${items.length !== 1 ? 's' : ''}`;
+  if (!items.length) { list.innerHTML = '<div class="muted">No results found.</div>'; return; }
+  if (_mode === 'reports') {
+    list.innerHTML = items.map((r, i) =>
+      `<div class="item" id="item-${i}" onclick="selectReport('${esc(r.reportid)}', ${i})">
+         <div class="item-name">${esc(r.reportid)}</div>
+         <div class="item-meta">${esc((r.descr||'').slice(0,55))}${r.datasrcid ? ` · DS: ${esc(r.datasrcid)}` : ''}</div>
+       </div>`
+    ).join('');
+  } else {
+    list.innerHTML = items.map((r, i) =>
+      `<div class="item" id="item-${i}" onclick="selectDatasource('${esc(r.datasrcid)}', ${i})">
+         <div class="item-name">${dsChip(r.datasrctype)}${esc(r.datasrcid)}</div>
+         <div class="item-meta">${esc((r.descr||'').slice(0,60))}</div>
+       </div>`
+    ).join('');
+  }
+  window._xpubItems = items;
+}
+
+async function selectReport(reportid, idx) {
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${idx}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api(`/api/peoplesoft/object/xml_publisher_report/${encodeURIComponent(reportid)}?env=${ENV}`);
+  if (!d) { detail.innerHTML = '<div class="muted">Error loading report.</div>'; return; }
+
+  const ov = d.overview || {};
+  const adminUrl = `/admin/object/xml_publisher_report/${esc(reportid)}`;
+  let html = `
+    <div style="margin-bottom:12px">
+      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#cc44aa">${esc(reportid)}</span>
+      &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
+    </div>`;
+
+  if (ov.description) html += `<div style="color:#aac;font-size:12px;margin-bottom:10px">${esc(ov.description)}</div>`;
+
+  html += `<div style="margin-bottom:12px">
+    <div class="stat"><b>${ov.template_count||0}</b>Templates</div>
+    ${ov.owner ? `<div class="stat"><b>${esc(ov.owner)}</b>Owner</div>` : ''}
+  </div>`;
+
+  if (ov.datasrcid) {
+    html += `<div class="kv-grid" style="margin-bottom:12px">
+      <div class="kv-key">Data Source</div><div class="kv-val">${esc(ov.datasrcid)}</div>`;
+    if (ov.datasrc_descr) {
+      html += `<div class="kv-key">DS Description</div><div class="kv-val">${esc(ov.datasrc_descr)}</div>`;
+    }
+    if (ov.datasrc_type_label) {
+      html += `<div class="kv-key">DS Type</div><div class="kv-val">${dsChip(ov.datasrc_type)}${esc(ov.datasrc_type_label)}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  const tmplSection = (d.sections||[]).find(s => s.name === 'Templates');
+  if (tmplSection && tmplSection.items && tmplSection.items.length) {
+    html += '<h2>Templates / Layouts</h2><div style="border:1px solid #1a0818">';
+    html += tmplSection.items.map(t => {
+      const statusCls = t.relationship === 'Active' ? 'chip-ok' : 'chip-muted';
+      return `<div class="tmpl-row">
+        <span class="chip ${statusCls}">${esc(t.relationship||'')}</span>
+        <span style="font-family:monospace;flex:1">${esc(t.title||'')}</span>
+        ${t.effdt ? `<span style="font-size:10px;color:#556">${esc(t.effdt)}</span>` : ''}
+      </div>`;
+    }).join('');
+    html += '</div>';
+  }
+
+  detail.innerHTML = html;
+}
+
+async function selectDatasource(datasrcid, idx) {
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${idx}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  const item = window._xpubItems ? window._xpubItems[idx] : null;
+  if (!item) { detail.innerHTML = '<div class="muted">No data.</div>'; return; }
+  detail.innerHTML = `
+    <div style="margin-bottom:12px">
+      ${dsChip(item.datasrctype)}
+      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#aa3366">${esc(datasrcid)}</span>
+    </div>
+    <div class="kv-grid">
+      <div class="kv-key">Description</div><div class="kv-val">${esc(item.descr||'—')}</div>
+      <div class="kv-key">Type</div><div class="kv-val">${esc(item.datasrctype_label||item.datasrctype||'—')}</div>
+    </div>`;
 }
 
 doSearch();

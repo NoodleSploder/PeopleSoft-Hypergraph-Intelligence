@@ -344,6 +344,9 @@ def object_payload(env, object_type, object_name):
     if object_type == "approval":
         return uom.approval_payload(env, object_name)
 
+    if object_type == "xml_publisher_report":
+        return uom.xpub_report_payload(env, object_name)
+
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
 
@@ -1043,6 +1046,16 @@ def peoplesoft_messages(env: str = "HCM", q: str = "", set_nbr: str = "",
 def peoplesoft_message_sets(env: str = "HCM"):
     """Return list of message sets with descriptions and message counts."""
     return psdb.message_sets(env)
+
+
+@router.get("/api/peoplesoft/xpub/reports")
+def peoplesoft_xpub_reports(env: str = "HCM", q: str = "", limit: int = 100):
+    return psdb.search_xpub_reports(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/xpub/datasources")
+def peoplesoft_xpub_datasources(env: str = "HCM", q: str = "", limit: int = 100):
+    return psdb.search_xpub_datasources(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/security/reports")

@@ -151,6 +151,7 @@ DEFAULT_PAGES = [
     ("/admin/pcsearch",  "#pcq",        True, True,  []),
     ("/admin/msgcat",    "#mcSearch",   True, True,  []),
     ("/admin/approval",  "#awSearch",   True, True,  []),
+    ("/admin/xpub",      "#xpubSearch", True, True,  []),
 ]
 
 

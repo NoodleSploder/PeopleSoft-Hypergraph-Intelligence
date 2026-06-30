@@ -782,6 +782,22 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "message_catalog", name, text[:80], r)
         return len(rows)
 
+    def xpub_reports():
+        if not ptmetadata.has_table(env, "PSXPREPORTDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT REPORTID, DESCR, OBJECTOWNERID, DATASRCID
+              FROM SYSADM.PSXPREPORTDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY REPORTID
+        """) or []
+        for r in rows:
+            rid = r.get("reportid")
+            if not rid:
+                continue
+            add_node(graph, "xml_publisher_report", rid, r.get("descr") or rid, r)
+        return len(rows)
+
     for name, loader in (
         ("operators", operators),
         ("roles", roles),
@@ -799,6 +815,7 @@ def build(env="HCM", limit=50, persist=True):
         ("component_interfaces", component_interfaces),
         ("approvals", approvals),
         ("messages", messages),
+        ("xpub_reports", xpub_reports),
     ):
         provider(graph, name, loader)
 

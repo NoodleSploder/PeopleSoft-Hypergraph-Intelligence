@@ -591,6 +591,31 @@ OBJECT_REGISTRY.setdefault("approval", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("xml_publisher_report", {
+    "display_title": "XML Publisher Report",
+    "icon": "file-text",
+    "graph_node_type": "xml_publisher_report",
+    "object_page": "/admin/object/xml_publisher_report/{name}",
+    "discovery": {"table": "PSXPREPORTDEFN", "name_column": "REPORTID"},
+    "search": {"table": "PSXPREPORTDEFN", "name_column": "REPORTID",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["OBJECTOWNERID", "DATASRCID"]},
+    "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+OBJECT_REGISTRY.setdefault("xml_publisher_datasource", {
+    "display_title": "XML Publisher Data Source",
+    "icon": "database",
+    "graph_node_type": "xml_publisher_datasource",
+    "object_page": "/admin/object/xml_publisher_datasource/{name}",
+    "discovery": {"table": "PSXPDATASRC", "name_column": "DATASRCID"},
+    "search": {"table": "PSXPDATASRC", "name_column": "DATASRCID",
+               "description_columns": ["DESCR"]},
+    "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 for object_type in [
     "content_reference",
     "section",

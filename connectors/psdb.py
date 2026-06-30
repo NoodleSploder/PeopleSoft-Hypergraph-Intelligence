@@ -4554,3 +4554,139 @@ def get_approval(env_name, awdefnid):
         },
         "warnings": warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# XML Publisher
+# ---------------------------------------------------------------------------
+
+_XPUB_DATASRC_TYPE = {
+    "A": "Application Engine",
+    "Q": "PS Query",
+    "S": "SQL",
+    "C": "Connected Query",
+    "G": "Group",
+    "F": "File",
+}
+
+_XPUB_TEMPLATE_FORMAT = {
+    "RTF":   "RTF",
+    "XSL":   "XSL",
+    "XLSXI": "Excel",
+    "ETEXT": "eText",
+    "PDF":   "PDF Form",
+    "FLASH": "Flash",
+}
+
+_XPUB_OUTPUT_FORMAT = {
+    "PDF":  "PDF",
+    "XLS":  "Excel",
+    "RTF":  "RTF",
+    "HTML": "HTML",
+    "CSV":  "CSV",
+    "XMLP": "XML",
+    "XML":  "XML",
+    "PCLP": "PCL",
+}
+
+
+def search_xpub_reports(env_name, q="", limit=100):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSXPREPORTDEFN"):
+        return {"items": [], "warnings": ["PSXPREPORTDEFN not accessible"]}
+    pat = f"%{q.upper()}%" if q else "%"
+    try:
+        rows = query(env_name, """
+            SELECT REPORTID, DESCR, OBJECTOWNERID, DATASRCID
+              FROM SYSADM.PSXPREPORTDEFN
+             WHERE UPPER(REPORTID) LIKE :pat OR UPPER(DESCR) LIKE :pat
+             ORDER BY REPORTID
+             FETCH FIRST :lim ROWS ONLY
+        """, {"pat": pat, "lim": limit})
+        return {"items": [dict(r) for r in (rows or [])], "warnings": []}
+    except Exception as exc:
+        return {"items": [], "warnings": [str(exc)]}
+
+
+def search_xpub_datasources(env_name, q="", limit=100):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSXPDATASRC"):
+        return {"items": [], "warnings": ["PSXPDATASRC not accessible"]}
+    pat = f"%{q.upper()}%" if q else "%"
+    try:
+        rows = query(env_name, """
+            SELECT DATASRCID, DESCR, DATASRCTYPE
+              FROM SYSADM.PSXPDATASRC
+             WHERE UPPER(DATASRCID) LIKE :pat OR UPPER(DESCR) LIKE :pat
+             ORDER BY DATASRCID
+             FETCH FIRST :lim ROWS ONLY
+        """, {"pat": pat, "lim": limit})
+        results = []
+        for r in (rows or []):
+            row = dict(r)
+            row["datasrctype_label"] = _XPUB_DATASRC_TYPE.get(str(row.get("datasrctype") or ""), row.get("datasrctype") or "")
+            results.append(row)
+        return {"items": results, "warnings": []}
+    except Exception as exc:
+        return {"items": [], "warnings": [str(exc)]}
+
+
+def get_xpub_report(env_name, reportid):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSXPREPORTDEFN"):
+        return {"error": "not_accessible", "warnings": ["PSXPREPORTDEFN not accessible"]}
+    warnings = []
+    reportid = reportid.upper()
+    rows = query(env_name, """
+        SELECT REPORTID, DESCR, OBJECTOWNERID, DATASRCID, LASTUPDOPRID, LASTUPDDTTM
+          FROM SYSADM.PSXPREPORTDEFN
+         WHERE REPORTID = :id
+    """, {"id": reportid})
+    if not rows:
+        return {"error": "not_found", "warnings": [f"Report {reportid!r} not found"]}
+    defn = dict(rows[0])
+
+    datasrc = None
+    if defn.get("datasrcid") and ptmetadata.has_table(env_name, "PSXPDATASRC"):
+        try:
+            ds_rows = query(env_name, """
+                SELECT DATASRCID, DESCR, DATASRCTYPE
+                  FROM SYSADM.PSXPDATASRC
+                 WHERE DATASRCID = :id
+            """, {"id": defn["datasrcid"]})
+            if ds_rows:
+                datasrc = dict(ds_rows[0])
+                datasrc["datasrctype_label"] = _XPUB_DATASRC_TYPE.get(
+                    str(datasrc.get("datasrctype") or ""), datasrc.get("datasrctype") or ""
+                )
+        except Exception as exc:
+            warnings.append(f"PSXPDATASRC: {exc}")
+
+    templates = []
+    if ptmetadata.has_table(env_name, "PSXPTEMPLDEFN"):
+        try:
+            tmpl_rows = query(env_name, """
+                SELECT PSFBDILANGCD, TEMPLATEFORMAT, OUTPUTFORMAT, EFFDT, EFF_STATUS
+                  FROM SYSADM.PSXPTEMPLDEFN
+                 WHERE REPORTID = :id
+                 ORDER BY PSFBDILANGCD, EFFDT DESC
+            """, {"id": reportid})
+            for t in (tmpl_rows or []):
+                tmpl = dict(t)
+                tmpl["templateformat_label"] = _XPUB_TEMPLATE_FORMAT.get(
+                    str(tmpl.get("templateformat") or ""), tmpl.get("templateformat") or ""
+                )
+                tmpl["outputformat_label"] = _XPUB_OUTPUT_FORMAT.get(
+                    str(tmpl.get("outputformat") or ""), tmpl.get("outputformat") or ""
+                )
+                templates.append(tmpl)
+        except Exception as exc:
+            warnings.append(f"PSXPTEMPLDEFN: {exc}")
+
+    return {
+        "definition": defn,
+        "datasource": datasrc,
+        "templates": templates,
+        "counts": {"templates": len(templates)},
+        "warnings": warnings,
+    }

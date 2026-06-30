@@ -2126,3 +2126,55 @@ Previously completely absent from the platform.
 **Verification:**
 - `python -m py_compile routers/admin.py` → OK (pre-existing `\-` warning unchanged).
 - `python3 -c "import main"` → OK.
+
+---
+
+## 2026-06-30 — XML Publisher Vertical Slice
+
+**Goal:** Full end-to-end explorer for PeopleSoft XML Publisher report definitions, data sources, and template layouts.
+
+**Data model:**
+- `PSXPREPORTDEFN` — report definition header (REPORTID PK, DESCR, OBJECTOWNERID, DATASRCID FK, LASTUPDOPRID, LASTUPDDTTM)
+- `PSXPDATASRC` — data source definitions (DATASRCID PK, DESCR, DATASRCTYPE: A/Q/S/C/G/F)
+- `PSXPTEMPLDEFN` — template/layout definitions (REPORTID FK, PSFBDILANGCD, TEMPLATEFORMAT, OUTPUTFORMAT, EFFDT, EFF_STATUS)
+
+Sub-tables PSXPDATASRC and PSXPTEMPLDEFN individually guarded with `has_table()` — missing tables produce warnings, not crashes.
+
+**`connectors/psdb.py`**:
+- `_XPUB_DATASRC_TYPE` dict: A=App Engine, Q=PS Query, S=SQL, C=Connected Query, G=Group, F=File.
+- `_XPUB_TEMPLATE_FORMAT` dict: RTF, XSL, Excel, eText, PDF Form, Flash.
+- `_XPUB_OUTPUT_FORMAT` dict: PDF, Excel, RTF, HTML, CSV, XML, PCL.
+- `search_xpub_reports(env, q, limit)` — searches PSXPREPORTDEFN by REPORTID/DESCR pattern; returns `{items, warnings}`.
+- `search_xpub_datasources(env, q, limit)` — searches PSXPDATASRC; adds `datasrctype_label`; returns `{items, warnings}`.
+- `get_xpub_report(env, reportid)` — full detail: PSXPREPORTDEFN row + PSXPDATASRC join + PSXPTEMPLDEFN rows with format labels; returns `{definition, datasource, templates, counts, warnings}`.
+
+**`connectors/ptmetadata.py`**:
+- `xml_publisher_report` entry: `discovery.table=PSXPREPORTDEFN`, search on REPORTID/DESCR/OBJECTOWNERID/DATASRCID.
+- `xml_publisher_datasource` entry: `discovery.table=PSXPDATASRC`, search on DATASRCID/DESCR.
+
+**`connectors/uom.py`**:
+- `_XPUB_DATASRC_CHIP`, `_XPUB_STATUS_CHIP` label dicts.
+- `xpub_report_object(env, reportid)` — wraps `get_xpub_report()` into canonical object dict.
+- `sections_for_xpub_report(obj)` — "Definition" kv section (desc, owner, data source, type, last updated) + "Templates" section (one item per template row: lang—format→output, status chip, effdt).
+- `xpub_report_payload(env, reportid)` — full UOM payload with `overview` (description, owner, datasrcid, datasrc_type_label, template_count).
+- Wired into `canonical_object()`.
+
+**`connectors/graphdb.py`**:
+- `xpub_reports()` provider added to `build()`: queries PSXPREPORTDEFN with ROWNUM limit, creates `xml_publisher_report` nodes. `has_table("PSXPREPORTDEFN")` guard.
+
+**`routers/peoplesoft.py`**:
+- `GET /api/peoplesoft/xpub/reports?env=&q=&limit=` — report search endpoint.
+- `GET /api/peoplesoft/xpub/datasources?env=&q=&limit=` — data source search endpoint.
+- `xml_publisher_report` wired into `object_payload()` dispatcher.
+
+**`routers/admin.py`**:
+- Added `("xpub", "XML Publisher", "/admin/xpub")` to `_NAV`.
+- Added `approval`, `xml_publisher_report`, `xml_publisher_datasource` to `TYPE_CHIP_CFG`.
+- `/admin/xpub` page: two-panel layout with Reports/Data Sources mode toggle; search input (`#xpubSearch`); sidebar lists reports with ID + description + data source ID, or data sources with type chip + ID + description; report detail shows stat boxes (template count, owner), data source kv grid, Templates section with status chip + language/format/output/effdt rows; data source detail shows type chip + kv grid; "Object Explorer ↗" link for reports.
+
+**`scripts/smoke_admin_shell.py`**:
+- Added `/admin/xpub` → marker `#xpubSearch`, env=True, nav=True. Harness now covers 16 pages.
+
+**Verification:**
+- `python -m py_compile` all modified files → ALL OK.
+- `python3 -c "import main"` → OK.
