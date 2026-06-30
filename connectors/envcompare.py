@@ -124,26 +124,50 @@ def compare_records(env1, env2, q="", limit=500):
 
 
 def compare_fields(env1, env2, record_name):
-    """Diff PSRECFIELD (field definitions) for a specific record across two environments."""
-    sql = """
-        SELECT f.FIELDNAME,
-               f.FIELDNUM,
-               f.FIELDTYPE,
-               f.FIELDLEN,
-               f.DECIMALPOS,
-               f.USEEDIT,
-               f.DEFRECNAME,
-               f.DEFFIELDNAME
-        FROM SYSADM.PSRECFIELD f
-        WHERE f.RECNAME = :recname
-        ORDER BY f.FIELDNUM
+    """Diff PSRECFIELD for a specific record across two environments.
+
+    FIELDTYPE/LENGTH/DECIMALPOS live in PSDBFIELD, not PSRECFIELD — join when accessible.
     """
     params = {"recname": record_name.upper()}
+    warnings = []
+    all_rows = []
 
-    rows1, w1 = _run(env1, sql, params)
-    rows2, w2 = _run(env2, sql, params)
-    warnings = [w for w in [w1, w2] if w]
+    for env in (env1, env2):
+        if psdb.table_columns(env, "PSDBFIELD"):
+            sql = """
+                SELECT rf.FIELDNAME,
+                       rf.FIELDNUM,
+                       rf.USEEDIT,
+                       rf.DEFRECNAME,
+                       rf.DEFFIELDNAME,
+                       fd.FIELDTYPE,
+                       fd.LENGTH      AS FIELDLEN,
+                       fd.DECIMALPOS
+                FROM SYSADM.PSRECFIELD rf
+                LEFT JOIN SYSADM.PSDBFIELD fd ON fd.FIELDNAME = rf.FIELDNAME
+                WHERE rf.RECNAME = :recname
+                ORDER BY rf.FIELDNUM
+            """
+        else:
+            sql = """
+                SELECT FIELDNAME,
+                       FIELDNUM,
+                       USEEDIT,
+                       DEFRECNAME,
+                       DEFFIELDNAME,
+                       NULL AS FIELDTYPE,
+                       NULL AS FIELDLEN,
+                       NULL AS DECIMALPOS
+                FROM SYSADM.PSRECFIELD
+                WHERE RECNAME = :recname
+                ORDER BY FIELDNUM
+            """
+        rows, w = _run(env, sql, params)
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
 
+    rows1, rows2 = all_rows
     for r in rows1 + rows2:
         r["fieldtype_label"] = _label(FIELDTYPE_LABELS, r.get("fieldtype"))
 

@@ -1,6 +1,18 @@
 {
   "snapshots": [
     {
+      "id": "HCM_20260630T030844Z_scheduled",
+      "env": "HCM",
+      "name": "scheduled",
+      "note": "Auto-snapshot (daily scheduler) \u2014 2026-06-30T03:08:44Z",
+      "created_at": "2026-06-30T03:08:44Z",
+      "built_at": "2026-06-30T03:08:44Z",
+      "node_count": 4440,
+      "edge_count": 9804,
+      "warning_count": 0,
+      "path": "/opt/deathstar-api/data/graph_snapshots/HCM_20260630T030844Z_scheduled.json"
+    },
+    {
       "id": "HCM_20260630T024808Z_scheduled",
       "env": "HCM",
       "name": "scheduled",
@@ -71,18 +83,6 @@
       "edge_count": 9610,
       "warning_count": 0,
       "path": "/opt/deathstar-api/data/graph_snapshots/HCM_20260629T230933Z_scheduled.json"
-    },
-    {
-      "id": "HCM_20260629T223347Z_scheduled",
-      "env": "HCM",
-      "name": "scheduled",
-      "note": "Auto-snapshot (daily scheduler) \u2014 2026-06-29T22:33:47Z",
-      "created_at": "2026-06-29T22:33:47Z",
-      "built_at": "2026-06-29T22:33:47Z",
-      "node_count": 4308,
-      "edge_count": 9610,
-      "warning_count": 0,
-      "path": "/opt/deathstar-api/data/graph_snapshots/HCM_20260629T223347Z_scheduled.json"
     }
   ]
 }
