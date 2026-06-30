@@ -214,21 +214,40 @@ def compare_components(env1, env2, q="", limit=500):
 
 
 def compare_permissions(env1, env2, q="", limit=500):
-    """Diff PSCLASSDEFN (permission list catalog) between two environments."""
-    sql = """
-        SELECT CLASSID, DESCR
-        FROM SYSADM.PSCLASSDEFN
-        WHERE (:q IS NULL OR UPPER(CLASSID) LIKE :q OR UPPER(DESCR) LIKE :q)
-        ORDER BY CLASSID
-        FETCH FIRST {limit} ROWS ONLY
-    """.format(limit=int(limit))
+    """Diff PSCLASSDEFN (permission list catalog) between two environments.
+
+    PSCLASSDEFN uses DESCR in older PeopleTools and CLASSDEFNDESC in newer — check per env.
+    """
     pattern = f"%{q.upper()}%" if q else None
     params = {"q": pattern}
+    warnings = []
+    all_rows = []
 
-    rows1, w1 = _run(env1, sql, params)
-    rows2, w2 = _run(env2, sql, params)
-    warnings = [w for w in [w1, w2] if w]
+    for env in (env1, env2):
+        cols = psdb.table_columns(env, "PSCLASSDEFN")
+        descr_col = next(
+            (c for c in ("DESCR", "CLASSDEFNDESC") if c.lower() in cols),
+            None,
+        )
+        if descr_col:
+            descr_sel = descr_col
+            descr_filter = f"OR UPPER({descr_col}) LIKE :q"
+        else:
+            descr_sel = "NULL AS DESCR"
+            descr_filter = ""
+        sql = f"""
+            SELECT CLASSID, {descr_sel} AS DESCR
+            FROM SYSADM.PSCLASSDEFN
+            WHERE (:q IS NULL OR UPPER(CLASSID) LIKE :q {descr_filter})
+            ORDER BY CLASSID
+            FETCH FIRST {int(limit)} ROWS ONLY
+        """
+        rows, w = _run(env, sql, params)
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
 
+    rows1, rows2 = all_rows
     diff = _compare(rows1, rows2, "classid", ["descr"])
     diff.update({"env1": env1, "env2": env2, "object_type": "permission",
                  "query": q, "warnings": warnings})
@@ -236,22 +255,34 @@ def compare_permissions(env1, env2, q="", limit=500):
 
 
 def compare_ae(env1, env2, q="", limit=500):
-    """Diff PSAEAPPLDEFN (Application Engine program catalog) between two environments."""
-    sql = """
-        SELECT AE_APPLID, DESCR, AE_STATUS
-        FROM SYSADM.PSAEAPPLDEFN
-        WHERE (:q IS NULL OR UPPER(AE_APPLID) LIKE :q OR UPPER(DESCR) LIKE :q)
-        ORDER BY AE_APPLID
-        FETCH FIRST {limit} ROWS ONLY
-    """.format(limit=int(limit))
+    """Diff PSAEAPPLDEFN (Application Engine program catalog) between two environments.
+
+    AE_STATUS does not exist in PSAEAPPLDEFN; use DESCR + LASTUPDDTTM, guard per env.
+    """
     pattern = f"%{q.upper()}%" if q else None
     params = {"q": pattern}
+    warnings = []
+    all_rows = []
 
-    rows1, w1 = _run(env1, sql, params)
-    rows2, w2 = _run(env2, sql, params)
-    warnings = [w for w in [w1, w2] if w]
+    for env in (env1, env2):
+        cols = psdb.table_columns(env, "PSAEAPPLDEFN")
+        descr_col = "DESCR" if "descr" in cols else "NULL AS DESCR"
+        descr_filter = "OR UPPER(DESCR) LIKE :q" if "descr" in cols else ""
+        ts_col = "LASTUPDDTTM" if "lastupddttm" in cols else "NULL AS LASTUPDDTTM"
+        sql = f"""
+            SELECT AE_APPLID, {descr_col}, {ts_col}
+            FROM SYSADM.PSAEAPPLDEFN
+            WHERE (:q IS NULL OR UPPER(AE_APPLID) LIKE :q {descr_filter})
+            ORDER BY AE_APPLID
+            FETCH FIRST {int(limit)} ROWS ONLY
+        """
+        rows, w = _run(env, sql, params)
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
 
-    diff = _compare(rows1, rows2, "ae_applid", ["ae_status", "descr"])
+    rows1, rows2 = all_rows
+    diff = _compare(rows1, rows2, "ae_applid", ["descr", "lastupddttm"])
     diff.update({"env1": env1, "env2": env2, "object_type": "ae",
                  "query": q, "warnings": warnings})
     return diff
@@ -259,20 +290,28 @@ def compare_ae(env1, env2, q="", limit=500):
 
 def compare_roles(env1, env2, q="", limit=500):
     """Diff PSROLEDEFN (role catalog) between two environments."""
-    sql = """
-        SELECT ROLENAME, DESCR
-        FROM SYSADM.PSROLEDEFN
-        WHERE (:q IS NULL OR UPPER(ROLENAME) LIKE :q OR UPPER(DESCR) LIKE :q)
-        ORDER BY ROLENAME
-        FETCH FIRST {limit} ROWS ONLY
-    """.format(limit=int(limit))
     pattern = f"%{q.upper()}%" if q else None
     params = {"q": pattern}
+    warnings = []
+    all_rows = []
 
-    rows1, w1 = _run(env1, sql, params)
-    rows2, w2 = _run(env2, sql, params)
-    warnings = [w for w in [w1, w2] if w]
+    for env in (env1, env2):
+        cols = psdb.table_columns(env, "PSROLEDEFN")
+        descr_col = "DESCR" if "descr" in cols else "NULL AS DESCR"
+        descr_filter = "OR UPPER(DESCR) LIKE :q" if "descr" in cols else ""
+        sql = f"""
+            SELECT ROLENAME, {descr_col}
+            FROM SYSADM.PSROLEDEFN
+            WHERE (:q IS NULL OR UPPER(ROLENAME) LIKE :q {descr_filter})
+            ORDER BY ROLENAME
+            FETCH FIRST {int(limit)} ROWS ONLY
+        """
+        rows, w = _run(env, sql, params)
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
 
+    rows1, rows2 = all_rows
     diff = _compare(rows1, rows2, "rolename", ["descr"])
     diff.update({"env1": env1, "env2": env2, "object_type": "role",
                  "query": q, "warnings": warnings})
@@ -328,20 +367,29 @@ def compare_peoplecode(env1, env2, q="", limit=500):
 
 def compare_sql_definitions(env1, env2, q="", limit=500):
     """Diff PSSQLDEFN (SQL object catalog) between two environments."""
-    sql = """
-        SELECT SQLID, SQLTYPE, OBJECTOWNERID, LASTUPDOPRID, LASTUPDDTTM
-          FROM SYSADM.PSSQLDEFN
-         WHERE (:q IS NULL OR UPPER(SQLID) LIKE :q OR UPPER(OBJECTOWNERID) LIKE :q)
-         ORDER BY SQLTYPE, SQLID
-         FETCH FIRST {limit} ROWS ONLY
-    """.format(limit=int(limit))
     pattern = f"%{q.upper()}%" if q else None
     params = {"q": pattern}
+    warnings = []
+    all_rows = []
 
-    rows1, w1 = _run(env1, sql, params)
-    rows2, w2 = _run(env2, sql, params)
-    warnings = [w for w in [w1, w2] if w]
+    for env in (env1, env2):
+        cols = psdb.table_columns(env, "PSSQLDEFN")
+        owner_col = "OBJECTOWNERID" if "objectownerid" in cols else "NULL AS OBJECTOWNERID"
+        owner_filter = "OR UPPER(OBJECTOWNERID) LIKE :q" if "objectownerid" in cols else ""
+        ts_col = "LASTUPDDTTM" if "lastupddttm" in cols else "NULL AS LASTUPDDTTM"
+        sql = f"""
+            SELECT SQLID, SQLTYPE, {owner_col}, {ts_col}
+              FROM SYSADM.PSSQLDEFN
+             WHERE (:q IS NULL OR UPPER(SQLID) LIKE :q {owner_filter})
+             ORDER BY SQLTYPE, SQLID
+             FETCH FIRST {int(limit)} ROWS ONLY
+        """
+        rows, w = _run(env, sql, params)
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
 
+    rows1, rows2 = all_rows
     diff = _compare(rows1, rows2, "sqlid", ["sqltype", "objectownerid", "lastupddttm"])
     diff.update({"env1": env1, "env2": env2, "object_type": "sql_definitions",
                  "query": q, "warnings": warnings})
@@ -350,22 +398,32 @@ def compare_sql_definitions(env1, env2, q="", limit=500):
 
 def compare_portals(env1, env2, q="", limit=500):
     """Diff PSPRSMDEFN (Portal Registry content references) between two environments."""
-    sql = """
-        SELECT PORTAL_OBJNAME, PORTAL_NAME, PORTAL_LABEL,
-               PORTAL_PRNTOBJNAME, PORTAL_OBJTYPE,
-               LASTUPDDTTM, LASTUPDOPRID
-          FROM SYSADM.PSPRSMDEFN
-         WHERE (:q IS NULL OR UPPER(PORTAL_OBJNAME) LIKE :q OR UPPER(PORTAL_LABEL) LIKE :q)
-         ORDER BY PORTAL_OBJNAME
-         FETCH FIRST {limit} ROWS ONLY
-    """.format(limit=int(limit))
     pattern = f"%{q.upper()}%" if q else None
     params = {"q": pattern}
+    warnings = []
+    all_rows = []
 
-    rows1, w1 = _run(env1, sql, params)
-    rows2, w2 = _run(env2, sql, params)
-    warnings = [w for w in [w1, w2] if w]
+    for env in (env1, env2):
+        cols = psdb.table_columns(env, "PSPRSMDEFN")
+        label_col = "PORTAL_LABEL" if "portal_label" in cols else "NULL AS PORTAL_LABEL"
+        label_filter = "OR UPPER(PORTAL_LABEL) LIKE :q" if "portal_label" in cols else ""
+        prnt_col = "PORTAL_PRNTOBJNAME" if "portal_prntobjname" in cols else "NULL AS PORTAL_PRNTOBJNAME"
+        type_col = "PORTAL_OBJTYPE" if "portal_objtype" in cols else "NULL AS PORTAL_OBJTYPE"
+        ts_col = "LASTUPDDTTM" if "lastupddttm" in cols else "NULL AS LASTUPDDTTM"
+        sql = f"""
+            SELECT PORTAL_OBJNAME, PORTAL_NAME, {label_col},
+                   {prnt_col}, {type_col}, {ts_col}
+              FROM SYSADM.PSPRSMDEFN
+             WHERE (:q IS NULL OR UPPER(PORTAL_OBJNAME) LIKE :q {label_filter})
+             ORDER BY PORTAL_OBJNAME
+             FETCH FIRST {int(limit)} ROWS ONLY
+        """
+        rows, w = _run(env, sql, params)
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
 
+    rows1, rows2 = all_rows
     diff = _compare(rows1, rows2, "portal_objname",
                     ["portal_label", "portal_prntobjname", "portal_objtype", "lastupddttm"])
     diff.update({"env1": env1, "env2": env2, "object_type": "portals",
@@ -375,23 +433,32 @@ def compare_portals(env1, env2, q="", limit=500):
 
 def compare_queries(env1, env2, q="", limit=500):
     """Diff PSQRYDEFN (public PS Queries, OPRID=' ') between two environments."""
-    sql = """
-        SELECT QRYNAME, DESCR, QRYTYPE, QRYFOLDER,
-               QRYDISABLED, QRYVALID,
-               LASTUPDDTTM, LASTUPDOPRID
-          FROM SYSADM.PSQRYDEFN
-         WHERE OPRID = ' '
-           AND (:q IS NULL OR UPPER(QRYNAME) LIKE :q OR UPPER(DESCR) LIKE :q)
-         ORDER BY QRYNAME
-         FETCH FIRST {limit} ROWS ONLY
-    """.format(limit=int(limit))
     pattern = f"%{q.upper()}%" if q else None
     params = {"q": pattern}
+    warnings = []
+    all_rows = []
 
-    rows1, w1 = _run(env1, sql, params)
-    rows2, w2 = _run(env2, sql, params)
-    warnings = [w for w in [w1, w2] if w]
+    for env in (env1, env2):
+        cols = psdb.table_columns(env, "PSQRYDEFN")
+        descr_col = "DESCR" if "descr" in cols else "NULL AS DESCR"
+        descr_filter = "OR UPPER(DESCR) LIKE :q" if "descr" in cols else ""
+        folder_col = "QRYFOLDER" if "qryfolder" in cols else "NULL AS QRYFOLDER"
+        disabled_col = "QRYDISABLED" if "qrydisabled" in cols else "NULL AS QRYDISABLED"
+        ts_col = "LASTUPDDTTM" if "lastupddttm" in cols else "NULL AS LASTUPDDTTM"
+        sql = f"""
+            SELECT QRYNAME, {descr_col}, QRYTYPE, {folder_col}, {disabled_col}, {ts_col}
+              FROM SYSADM.PSQRYDEFN
+             WHERE OPRID = ' '
+               AND (:q IS NULL OR UPPER(QRYNAME) LIKE :q {descr_filter})
+             ORDER BY QRYNAME
+             FETCH FIRST {int(limit)} ROWS ONLY
+        """
+        rows, w = _run(env, sql, params)
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
 
+    rows1, rows2 = all_rows
     diff = _compare(rows1, rows2, "qryname",
                     ["descr", "qrytype", "qryfolder", "qrydisabled", "lastupddttm"])
     diff.update({"env1": env1, "env2": env2, "object_type": "queries",
