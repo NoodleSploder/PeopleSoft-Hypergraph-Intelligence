@@ -1426,6 +1426,7 @@ def component_object(env, component_name):
     pages, page_warn = safe_relationship("component_pages", lambda: psdb.component_pages(env, component_name))
     permissionlists, pl_warn = safe_relationship("component_permissionlists", lambda: psdb.component_permissionlists(env, component_name))
     menu_placements, menu_warn = safe_relationship("component_menu_placements", lambda: psdb.component_menu_placements(env, component_name))
+    menus, cmenu_warn = safe_relationship("component_menus", lambda: psdb.component_menus(env, component_name))
     page_records, record_warn = safe_relationship("component_records_used_by_pages", lambda: psdb.component_records_used_by_pages(env, component_name))
     portal_refs, portal_warn = safe_relationship("component_portal_refs", lambda: psdb.component_portal_refs(env, component_name))
     related_content, rc_warn = safe_relationship("component_related_content", lambda: psdb.component_related_content(env, component_name))
@@ -1433,7 +1434,7 @@ def component_object(env, component_name):
     drop_zones, dz_warn = safe_relationship("component_drop_zones", lambda: psdb.component_drop_zones(env, component_name))
     access_result, access_warn = safe_relationship("component_access", lambda: psdb.component_access(env, component_name))
     page_hierarchy, hier_warn = safe_relationship("component_page_hierarchy", lambda: psdb.component_page_hierarchy(env, component_name))
-    warnings.extend(page_warn + pl_warn + menu_warn + record_warn + portal_warn + rc_warn + event_warn + dz_warn + access_warn + hier_warn)
+    warnings.extend(page_warn + pl_warn + menu_warn + cmenu_warn + record_warn + portal_warn + rc_warn + event_warn + dz_warn + access_warn + hier_warn)
 
     search_records = []
     for key in ("searchrecname", "addsrchrecname"):
@@ -1476,6 +1477,10 @@ def component_object(env, component_name):
         "search_records": [attach_object_links(row, env) for row in search_records],
         "page_records": [attach_object_links(row, env) for row in (page_records or [])],
         "menu_placements": [attach_object_links(row, env) for row in (menu_placements or [])],
+        "menus": [
+            {**attach_object_links(row, env), "_links": {"admin": object_url("menu", str(row.get("menuname") or "").strip())}}
+            for row in (menus or [])
+        ],
         "portal_refs": [attach_object_links(row, env) for row in (portal_refs or [])],
         "permissionlists": [attach_object_links(row, env) for row in (permissionlists or [])],
         "security": [attach_object_links(row, env) for row in (access_result or [])],
@@ -1581,6 +1586,10 @@ def sections_for_component(component):
         }},
         {"name": "Search Records", "items": rels.get("search_records", []), "data": {"count": len(rels.get("search_records", []))}},
         {"name": "Records Used By Pages", "items": rels.get("page_records", []), "data": {"count": len(rels.get("page_records", []))}},
+        {"name": "Menus", "items": [
+            {**r, "relationship": str(r.get("menu_descr") or r.get("barname") or "").strip()}
+            for r in rels.get("menus", [])
+        ], "data": {"count": len(rels.get("menus", []))}},
         {"name": "Menu Placement", "items": rels.get("menu_placements", []), "data": {"count": len(rels.get("menu_placements", []))}},
         {"name": "Portal Registry", "items": [
             {**r, "relationship": r.get("nav_path") or r.get("portal_name") or ""}
@@ -3923,6 +3932,126 @@ def app_package_payload(env, package_name):
     }
 
 
+_MENU_TYPE_LABELS = {
+    "0": "Standard",
+    "1": "Pop-up",
+}
+
+
+def menu_object(env, menuname):
+    menuname = menuname.strip().upper()
+    warnings = []
+
+    if not ptmetadata.has_table(env, "PSMENUDEFN"):
+        warnings.append(ptmetadata.warning("no_access", "PSMENUDEFN not accessible"))
+        return canonical_base(
+            env, "menu", menuname,
+            display_name=menuname, status="unavailable", warnings=warnings,
+            _links={"admin": object_url("menu", menuname)},
+            _metadata={"environment": env.upper()},
+        )
+
+    defn = psdb.menu(env, menuname) or {}
+    items, item_warn = safe_relationship("items", lambda: psdb.menu_items(env, menuname))
+    if item_warn:
+        warnings.extend(item_warn)
+
+    descr = str(defn.get("descr") or "").strip() or menuname
+    menu_type_raw = str(defn.get("menutype") or "0")
+
+    obj = canonical_base(
+        env, "menu", menuname,
+        display_name=menuname,
+        description=descr,
+        owner=str(defn.get("objectownerid") or "").strip(),
+        status="found" if defn else "not_found",
+        warnings=warnings,
+        _links={"admin": object_url("menu", menuname)},
+        _metadata={"environment": env.upper()},
+        definition=defn,
+        items=items or [],
+    )
+
+    obj["_relationships"]["items"] = items or []
+    obj["_graph"] = {
+        "node": {"id": object_id("menu", menuname), "type": "menu", "label": menuname, "description": descr},
+        "edges": [
+            {"source": object_id("menu", menuname), "target": object_id("component", str(r.get("pnlgrpname") or "").strip().upper()), "type": "LISTS", "label": "Lists"}
+            for r in (items or [])
+            if str(r.get("pnlgrpname") or "").strip()
+        ],
+    }
+    return obj
+
+
+def sections_for_menu(obj):
+    defn = obj.get("definition") or {}
+    items = obj.get("items") or []
+    menu_type_raw = str(defn.get("menutype") or "0")
+
+    bars = {}
+    for item in items:
+        bar = str(item.get("barname") or "").strip()
+        bars.setdefault(bar, []).append(item)
+
+    bar_sections = []
+    for bar, bar_items in sorted(bars.items()):
+        enriched = []
+        for item in sorted(bar_items, key=lambda i: i.get("itemnum") or 0):
+            component = str(item.get("pnlgrpname") or "").strip()
+            entry = {**item, "relationship": str(item.get("itemlabel") or "").strip() or str(item.get("itemname") or "").strip()}
+            if component:
+                entry["_links"] = {"admin": object_url("component", component)}
+            enriched.append(entry)
+        bar_sections.append({
+            "name": f"Bar: {bar}" if bar else "Menu Items",
+            "items": enriched,
+            "data": {"count": len(enriched)},
+        })
+
+    sections = [
+        {
+            "name": "Definition",
+            "items": [],
+            "data": {
+                "type": _MENU_TYPE_LABELS.get(menu_type_raw, menu_type_raw),
+                "group": str(defn.get("menugroup") or "").strip() or None,
+                "owner": str(defn.get("objectownerid") or "").strip() or None,
+                "last_updated": str(defn.get("lastupddttm") or "").strip() or None,
+                "description": str(defn.get("descrlong") or "").strip() or None,
+            },
+        },
+    ]
+    sections.extend(bar_sections)
+    return [s for s in sections if s.get("items") or s.get("data")]
+
+
+def menu_payload(env, menuname):
+    obj = menu_object(env, menuname)
+    defn = obj.get("definition") or {}
+    items = obj.get("items") or []
+    components = list({str(r.get("pnlgrpname") or "").strip().upper() for r in items if str(r.get("pnlgrpname") or "").strip()})
+
+    return {
+        "environment": env.upper(),
+        "type": "menu",
+        "name": menuname,
+        "display_name": menuname,
+        "description": obj.get("description") or "",
+        "status": obj.get("status", "unknown"),
+        "overview": {
+            "description": obj.get("description") or "",
+            "owner": str(defn.get("objectownerid") or "").strip() or None,
+            "menu_type": _MENU_TYPE_LABELS.get(str(defn.get("menutype") or "0"), "Standard"),
+            "item_count": len(items),
+            "component_count": len(components),
+        },
+        "sections": sections_for_menu(obj),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
 def canonical_object(env, object_type, name):
     object_type = object_type.lower()
     if object_type == "component_interface":
@@ -3970,6 +4099,8 @@ def canonical_object(env, object_type, name):
         return ci_object(env, name)
     if object_type == "application_package":
         return app_package_object(env, name)
+    if object_type == "menu":
+        return menu_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])

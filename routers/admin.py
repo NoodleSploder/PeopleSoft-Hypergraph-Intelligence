@@ -9,6 +9,7 @@ router = APIRouter(prefix="/admin", tags=["DeathStar Admin"])
 _NAV = [
     ("home",       "Home",          "/admin/"),
     ("runtime",    "Runtime",       "/admin/runtime"),
+    ("infra",      "Infra",         "/admin/infra"),
     ("sqlws",      "SQL Workspace", "/admin/sqlws"),
     ("ib",         "IB Explorer",   "/admin/ib"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
@@ -9804,5 +9805,205 @@ function highlightPeopleCode(source) {
   if (initRef) {
     await loadPC(initRef);
   }
+})();
+</script>""")
+
+
+@router.get("/infra", response_class=HTMLResponse)
+def admin_infra():
+    return _shell("Infrastructure", "infra", content="""
+<div class="ds-page-header">
+  <div class="ds-page-title">Infrastructure</div>
+  <div class="ds-page-subtitle">Host metrics, services, containers, and Oracle health</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+  <div class="card">
+    <h2>Host Metrics <button onclick="loadHost()" style="float:right;font-size:11px">Refresh</button></h2>
+    <div id="hostMetrics" style="font-size:12px;color:#6c7086">Loading...</div>
+  </div>
+
+  <div class="card">
+    <h2>Services <button onclick="loadServices()" style="float:right;font-size:11px">Refresh</button></h2>
+    <table id="servicesTable" style="font-size:12px;width:100%">
+      <thead><tr><th>Service</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="serviceRows"></tbody>
+    </table>
+    <div style="margin-top:8px">
+      <button onclick="reloadNginx()" style="font-size:11px;background:#313244">Reload NGINX Config</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Containers <button onclick="loadContainers()" style="float:right;font-size:11px">Refresh</button></h2>
+    <table id="containersTable" style="font-size:12px;width:100%">
+      <thead><tr><th>Name</th><th>Image</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="containerRows"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Oracle Health <button onclick="loadOracleHealth()" style="float:right;font-size:11px">Refresh</button></h2>
+    <div id="oracleHealth" style="font-size:12px;color:#6c7086">Loading...</div>
+  </div>
+
+</div>
+
+<div class="card" style="margin-top:16px">
+  <h2>Container Logs
+    <select id="containerLogName" style="font-size:11px;background:#1e1e2e;color:#cdd6f4;border:1px solid #313244;padding:2px 4px">
+      <option value="authelia">authelia</option>
+    </select>
+    <input id="containerLogLines" type="number" value="50" min="10" max="500" style="width:60px;font-size:11px;background:#1e1e2e;color:#cdd6f4;border:1px solid #313244;padding:2px 4px">
+    <button onclick="loadContainerLogs()" style="font-size:11px">Load</button>
+  </h2>
+  <pre id="containerLogOutput" style="font-size:11px;max-height:300px;overflow:auto;background:#0d0d14;padding:8px;border-radius:4px;color:#a6e3a1">Select a container and click Load.</pre>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <h2>Journal Log
+    <input id="journalUnits" value="nginx,deathstar-api" style="font-size:11px;background:#1e1e2e;color:#cdd6f4;border:1px solid #313244;padding:2px 4px;width:220px">
+    <input id="journalLines" type="number" value="80" min="10" max="500" style="width:60px;font-size:11px;background:#1e1e2e;color:#cdd6f4;border:1px solid #313244;padding:2px 4px">
+    <button onclick="loadJournal()" style="font-size:11px">Load</button>
+  </h2>
+  <pre id="journalOutput" style="font-size:11px;max-height:300px;overflow:auto;background:#0d0d14;padding:8px;border-radius:4px;color:#cdd6f4">Click Load to fetch journal entries.</pre>
+</div>
+
+<script>
+async function api(path, opts = {}) {
+    const res = await fetch(path, opts);
+    if (!res.ok) { const t = await res.text(); console.error(path, t); return null; }
+    return res.json();
+}
+
+function fmtBytes(b) {
+    if (b == null) return '?';
+    const gb = b / 1073741824;
+    return gb >= 1 ? gb.toFixed(1) + ' GB' : (b / 1048576).toFixed(0) + ' MB';
+}
+
+async function loadHost() {
+    const d = await api('/api/metrics/host');
+    if (!d) return;
+    const mem = d.memory || {};
+    const disk = d.disk || {};
+    const load = d.loadavg || [0, 0, 0];
+    const boot = d.boot_time ? new Date(d.boot_time * 1000).toLocaleString() : '?';
+    document.getElementById('hostMetrics').innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div><b>CPU</b>: ${d.cpu_percent?.toFixed(1)}%</div>
+          <div><b>Load</b>: ${load.map(l => l.toFixed(2)).join(' / ')}</div>
+          <div><b>Memory</b>: ${fmtBytes(mem.used)} / ${fmtBytes(mem.total)} (${mem.percent?.toFixed(1)}%)</div>
+          <div><b>Disk /</b>: ${fmtBytes(disk.used)} / ${fmtBytes(disk.total)} (${disk.percent?.toFixed(1)}%)</div>
+          <div style="grid-column:1/-1"><b>Boot time</b>: ${boot}</div>
+        </div>`;
+}
+
+async function loadServices() {
+    const rows = await api('/api/system/services');
+    const tbody = document.getElementById('serviceRows');
+    if (!tbody || !rows) return;
+    tbody.innerHTML = '';
+    rows.forEach(r => {
+        const chip = r.active
+            ? '<span class="chip" style="background:#a6e3a1;color:#1e1e2e">active</span>'
+            : '<span class="chip" style="background:#f38ba8;color:#1e1e2e">inactive</span>';
+        const btn = r.restartable
+            ? `<button onclick="restartService('${r.unit}')" style="font-size:10px;background:#313244">Restart</button>`
+            : '<span style="color:#6c7086;font-size:10px">—</span>';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${r.name}</td><td>${chip}</td><td>${btn}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+async function restartService(unit) {
+    if (!confirm(`Restart ${unit}?`)) return;
+    const d = await api(`/api/system/service/${encodeURIComponent(unit)}/restart`, { method: 'POST' });
+    alert(d ? `${unit}: ${d.status}${d.stderr ? '\\n' + d.stderr : ''}` : 'Request failed');
+    await loadServices();
+}
+
+async function reloadNginx() {
+    if (!confirm('Reload NGINX config?')) return;
+    const d = await api('/api/system/nginx/reload', { method: 'POST' });
+    alert(d ? `NGINX reload: ${d.status}${d.stderr ? '\\n' + d.stderr : ''}` : 'Request failed');
+}
+
+async function loadContainers() {
+    const d = await api('/api/system/containers');
+    const tbody = document.getElementById('containerRows');
+    if (!tbody || !d) return;
+    tbody.innerHTML = '';
+
+    // Update log selector
+    const sel = document.getElementById('containerLogName');
+    const existing = new Set([...sel.options].map(o => o.value));
+
+    (d.containers || []).forEach(c => {
+        if (!existing.has(c.name)) {
+            const opt = document.createElement('option');
+            opt.value = c.name; opt.textContent = c.name;
+            sel.appendChild(opt);
+        }
+        const chip = c.running
+            ? '<span class="chip" style="background:#a6e3a1;color:#1e1e2e">running</span>'
+            : '<span class="chip" style="background:#f38ba8;color:#1e1e2e">stopped</span>';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${c.name}</td><td style="font-size:10px;color:#6c7086">${(c.image||'').split('/').pop()}</td><td>${chip}</td>
+            <td><button onclick="restartContainer('${c.name}')" style="font-size:10px;background:#313244">Restart</button></td>`;
+        tbody.appendChild(tr);
+    });
+    if (!d.containers?.length) {
+        tbody.innerHTML = '<tr><td colspan="4" style="color:#6c7086;font-style:italic">No containers</td></tr>';
+    }
+}
+
+async function restartContainer(name) {
+    if (!confirm(`Restart container ${name}?`)) return;
+    const d = await api(`/api/system/containers/${encodeURIComponent(name)}/restart`, { method: 'POST' });
+    alert(d ? `${name}: ${d.status}${d.stderr ? '\\n' + d.stderr : ''}` : 'Request failed');
+    await loadContainers();
+}
+
+async function loadOracleHealth() {
+    const d = await api('/api/oracle/health');
+    if (!d) { document.getElementById('oracleHealth').textContent = 'Failed to load'; return; }
+    const items = [];
+    if (d.instances) items.push(`<b>Instances:</b> ${d.instances.length}`);
+    if (d.tablespace_ok != null) items.push(`<b>Tablespace OK:</b> ${d.tablespace_ok}`);
+    if (d.status) items.push(`<b>Status:</b> ${d.status}`);
+    if (d.warnings?.length) items.push(`<b>Warnings:</b> ${d.warnings.join(', ')}`);
+
+    // Also fetch listener
+    const listener = await api('/api/oracle/listener');
+    if (listener) items.push(`<b>Listener:</b> ${listener.status || JSON.stringify(listener)}`);
+
+    document.getElementById('oracleHealth').innerHTML = items.join('<br>') || JSON.stringify(d, null, 2);
+}
+
+async function loadContainerLogs() {
+    const name = document.getElementById('containerLogName').value;
+    const lines = document.getElementById('containerLogLines').value || 50;
+    const d = await api(`/api/system/containers/${encodeURIComponent(name)}/logs?lines=${lines}`);
+    const pre = document.getElementById('containerLogOutput');
+    if (!d) { pre.textContent = 'Failed'; return; }
+    pre.textContent = (d.lines || []).join('\\n') || '(no output)';
+    pre.scrollTop = pre.scrollHeight;
+}
+
+async function loadJournal() {
+    const units = document.getElementById('journalUnits').value;
+    const lines = document.getElementById('journalLines').value || 80;
+    const d = await api(`/api/logs/journal?units=${encodeURIComponent(units)}&lines=${lines}`);
+    const pre = document.getElementById('journalOutput');
+    if (!d) { pre.textContent = 'Failed'; return; }
+    pre.textContent = (d.lines || []).join('\\n') || '(no output)';
+    pre.scrollTop = pre.scrollHeight;
+}
+
+(async function() {
+    await Promise.all([loadHost(), loadServices(), loadContainers(), loadOracleHealth()]);
 })();
 </script>""")

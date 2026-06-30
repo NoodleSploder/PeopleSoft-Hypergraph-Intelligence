@@ -247,6 +247,9 @@ OBJECT_REGISTRY = {
         "discovery": {"table": "PSOPRDEFN", "name_column": "OPRID"},
         "search": {"table": "PSOPRDEFN", "name_column": "OPRID", "description_columns": ["OPRDEFNDESC"]},
         "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+        "relationships": [
+            {"edge_type": "ASSIGNED_ROLE", "target_type": "role", "direction": "out", "label": "Roles"},
+        ],
     },
     "role": {
         "display_title": "Role",
@@ -256,6 +259,10 @@ OBJECT_REGISTRY = {
         "discovery": {"table": "PSROLEDEFN", "name_column": "ROLENAME"},
         "search": {"table": "PSROLEDEFN", "name_column": "ROLENAME", "description_columns": ["DESCR"]},
         "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+        "relationships": [
+            {"edge_type": "ASSIGNED_ROLE", "target_type": "operator", "direction": "in", "label": "Operators"},
+            {"edge_type": "HAS_PERMLIST", "target_type": "permissionlist", "direction": "out", "label": "Permission Lists"},
+        ],
     },
     "permissionlist": {
         "display_title": "Permission List",
@@ -265,6 +272,11 @@ OBJECT_REGISTRY = {
         "discovery": {"table": "PSCLASSDEFN", "name_column": "CLASSID"},
         "search": {"table": "PSCLASSDEFN", "name_column": "CLASSID", "description_columns": ["DESCR", "CLASSDEFNDESC"]},
         "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+        "relationships": [
+            {"edge_type": "HAS_PERMLIST", "target_type": "role", "direction": "in", "label": "Roles"},
+            {"edge_type": "GRANTS_ACCESS", "target_type": "component", "direction": "out", "label": "Components"},
+            {"edge_type": "GRANTS_MENU", "target_type": "menu", "direction": "out", "label": "Menus"},
+        ],
     },
     "component": {
         "display_title": "Component",
@@ -274,6 +286,13 @@ OBJECT_REGISTRY = {
         "discovery": {"table": "PSPNLGRPDEFN", "name_column": "PNLGRPNAME"},
         "search": {"table": "PSPNLGRPDEFN", "name_column": "PNLGRPNAME", "description_columns": ["DESCR"], "extra_search_columns": ["SEARCHRECNAME", "ADDSRCHRECNAME"]},
         "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+        "relationships": [
+            {"edge_type": "HAS_PAGE", "target_type": "page", "direction": "out", "label": "Pages"},
+            {"edge_type": "GRANTS_ACCESS", "target_type": "permissionlist", "direction": "in", "label": "Permission Lists"},
+            {"edge_type": "LISTED_IN", "target_type": "menu", "direction": "in", "label": "Menus"},
+            {"edge_type": "REFERENCED_BY", "target_type": "portal_registry", "direction": "in", "label": "Portal Registry"},
+            {"edge_type": "USES", "target_type": "record", "direction": "out", "label": "Records"},
+        ],
     },
     "page": {
         "display_title": "Page",
@@ -283,6 +302,11 @@ OBJECT_REGISTRY = {
         "discovery": {"table": "PSPNLDEFN", "name_column": "PNLNAME"},
         "search": {"table": "PSPNLDEFN", "name_column": "PNLNAME", "description_columns": ["DESCR"]},
         "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+        "relationships": [
+            {"edge_type": "HAS_PAGE", "target_type": "component", "direction": "in", "label": "Components"},
+            {"edge_type": "CONTAINS", "target_type": "record", "direction": "out", "label": "Records"},
+            {"edge_type": "CONTAINS", "target_type": "field", "direction": "out", "label": "Fields"},
+        ],
     },
     "record": {
         "display_title": "Record",
@@ -292,6 +316,11 @@ OBJECT_REGISTRY = {
         "discovery": {"table": "PSRECDEFN", "name_column": "RECNAME"},
         "search": {"table": "PSRECDEFN", "name_column": "RECNAME", "description_columns": ["RECDESCR"], "extra_search_columns": ["SQLTABLENAME"]},
         "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+        "relationships": [
+            {"edge_type": "CONTAINS", "target_type": "field", "direction": "out", "label": "Fields"},
+            {"edge_type": "CONTAINS", "target_type": "record", "direction": "in", "label": "Parent Records"},
+            {"edge_type": "USES", "target_type": "component", "direction": "in", "label": "Components"},
+        ],
     },
     "field": {
         "display_title": "Field",
@@ -301,6 +330,10 @@ OBJECT_REGISTRY = {
         "discovery": {"table": "PSDBFIELD", "name_column": "FIELDNAME"},
         "search": {"provider": "field", "table": "PSRECFIELD", "name_column": "FIELDNAME", "description_columns": ["DESCR"]},
         "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+        "relationships": [
+            {"edge_type": "CONTAINS", "target_type": "record", "direction": "in", "label": "Records"},
+            {"edge_type": "HAS_PEOPLECODE", "target_type": "peoplecode", "direction": "out", "label": "PeopleCode"},
+        ],
     },
     "peoplecode": {
         "display_title": "PeopleCode",
@@ -310,6 +343,12 @@ OBJECT_REGISTRY = {
         "discovery": {"table": "PSPCMPROG", "name_column": "PROGSEQ"},
         "search": {"provider": "peoplecode", "table": "PSPCMPROG", "name_column": "PROGSEQ", "description_columns": []},
         "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+        "relationships": [
+            {"edge_type": "HAS_PEOPLECODE", "target_type": "component", "direction": "in", "label": "Components"},
+            {"edge_type": "HAS_PEOPLECODE", "target_type": "record", "direction": "in", "label": "Records"},
+            {"edge_type": "HAS_PEOPLECODE", "target_type": "application_engine", "direction": "in", "label": "Application Engines"},
+            {"edge_type": "CALLS", "target_type": "application_package", "direction": "out", "label": "App Package Classes"},
+        ],
     },
     "peoplecode_event": {
         "display_title": "PeopleCode Event",
@@ -379,6 +418,11 @@ OBJECT_REGISTRY.setdefault("application_engine", {
     "discovery": {"table": "PSAEAPPLDEFN", "name_column": "AE_APPLID"},
     "search": {"table": "PSAEAPPLDEFN", "name_column": "AE_APPLID", "description_columns": ["DESCR"]},
     "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [
+        {"edge_type": "HAS_PEOPLECODE", "target_type": "peoplecode", "direction": "out", "label": "PeopleCode"},
+        {"edge_type": "USES", "target_type": "record", "direction": "out", "label": "State Records"},
+        {"edge_type": "CALLS", "target_type": "sql_definition", "direction": "out", "label": "SQL Definitions"},
+    ],
 })
 
 OBJECT_REGISTRY.setdefault("ae_section", {
@@ -501,8 +545,22 @@ OBJECT_REGISTRY.setdefault("ci", {
     "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
 })
 
+OBJECT_REGISTRY.setdefault("menu", {
+    "display_title": "Menu",
+    "icon": "menu",
+    "graph_node_type": "menu",
+    "object_page": "/admin/object/menu/{name}",
+    "discovery": {"table": "PSMENUDEFN", "name_column": "MENUNAME"},
+    "search": {"table": "PSMENUDEFN", "name_column": "MENUNAME",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["MENUGROUP", "OBJECTOWNERID"]},
+    "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [
+        {"edge_type": "LISTS", "target_type": "component", "direction": "out", "label": "Components"},
+    ],
+})
+
 for object_type in [
-    "menu",
     "content_reference",
     "section",
     "step",
@@ -527,13 +585,101 @@ for object_type in [
 
 
 VERSION_ADAPTERS = {
-    "8.58": {"status": "baseline", "notes": "Uses common PeopleTools metadata names."},
-    "8.59": {"status": "baseline", "notes": "Uses common PeopleTools metadata names."},
-    "8.60": {"status": "baseline", "notes": "Uses common PeopleTools metadata names."},
-    "8.61": {"status": "baseline", "notes": "Uses common PeopleTools metadata names."},
-    "8.62": {"status": "baseline", "notes": "Uses common PeopleTools metadata names."},
-    "unknown": {"status": "fallback", "notes": "Capabilities are detected from database metadata and direct probes."},
+    # PeopleTools version → known behavioral differences from baseline.
+    # "column_aliases": maps (table, logical_name) → actual_column_name override
+    # "new_tables": tables introduced in this version
+    # "removed_tables": tables removed or renamed in this version
+    # "notes": human-readable summary
+    "8.58": {
+        "status": "supported",
+        "notes": "Baseline PeopleTools version. All common metadata tables present.",
+        "new_tables": [],
+        "removed_tables": [],
+        "column_aliases": {
+            # PSPNLGRPDEFN may use ADDSEARCHRECNAME instead of ADDSRCHRECNAME
+            ("PSPNLGRPDEFN", "add_search_rec"): "ADDSEARCHRECNAME",
+            # PSPCMTXT used PROGTXT in older installs
+            ("PSPCMTXT", "source_column"): "PROGTXT",
+        },
+    },
+    "8.59": {
+        "status": "supported",
+        "notes": "Introduced Fluid UI framework tables. PSPCMTXT standardized on PCTEXT.",
+        "new_tables": ["PSPNLGRPFLUID", "PSFLDFMTDEFN"],
+        "removed_tables": [],
+        "column_aliases": {
+            ("PSPCMTXT", "source_column"): "PCTEXT",
+        },
+    },
+    "8.60": {
+        "status": "supported",
+        "notes": "Connected Content (PSCBKOPERPROG). Fluid enhancements. PCTEXT standard.",
+        "new_tables": ["PSCBKOPERPROG", "PSCBKDEFN", "PSCBKPROGHDR"],
+        "removed_tables": [],
+        "column_aliases": {
+            ("PSPCMTXT", "source_column"): "PCTEXT",
+            ("PSPNLGRPDEFN", "add_search_rec"): "ADDSRCHRECNAME",
+        },
+    },
+    "8.61": {
+        "status": "supported",
+        "notes": "Enhanced security framework. Application Package enhancements.",
+        "new_tables": ["PSPKGDEFN"],
+        "removed_tables": [],
+        "column_aliases": {
+            ("PSPCMTXT", "source_column"): "PCTEXT",
+            ("PSPNLGRPDEFN", "add_search_rec"): "ADDSRCHRECNAME",
+        },
+    },
+    "8.62": {
+        "status": "supported",
+        "notes": "Current supported version. Key management (PSPKMGMTDEFN). Full Fluid.",
+        "new_tables": ["PSPKMGMTDEFN", "PSPKEYDEFN"],
+        "removed_tables": [],
+        "column_aliases": {
+            ("PSPCMTXT", "source_column"): "PCTEXT",
+            ("PSPNLGRPDEFN", "add_search_rec"): "ADDSRCHRECNAME",
+        },
+    },
+    "unknown": {
+        "status": "fallback",
+        "notes": "Version not detected. All capabilities probed live via has_table()/has_column().",
+        "new_tables": [],
+        "removed_tables": [],
+        "column_aliases": {},
+    },
 }
+
+
+def version_column(env, table: str, logical_name: str, default: str) -> str:
+    """Return the correct column name for a known alias in the detected PeopleTools version.
+
+    Falls back to live has_column() probe if version is unknown or alias not declared.
+    """
+    version, _ = peopletools_version(env)
+    key = str(version or "unknown")[:4]
+    adapter = VERSION_ADAPTERS.get(key, VERSION_ADAPTERS["unknown"])
+    declared = adapter.get("column_aliases", {}).get((table, logical_name))
+    if declared:
+        return declared
+    # Probe live: try default first, then fallback
+    if has_column(env, table, default):
+        return default
+    return default
+
+
+def version_tables(env) -> dict:
+    """Return version-specific table availability context for the detected PeopleTools version."""
+    version, _ = peopletools_version(env)
+    key = str(version or "unknown")[:4]
+    adapter = VERSION_ADAPTERS.get(key, VERSION_ADAPTERS["unknown"])
+    return {
+        "version": version,
+        "adapter_key": key,
+        "new_tables_declared": adapter.get("new_tables", []),
+        "removed_tables_declared": adapter.get("removed_tables", []),
+        "notes": adapter.get("notes", ""),
+    }
 
 
 def object_types():

@@ -335,6 +335,9 @@ def object_payload(env, object_type, object_name):
     if object_type == "application_package":
         return uom.app_package_payload(env, object_name)
 
+    if object_type == "menu":
+        return attach_graph_context(uom.menu_payload(env, object_name), env)
+
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
 
@@ -1047,6 +1050,37 @@ def peoplesoft_component_menu_placements(component: str, env: str = "HCM"):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.component_menu_placements(env, component))
+    ]
+
+
+@router.get("/api/peoplesoft/menus")
+def peoplesoft_search_menus(q: str = "", env: str = "HCM"):
+    rows = safe_rows(lambda: psdb.search_menus(env, q))
+    return [
+        {**r, "_links": {"admin": f"/admin/object/menu/{r.get('menuname','')}"}}
+        for r in rows
+    ]
+
+
+@router.get("/api/peoplesoft/menus/{menuname}")
+def peoplesoft_menu(menuname: str, env: str = "HCM"):
+    defn = psdb.menu(env, menuname.upper())
+    if not defn:
+        raise HTTPException(status_code=404, detail="Menu not found")
+    return defn
+
+
+@router.get("/api/peoplesoft/menus/{menuname}/items")
+def peoplesoft_menu_items(menuname: str, env: str = "HCM"):
+    return safe_rows(lambda: psdb.menu_items(env, menuname.upper()))
+
+
+@router.get("/api/peoplesoft/components/{component}/menus")
+def peoplesoft_component_menus(component: str, env: str = "HCM"):
+    rows = safe_rows(lambda: psdb.component_menus(env, component.upper()))
+    return [
+        {**r, "_links": {"admin": f"/admin/object/menu/{r.get('menuname','')}"}}
+        for r in rows
     ]
 
 

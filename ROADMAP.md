@@ -84,11 +84,17 @@
 -   Metadata diagnostics
 -   Capability helpers
 
-### Remaining
+### Completed
 
--   Relationship providers
--   Version-specific adapters
--   Additional object providers
+-   Relationship providers: `"relationships"` field added to OBJECT_REGISTRY entries for operator/role/permissionlist/component/page/record/field/peoplecode/application_engine/menu — each declares typed edges (direction, edge_type, target_type, label). `GET /api/metadata/relationship-map` returns the full declarative object-type graph (nodes + edges, excludes planned types). 27 relationship declarations across 24 active object types.
+
+-   Additional object providers: `menu` fully implemented — `search_menus()`, `menu()`, `menu_items()`, `component_menus()` in psdb.py; `menu_object()`, `sections_for_menu()`, `menu_payload()` in uom.py; OBJECT_REGISTRY entry with discovery (`PSMENUDEFN`) + search (`MENUNAME/DESCR/MENUGROUP/OBJECTOWNERID`) + relationship declaration; `GET /api/peoplesoft/menus`, `GET /api/peoplesoft/menus/{name}`, `GET /api/peoplesoft/menus/{name}/items`, `GET /api/peoplesoft/components/{component}/menus` endpoints; `object_payload()` handles `menu` type; global search auto-includes menu (637 menus in HCM); Component Explorer gains "Menus" section showing which menus list the component (via PSMENUITEM), clickable to Menu Object Explorer.
+
+### Completed
+
+-   Version-specific adapters: `VERSION_ADAPTERS` populated with real per-version data for 8.58–8.62 — each entry has `status`, `notes`, `new_tables` (tables introduced in that version), `removed_tables`, `column_aliases` (logical name → actual column for known cross-version variations like `PSPCMTXT.source_column` → `PCTEXT` vs `PROGTXT` in 8.58). `version_column(env, table, logical, default)` helper resolves the correct column name for a detected version. `version_tables(env)` returns declared table delta for the detected version. `GET /api/metadata/version` returns full version context with live table probes for declared new tables.
+
+### Remaining
 
 ------------------------------------------------------------------------
 
@@ -118,9 +124,11 @@
 -   Tree objects: `tree_object()` / `sections_for_tree()` / `tree_payload()` — fetches effective-dated PSTREEDEFN metadata with structure records/fields, levels, branches, node/leaf samples, variants, and graph preview
 -   Component Interface objects: `ci_object()` / `sections_for_ci()` / `ci_payload()` — fetches PSBCDEFN + PSBCITEM metadata with definition, component/menu links, search/add records, keys, collections, properties, fields, item samples, and graph preview
 
-### Remaining
+### Completed
 
--   Shared relationship provider registration
+-   Shared relationship provider registration: `"relationships"` field added to OBJECT_REGISTRY entries (see PeopleTools Metadata Engine above). Each object type declares its typed relationships to other types. `GET /api/metadata/relationship-map` exposes the full declarative graph. UOM payloads continue to populate `_relationships` from live SQL; the registry provides the schema-level declaration layer.
+
+### Remaining
 
 ------------------------------------------------------------------------
 
@@ -571,9 +579,11 @@
 -   Live monitoring
 -   Topology
 
-### Remaining
+### Completed
 
--   Expanded infrastructure management
+-   Expanded infrastructure management: `services_summary()`, `restart_service()`, `reload_nginx()`, `containers()`, `container_logs()`, `restart_container()` added to system.py connector. New REST endpoints: `GET /api/system/services`, `POST /api/system/service/{unit}/restart`, `POST /api/system/nginx/reload`, `GET /api/system/containers`, `GET /api/system/containers/{name}/logs`, `POST /api/system/containers/{name}/restart`. `/admin/infra` page with 2-column grid: Host Metrics (CPU/memory/disk/load), Services table (active chip + Restart buttons, NGINX Reload), Containers table (running status + Restart buttons, populates log selector), Oracle Health (instance count + tablespace + listener), Container Log viewer (tail N lines from any container), Journal Log viewer (any unit combination). "Infra" added to global nav.
+
+### Remaining
 
 ------------------------------------------------------------------------
 

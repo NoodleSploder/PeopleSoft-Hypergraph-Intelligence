@@ -930,6 +930,66 @@ def oprid_roles(oprid, env_name, columns="identity"):
     return query(env_name, sql, {"oprid": oprid})
 
 
+def search_menus(env_name, q=""):
+    sql = """
+        SELECT MENUNAME, DESCR, MENUTYPE, MENUGROUP, OBJECTOWNERID, LASTUPDDTTM
+          FROM SYSADM.PSMENUDEFN
+         WHERE UPPER(MENUNAME) LIKE :q
+            OR UPPER(DESCR) LIKE :q
+         ORDER BY MENUNAME
+         FETCH FIRST 200 ROWS ONLY
+    """
+    return query(env_name, sql, {"q": f"%{q.upper()}%"})
+
+
+def menu(env_name, menuname):
+    rows = query(env_name, """
+        SELECT MENUNAME, DESCR, DESCRLONG, MENUTYPE, MENUGROUP,
+               INSTALLED, GROUPORDER, MENUORDER, OBJECTOWNERID,
+               LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PSMENUDEFN
+         WHERE UPPER(MENUNAME) = UPPER(:menuname)
+    """, {"menuname": menuname})
+    return rows[0] if rows else None
+
+
+def menu_items(env_name, menuname):
+    return query(env_name, """
+        SELECT m.BARNAME,
+               m.ITEMNAME,
+               m.ITEMNUM,
+               m.ITEMTYPE,
+               m.PNLGRPNAME,
+               m.MARKET,
+               m.BARLABEL,
+               m.ITEMLABEL,
+               m.SEARCHRECNAME,
+               p.DESCR AS component_descr
+          FROM SYSADM.PSMENUITEM m
+          LEFT JOIN SYSADM.PSPNLGRPDEFN p
+            ON p.PNLGRPNAME = m.PNLGRPNAME
+           AND p.MARKET     = m.MARKET
+         WHERE UPPER(m.MENUNAME) = UPPER(:menuname)
+         ORDER BY m.BARNAME, m.ITEMNUM
+    """, {"menuname": menuname})
+
+
+def component_menus(env_name, component_name):
+    """Find menus that reference a component (PNLGRPNAME)."""
+    return query(env_name, """
+        SELECT m.MENUNAME,
+               d.DESCR  AS menu_descr,
+               m.BARNAME,
+               m.ITEMNAME,
+               m.ITEMLABEL,
+               m.MARKET
+          FROM SYSADM.PSMENUITEM m
+          JOIN SYSADM.PSMENUDEFN d ON d.MENUNAME = m.MENUNAME
+         WHERE UPPER(m.PNLGRPNAME) = UPPER(:component)
+         ORDER BY m.MENUNAME, m.BARNAME
+    """, {"component": component_name})
+
+
 def _batch_in_query(env_name, sql_template, items, chunk_size=500):
     """Execute an IN-clause query across chunks to stay under Oracle's 1000-item limit.
 
