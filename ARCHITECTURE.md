@@ -1,16 +1,37 @@
 # DeathStar Platform Architecture
 
-## North Star
+# Vision
 
-DeathStar's objective is not to become another PeopleSoft administration tool.
+PeopleSoft Explorer is an operational intelligence platform for Oracle PeopleSoft.
 
-Its objective is to become the **authoritative digital model of a PeopleSoft enterprise**.
+Rather than functioning as a collection of independent tools, the platform is built around a unified metadata and runtime model that enables engineers, administrators, and architects to understand every aspect of a PeopleSoft environment from a single interface.
 
-Every metadata object. Every security relationship. Every runtime execution. Every integration.
-Every dependency. Every transaction. Every Oracle interaction. Every infrastructure component.
+The platform combines:
 
-All represented through a unified object model, searchable knowledge graph, and live runtime
-execution model — queryable by humans and machines alike.
+- Metadata exploration
+- Dependency analysis
+- Runtime observability
+- Security analysis
+- Environment comparison
+- Infrastructure monitoring
+- Identity management
+- AI-assisted engineering
+
+Every feature ultimately feeds one of three platform pillars:
+
+1. Metadata Intelligence
+2. Runtime Intelligence
+3. Engineering Intelligence
+
+These pillars share a common foundation:
+
+- Unified Object Model (UOM)
+- Version-aware metadata adapters
+- Knowledge Graph
+- Relationship providers
+- Runtime providers
+
+This architecture allows new PeopleSoft object types, runtime providers, and analysis engines to be added with minimal changes to the surrounding platform.
 
 ---
 
