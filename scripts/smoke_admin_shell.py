@@ -117,7 +117,7 @@ DEFAULT_PAGES = [
     ]),
     ("/admin/graph", "#objectType", True, False, [
         (
-            "Graph Explorer list/visual tabs switch",
+            "Graph Explorer list/visual/impact tabs switch",
             """
 (() => {
   const failures = [];
@@ -127,15 +127,25 @@ DEFAULT_PAGES = [
     showTab('visual');
     if (display('#visualView') === 'none') failures.push('visual pane hidden');
     if (!document.querySelector('#tabVisual')?.classList.contains('active')) failures.push('visual tab inactive');
+    showTab('impact');
+    if (display('#impactView') === 'none') failures.push('impact pane hidden');
+    if (!document.querySelector('#tabImpact')?.classList.contains('active')) failures.push('impact tab inactive');
     showTab('list');
     if (display('#listView') === 'none') failures.push('list pane hidden');
+    if (!document.querySelector('#tabList')?.classList.contains('active')) failures.push('list tab inactive');
   }
   return {ok: failures.length === 0, detail: failures.join('; ')};
 })()
 """,
         ),
     ]),
-    ("/admin/object", "#objectType", True, False, []),
+    ("/admin/object",   "#objectType", True, False, []),
+    ("/admin/query",    "#qSearch",    True, True,  []),
+    ("/admin/tree",     "#tSearch",    True, True,  []),
+    ("/admin/ci",       "#ciSearch",   True, True,  []),
+    ("/admin/menu",     "#mSearch",    True, True,  []),
+    ("/admin/reports",  "#catalog",    True, True,  []),
+    ("/admin/pcsearch", "#pcq",        True, True,  []),
 ]
 
 

@@ -59,3 +59,6 @@ Working style:
 * Do not broad-rewrite working modules.
 * Leave the repo runnable.
 * If blocked by grants, missing tables, or unavailable metadata, implement graceful degradation and document the blocker.
+
+
+A lot of changes have been made since you last looked at this.  Please pickup from here.

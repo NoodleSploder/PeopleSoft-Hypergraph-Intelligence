@@ -1890,3 +1890,116 @@ deep-linking between the AE Object Explorer and the Runtime Monitor.
 **Live results (2026-06-30):**
 - HCM (PSPMDOMAIN_VW): 4 domains — HCMDMO (IB), HCMDMO_APP (App Server :9043), HCMDMO_PRCS (Proc Sched), HCMDMO_WEB (Web/PIA)
 - FSCM (PSPMDOMAIN_VW): 8 domains — FSCMDMO_APP, APPDOM (App Server), FSCMDMO_PRCS, PRCSDOM (Proc Sched), FSCMDMO_WEB, ps/peoplesoft (Web/PIA), FSCMDMO (IB)
+
+---
+
+## 2026-06-29 — Graph Indexing, Impact Analysis, Explorer Pages, Reporting Center, PeopleCode Source Search
+
+### Portal Registry Bug Fixes
+
+Two long-standing bugs in portal reconstruction were fixed.
+
+**`connectors/psdb.py`**:
+
+- `portal_registry_portals()` root detection: `TRIM(PORTAL_PRNTOBJNAME) = ' '` was
+  wrong because TRIM strips the space, making the comparison `'' = ' '` (false). Fixed
+  to `LENGTH(TRIM(PORTAL_PRNTOBJNAME)) = 0`.
+
+- `portal_registry_breadcrumbs_fast()` CONNECT BY duplicate rows: `START WITH
+  UPPER(PORTAL_OBJNAME) = UPPER(:objname)` without a portal-name filter matched the same
+  objname across all 9 portals, producing N× ancestor chains. Fixed by adding `AND
+  UPPER(PORTAL_NAME) = UPPER(:pn)` to both START WITH and CONNECT BY; also added NOCYCLE.
+
+### Graph Indexing — 5 New Bulk Providers
+
+**`connectors/graphdb.py`** — added to `build()`:
+
+- `menus()`: joins PSMENUDEFN + PSMENUITEM, adds menu→component CONTAINS edges; guarded by `has_table("PSMENUDEFN")`.
+- `trees()`: queries PSTREEDEFN, adds tree→record USES edges for treestrctpnm and tree_recname; `seen` set deduplicates tree names.
+- `sql_definitions()`: queries PSSQLDEFN WHERE SQLTYPE=0 (standalone SQL), nodes only.
+- `queries()`: queries PSQRYDEFN WHERE OPRID=' ' (public queries), nodes only.
+- `component_interfaces()`: queries PSBCDEFN, adds ci→component WRAPS edges. Node type is `ci` (matching OBJECT_REGISTRY key, not `component_interface`).
+
+All 5 use a single SQL call with ROWNUM limit. `WRAPS` edge type added to `EDGE_TYPES` and `DEPENDENCY_EDGES`.
+
+**`connectors/ptmetadata.py`**: Fixed tree OBJECT_REGISTRY entry — `name_column` changed from `TREE_NAME` to `TREENAME`; `extra_search_columns` changed from `TREE_STRCT_ID` to `TREESTRCTPNM`. Added `"relationships"` field to query/tree/ci/menu entries.
+
+### Advanced Dependency Analysis — `impact()`
+
+**`connectors/graphdb.py`**: Added `impact(env, node, depth=3)` — runs `dependency_tree()` forward (downstream) and reverse (upstream), returns per-direction node lists plus per-type count summaries.
+
+**`routers/graphdb.py`**: Added `GET /api/graph/impact/{node_id}?env=&depth=`.
+
+**`routers/admin.py`** — Graph Explorer IMPACT tab:
+- New tab button `#tabImpact` wired to `showTab('impact')`.
+- `#impactView` div with node type/name pickers, depth selector, Analyse button, and side-by-side upstream/downstream panels.
+- `renderImpactNodes(nodes, containerId)` — groups by `n.type`, renders object links via `objectUrl()` and `escHtml()`.
+- `renderImpactSummary(byType, containerId)` — type-count chip badges.
+- `runImpact()` — calls impact API, renders both panels.
+- Node click in LIST view pre-fills the IMPACT type/name pickers.
+
+### PS Query, Tree, CI, Menu Explorer Pages
+
+New search functions in `connectors/psdb.py`:
+- `search_queries(env, q, folder, limit)` — PSQRYDEFN WHERE OPRID=' ', optional folder filter.
+- `query_folders(env)` — distinct QRYFOLDER values from public queries.
+- `search_trees(env, q, setid, limit)` — correlated subquery to get latest EFFDT per (TREENAME, SETID, SETCNTRLVALUE).
+- `search_cis(env, q, limit)` — PSBCDEFN.
+
+New REST endpoints in `routers/peoplesoft.py`:
+- `GET /api/peoplesoft/queries`, `GET /api/peoplesoft/query-folders`
+- `GET /api/peoplesoft/trees`
+- `GET /api/peoplesoft/cis`
+
+New admin pages in `routers/admin.py` (all two-panel search/detail layout):
+- `/admin/query` — folder filter dropdown, col/bind count stats, Object Explorer deep-link.
+- `/admin/tree` — SETID filter, active/inactive chip, record cross-links.
+- `/admin/ci` — type chip, wrapped component cross-link.
+- `/admin/menu` — reuses existing menus API; detail renders items as a table with component cross-links.
+
+Nav entries added: Queries, Trees, CIs, Menus.
+
+### Reporting Center
+
+**`connectors/psdb.py`** — `security_report()` extended with 10 new reports (total 16) across three categories — Security, Objects, System. Each report has a `category` field. `"params": {}` spec suppresses `:limit` injection for GROUP BY reports.
+
+**`routers/peoplesoft.py`**: `GET /api/peoplesoft/reports`, `GET /api/peoplesoft/reports/catalog`.
+
+**`routers/admin.py`** — `/admin/reports`: catalog sidebar grouped by category; result panel with live filter and CSV export; cells for known types (role, operator, permlist, component, record, AE, menu) auto-link to their Object Explorer pages.
+
+### PeopleCode Source Search
+
+**`routers/peoplesoft.py`**: `GET /api/peoplesoft/peoplecode/source-search?q=&env=&limit=` — wraps `peoplecode.source_search()` which queries PSPCMTXT.PCTEXT with LIKE.
+
+**`routers/admin.py`** — `/admin/pcsearch`: search box + result limit selector; sidebar shows matching programs with parent type chip + event chip; detail panel shows syntax-highlighted PeopleCode source with search term highlighted in amber `.hit` spans; "Open in PC Explorer" and parent cross-links.
+
+**Verification:**
+- `python -c "from routers import admin, peoplesoft; from connectors import psdb, peoplecode; print('OK')"` → OK
+
+---
+
+## 2026-06-30 — Admin Shell Smoke Harness — Priority #9 (CI/Deployment Wiring)
+
+Extended `scripts/smoke_admin_shell.py` to cover all explorer pages added since the last harness update.
+
+**`scripts/smoke_admin_shell.py`**:
+
+- Added 6 new entries to `DEFAULT_PAGES`:
+  - `/admin/query` → marker `#qSearch`, env=True, active nav
+  - `/admin/tree` → marker `#tSearch`, env=True, active nav
+  - `/admin/ci` → marker `#ciSearch`, env=True, active nav
+  - `/admin/menu` → marker `#mSearch`, env=True, active nav
+  - `/admin/reports` → marker `#catalog`, env=True, active nav
+  - `/admin/pcsearch` → marker `#pcq`, env=True, active nav
+
+- Upgraded Graph Explorer interaction check from "list/visual" to "list/visual/impact":
+  - `showTab('impact')` → asserts `#impactView` not hidden and `#tabImpact` has class `active`.
+  - `showTab('list')` → also now asserts `#tabList` has class `active` (was only checking pane visibility).
+
+Harness now covers 13 pages (was 7).
+
+**Verification:**
+- `python -m py_compile scripts/smoke_admin_shell.py` → OK
+- `python3 -c "import main"` → OK
+- Page count confirmed: 13 entries across `DEFAULT_PAGES`.
+- Blocker: headless Chrome is not available in this environment; harness requires `--base-url` pointing to a running DeathStar instance. Run against staging to validate the new page entries before next deploy.
