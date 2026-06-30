@@ -33,31 +33,72 @@ PeopleSoft Explorer provides:
 
 ## Project Structure
 
-``` text
-deathstar-api/
-├── main.py
-├── config.json
+```text
+PeopleSoft-Explorer/
+├── main.py                         # FastAPI app, router registration, static frontend mount
+├── requirements.txt                # Python dependencies
+├── LICENSE                         # Apache-2.0 license
+├── README.md                       # Project install/run overview
+├── ARCHITECTURE.md                 # System architecture and design contracts
+├── ROADMAP.md                      # Current status and remaining work
+├── DEVELOPMENT_DIARY.md            # Chronological engineering journal
+├── HANDOFF_PROMPT.md               # AI-agent handoff instructions
+├── PHASE2.md                       # Phase planning notes
+├── config/
+│   └── role_mapping.yml            # PeopleSoft role → Authelia group mapping
 ├── connectors/
-│   ├── oracle.py
-│   ├── execution.py
-│   ├── ib.py
-│   ├── tracing.py
-│   ├── nginx.py
-│   └── system.py
+│   ├── ae.py                       # Application Engine metadata/runtime helpers
+│   ├── alerts.py                   # Runtime alert checks
+│   ├── envcompare.py               # Cross-environment comparison logic
+│   ├── execution.py                # Oracle execution/runtime queries
+│   ├── graphdb.py                  # Knowledge graph store and dependency graph logic
+│   ├── ib.py                       # Integration Broker metadata/runtime discovery
+│   ├── nginx.py                    # nginx log/status helpers
+│   ├── oracle.py                   # Oracle connectivity helpers
+│   ├── peoplecode.py               # PeopleCode decoding/source helpers
+│   ├── peoplesoft.py               # PeopleSoft environment helpers
+│   ├── psdb.py                     # Core PeopleSoft DB metadata access
+│   ├── ptmetadata.py               # PeopleTools/version-aware metadata discovery
+│   ├── scheduler.py                # Background graph snapshot scheduling
+│   ├── sqlws.py                    # SQL Workspace backend helpers
+│   ├── system.py                   # Host/service/container/log management
+│   ├── tracing.py                  # Transaction tracing helpers
+│   └── uom.py                      # Unified Object Model providers
 ├── routers/
-│   ├── graph.py
-│   ├── ib.py
-│   ├── tracing.py
-│   ├── live.py
-│   └── ...
+│   ├── admin.py                    # Admin UI/Object Explorer/Graph Explorer pages
+│   ├── authelia_admin.py           # Authelia user/group administration
+│   ├── envcompare.py               # Environment comparison API
+│   ├── field.py                    # Field metadata API
+│   ├── graphdb.py                  # Knowledge graph API
+│   ├── health.py                   # Health/status API
+│   ├── ib.py                       # Integration Broker API
+│   ├── identity.py                 # PeopleSoft → Authelia identity workflow
+│   ├── live.py                     # Live event stream API
+│   ├── metadata.py                 # Metadata/version/relationship APIs
+│   ├── nginx.py                    # nginx API
+│   ├── operator.py                 # Operator/OPRID API
+│   ├── oracle.py                   # Oracle connectivity API
+│   ├── peoplesoft.py               # PeopleSoft environment API
+│   ├── record.py                   # Record metadata API
+│   ├── role.py                     # Role/security API
+│   ├── runtime.py                  # Runtime Monitor, ASH, domains, alerts
+│   ├── sqlws.py                    # SQL Workspace API
+│   ├── system.py                   # Infrastructure/service/container API
+│   ├── topology.py                 # Environment topology API
+│   └── tracing.py                  # Transaction tracing API
 ├── data/
-│   ├── knowledge_graph_HCM.json
-│   └── knowledge_graph_FSCM.json
+│   ├── knowledge_graph_HCM.json    # Generated graph snapshot/cache
+│   └── knowledge_graph_FSCM.json   # Generated graph snapshot/cache
+├── logs/
+│   ├── identity_audit.jsonl        # Identity workflow audit trail
+│   └── provision_requests.json     # Provision request state
 ├── static/
-├── requirements.txt
-├── ARCHITECTURE.md
-├── ROADMAP.md
-└── DEVELOPMENT_DIARY.md
+│   ├── index.html                  # Landing page
+│   ├── app.css                     # Shared frontend shell styles
+│   ├── app.js                      # Shared frontend shell behavior
+│   └── images/                     # Logo/favicon/static image assets
+└── tests/
+    └── ...                         # Test coverage
 ```
 
 ------------------------------------------------------------------------
@@ -189,25 +230,149 @@ sudo systemctl start deathstar-api
 
 ## Common Endpoints
 
-``` text
-GET /
-GET /static/index.html
-GET /static/app.css
-GET /static/app.js
+The full live endpoint catalog is available at:
 
+```text
 GET /docs
+GET /openapi.json
+```
 
-GET /api/graph/build?env=HCM
-GET /api/graph/build?env=FSCM
+### Frontend
 
+```text
+GET /                         # Redirects to /static/index.html
+GET /static/index.html        # Main frontend shell
+GET /static/app.css           # Shared styles
+GET /static/app.js            # Shared frontend behavior
+```
+
+### Health and Status
+
+```text
+GET /api/health
+```
+
+### Knowledge Graph
+
+```text
+GET    /api/graph/build?env=HCM
+GET    /api/graph/stats?env=HCM
+GET    /api/graph/search?env=HCM&q=JOB
+GET    /api/graph/node/{node_id}?env=HCM
+GET    /api/graph/neighbors/{node_id}?env=HCM&direction=both&depth=1
+GET    /api/graph/path?env=HCM&source={source_id}&target={target_id}
+GET    /api/graph/dependencies/{node_id}?env=HCM&depth=3
+GET    /api/graph/reverse-dependencies/{node_id}?env=HCM&depth=3
+GET    /api/graph/impact/{node_id}?env=HCM&depth=3
+GET    /api/graph/export?env=HCM&format=json
+GET    /api/graph/components?env=HCM
+GET    /api/graph/cycles?env=HCM
+GET    /api/graph/topological-order?env=HCM
+GET    /api/graph/diff?env1=HCM&env2=FSCM
+GET    /api/graph/snapshots
+GET    /api/graph/snapshots/schedule
+POST   /api/graph/snapshots?env=HCM
+POST   /api/graph/snapshots/prune
+GET    /api/graph/snapshots/{snapshot_id}
+DELETE /api/graph/snapshots/{snapshot_id}
+POST   /api/graph/clear?env=HCM
+POST   /api/graph/compact?env=HCM
+```
+
+### Environment Compare
+
+```text
+GET /api/envcompare/config
+GET /api/envcompare/summary?env1=HCM&env2=FSCM
+GET /api/envcompare/records?env1=HCM&env2=FSCM&q=
+GET /api/envcompare/fields?env1=HCM&env2=FSCM&record=JOB
+GET /api/envcompare/components?env1=HCM&env2=FSCM&q=
+GET /api/envcompare/permissions?env1=HCM&env2=FSCM&q=
+GET /api/envcompare/roles?env1=HCM&env2=FSCM&q=
+GET /api/envcompare/ae?env1=HCM&env2=FSCM&q=
+GET /api/envcompare/peoplecode?env1=HCM&env2=FSCM&q=
+GET /api/envcompare/peoplecode-source?env1=HCM&env2=FSCM&ref={encoded_ref}
+GET /api/envcompare/sql_definitions?env1=HCM&env2=FSCM&q=
+GET /api/envcompare/queries?env1=HCM&env2=FSCM&q=
+GET /api/envcompare/portals?env1=HCM&env2=FSCM&q=
+GET /api/envcompare/portal-object?env1=HCM&env2=FSCM&name={PORTAL_OBJNAME}
+GET /api/envcompare/graph?env1=HCM&env2=FSCM
+```
+
+### Integration Broker
+
+```text
+GET /api/ib/dashboard?env=HCM
+GET /api/ib/services?env=HCM&q=
+GET /api/ib/services/{applname}?env=HCM
+GET /api/ib/services/{applname}/operations?env=HCM
+GET /api/ib/operations?env=HCM&q=
+GET /api/ib/operations/{opname}?env=HCM
+GET /api/ib/routings?env=HCM&q=
+GET /api/ib/routings/{rtngname}?env=HCM
+GET /api/ib/nodes?env=HCM&q=
+GET /api/ib/nodes/{nodename}?env=HCM
+GET /api/ib/queues?env=HCM&q=
+```
+
+### Identity and Provisioning
+
+```text
+GET    /api/identity/compare/{oprid}?env=HCM
+POST   /api/identity/sync/{oprid}?env=HCM
+POST   /api/identity/provision/{oprid}?env=HCM
+POST   /api/identity/bulk-provision?env=HCM
+GET    /api/identity/requests
+POST   /api/identity/requests?env=HCM
+POST   /api/identity/requests/{req_id}/approve?env=HCM
+POST   /api/identity/requests/{req_id}/reject
+DELETE /api/identity/requests/{req_id}
+GET    /api/identity/status?env=HCM
+POST   /api/identity/sync-all?env=HCM
+GET    /api/identity/audit?limit=100
+```
+
+### Runtime Monitor
+
+```text
+GET /api/runtime/domains?env=HCM
+GET /api/runtime/alerts?env=HCM&db=HRDMO
+GET /api/runtime/ash?db=HRDMO&minutes=30
+GET /api/runtime/ash/sql?db=HRDMO&minutes=30
+```
+
+### Transaction Tracing
+
+```text
 GET /api/tracing/config
-GET /api/tracing/operators
-GET /api/tracing/active
+GET /api/tracing/operators?env=HCM&q=
+GET /api/tracing/active?env=HCM&limit=30
+```
 
+### Live Events
+
+```text
 GET /api/live/events
+```
 
-GET /api/ib/nodes
-GET /api/ib/services
+### SQL Workspace, Metadata, Object Explorer, Infrastructure
+
+Additional APIs are exposed through the registered routers for:
+
+```text
+/api/sqlws/*
+/api/metadata/*
+/api/admin/*
+/api/system/*
+/api/nginx/*
+/api/oracle/*
+/api/peoplesoft/*
+/api/topology/*
+/api/record/*
+/api/field/*
+/api/role/*
+/api/operator/*
+/api/authelia/*
 ```
 
 ------------------------------------------------------------------------
