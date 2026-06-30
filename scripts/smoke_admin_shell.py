@@ -23,13 +23,119 @@ import urllib.request
 
 
 DEFAULT_PAGES = [
-    ("/admin/", ".pe-home", False, True),
-    ("/admin/runtime", "#paneSessions", True, True),
-    ("/admin/sqlws", "#sqlInput", True, True),
-    ("/admin/ib", "#detailContent", True, True),
-    ("/admin/envcompare", "#fieldRec", False, True),
-    ("/admin/graph", "#objectType", True, False),
-    ("/admin/object", "#objectType", True, False),
+    ("/admin/", ".pe-home", False, True, []),
+    ("/admin/runtime", "#paneSessions", True, True, [
+        (
+            "runtime process and Oracle tabs switch",
+            """
+(() => {
+  const failures = [];
+  const clickText = (scope, text) => {
+    const el = [...document.querySelectorAll(scope)].find(x => x.textContent.trim() === text);
+    if (!el) failures.push(`missing tab ${text}`);
+    else el.click();
+    return el;
+  };
+  clickText('.proc-tabs .tab', 'Errors');
+  if (!document.querySelector('#paneErrors')?.classList.contains('on')) failures.push('process Errors pane inactive');
+  if (!clickText('.ora-tabs .tab', 'Blocking')?.classList.contains('on')) failures.push('Oracle Blocking tab inactive');
+  if (!document.querySelector('#paneBlocking')?.classList.contains('on')) failures.push('Oracle Blocking pane inactive');
+  clickText('.ora-tabs .tab', 'Active Sessions');
+  return {ok: failures.length === 0, detail: failures.join('; ')};
+})()
+""",
+        ),
+    ]),
+    ("/admin/sqlws", "#sqlInput", True, True, [
+        (
+            "SQL Workspace sidebar tabs switch",
+            """
+(() => {
+  const failures = [];
+  const tabByText = text => [...document.querySelectorAll('.sidebar .tab')].find(x => x.textContent.trim() === text);
+  const click = text => {
+    const el = tabByText(text);
+    if (!el) failures.push(`missing tab ${text}`);
+    else el.click();
+    return el;
+  };
+  click('History');
+  if (!document.querySelector('#pane-history')?.classList.contains('on')) failures.push('history pane inactive');
+  if (!tabByText('History')?.classList.contains('on')) failures.push('history tab inactive');
+  click('Pinned');
+  if (!document.querySelector('#pane-pinned')?.classList.contains('on')) failures.push('pinned pane inactive');
+  if (!tabByText('Pinned')?.classList.contains('on')) failures.push('pinned tab inactive');
+  click('Schema');
+  if (!document.querySelector('#pane-schema')?.classList.contains('on')) failures.push('schema pane inactive');
+  return {ok: failures.length === 0, detail: failures.join('; ')};
+})()
+""",
+        ),
+    ]),
+    ("/admin/ib", "#detailContent", True, True, [
+        (
+            "IB Explorer tab strip switches",
+            """
+(() => {
+  const failures = [];
+  const display = id => getComputedStyle(document.querySelector(id)).display;
+  if (typeof switchTab !== 'function') failures.push('switchTab missing');
+  else {
+    switchTab('operations');
+    if (display('#tab-operations') === 'none') failures.push('operations tab pane hidden');
+    if (!document.querySelectorAll('.main > .tab-row .tab')[2]?.classList.contains('on')) failures.push('Service Ops tab inactive');
+    switchTab('overview');
+    if (display('#tab-overview') === 'none') failures.push('overview tab pane hidden');
+  }
+  return {ok: failures.length === 0, detail: failures.join('; ')};
+})()
+""",
+        ),
+    ]),
+    ("/admin/envcompare", "#fieldRec", False, True, [
+        (
+            "Environment Compare tab strip switches",
+            """
+(() => {
+  const failures = [];
+  const display = id => getComputedStyle(document.querySelector(id)).display;
+  if (typeof switchTab !== 'function') failures.push('switchTab missing');
+  else {
+    switchTab('fields');
+    if (display('#pane-fields') === 'none') failures.push('fields pane hidden');
+    if (!document.querySelectorAll('.content > .tab-row .tab')[1]?.classList.contains('on')) failures.push('Fields tab inactive');
+    switchTab('queries');
+    if (display('#pane-queries') === 'none') failures.push('queries pane hidden');
+    if (!document.querySelectorAll('.content > .tab-row .tab')[9]?.classList.contains('on')) failures.push('PS Queries tab inactive');
+    switchTab('records');
+    if (display('#pane-records') === 'none') failures.push('records pane hidden');
+  }
+  return {ok: failures.length === 0, detail: failures.join('; ')};
+})()
+""",
+        ),
+    ]),
+    ("/admin/graph", "#objectType", True, False, [
+        (
+            "Graph Explorer list/visual tabs switch",
+            """
+(() => {
+  const failures = [];
+  const display = id => getComputedStyle(document.querySelector(id)).display;
+  if (typeof showTab !== 'function') failures.push('showTab missing');
+  else {
+    showTab('visual');
+    if (display('#visualView') === 'none') failures.push('visual pane hidden');
+    if (!document.querySelector('#tabVisual')?.classList.contains('active')) failures.push('visual tab inactive');
+    showTab('list');
+    if (display('#listView') === 'none') failures.push('list pane hidden');
+  }
+  return {ok: failures.length === 0, detail: failures.join('; ')};
+})()
+""",
+        ),
+    ]),
+    ("/admin/object", "#objectType", True, False, []),
 ]
 
 
@@ -225,6 +331,23 @@ def evaluate_page(
     return value
 
 
+def run_interaction_check(devtools: DevTools, label: str, expression: str) -> list[str]:
+    result = devtools.call(
+        "Runtime.evaluate",
+        {"expression": expression, "returnByValue": True},
+        timeout=5,
+    )
+    payload = result.get("result", {})
+    if payload.get("exceptionDetails"):
+        detail = payload["exceptionDetails"].get("text") or "JavaScript exception"
+        return [f"{label}: {detail}"]
+    value = payload.get("result", {}).get("value") or {}
+    if value.get("ok"):
+        return []
+    detail = value.get("detail") or "failed"
+    return [f"{label}: {detail}"]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:8088")
@@ -257,7 +380,7 @@ def main() -> int:
         devtools.call("Log.enable")
 
         failures = []
-        for path, marker, expects_env, expects_active_nav in DEFAULT_PAGES:
+        for path, marker, expects_env, expects_active_nav, checks in DEFAULT_PAGES:
             result = evaluate_page(
                 devtools,
                 args.base_url,
@@ -275,8 +398,10 @@ def main() -> int:
                 page_failures.append("missing shared env selector")
             if not result.get("markerFound"):
                 page_failures.append(f"missing marker selector {marker!r}")
-            if result.get("eventErrors"):
-                page_failures.extend(result["eventErrors"])
+            for label, expression in checks:
+                page_failures.extend(run_interaction_check(devtools, label, expression))
+            time.sleep(0.2)
+            page_failures.extend(event_errors(devtools.events))
             if page_failures:
                 failures.append((path, page_failures, result))
                 print(f"FAIL {path}")

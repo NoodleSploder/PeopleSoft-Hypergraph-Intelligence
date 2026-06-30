@@ -8,6 +8,50 @@ matters, and how it was verified.
 
 ## 2026-06-30
 
+### Admin Shell Interaction Smoke Checks
+
+Date/time: 2026-06-30 01:16:04 CDT
+
+- Expanded the headless admin shell smoke harness from page-load validation to
+  targeted interaction checks for the tabs and panes that have been fragile
+  during the shared shell migration.
+- Added browser-driven checks for Runtime process/Oracle tabs, SQL Workspace
+  Schema/History/Pinned tabs, Integration Broker Overview/Service Ops tabs,
+  Environment Compare Records/Fields/PS Queries tabs, and Graph Explorer
+  List/Visual tabs.
+- Continued to collect DevTools runtime/log errors after interactions so
+  click-triggered JavaScript regressions are reported by the harness.
+
+Files modified:
+
+- `scripts/smoke_admin_shell.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+
+- Kept interaction checks close to each page definition so future page smoke
+  coverage can be added surgically without introducing a larger test framework.
+- Used visible pane/class-state assertions rather than API-dependent data
+  assertions, keeping the checks focused on frontend shell behavior.
+
+Bugs fixed:
+
+- No production code bugs were changed in this slice; this adds regression
+  coverage for the tab/sidebar failures fixed earlier.
+
+Technical debt:
+
+- Reduced manual testing burden for shared-shell page migrations.
+- Remaining debt: the harness should still be wired into CI or deployment
+  validation.
+
+Next recommended work:
+
+- Add one lightweight data/search interaction smoke for SQL Workspace,
+  Integration Broker, Object Explorer, and Environment Compare where the
+  endpoint data is stable enough for repeatable tests.
+
 ### Admin Shell Browser Smoke Harness
 
 Date/time: 2026-06-30 01:08:27 CDT
