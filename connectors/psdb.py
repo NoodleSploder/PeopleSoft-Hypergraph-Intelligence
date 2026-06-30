@@ -3323,6 +3323,150 @@ PSSERVERSTAT_DAEMON_LABELS = {
 }
 
 
+# ── App Server domain monitoring ──────────────────────────────────────────────
+#
+# PeopleSoft exposes domain topology through runtime views whose names vary
+# across PeopleTools releases.  Discovery order:
+#   1. SYSADM.PSPMDOMAIN_VW   (primary — has PM_SYSTEMID, PM_DOMAIN_NAME, PM_HOST_PORT)
+#   2. SYSADM.PS_PSPMDOMAIN1_VW  (fallback — PM_DOMAIN_NAME, PM_HOST_PORT only)
+# Neither PSAPPSRV nor PSAPPSRVDOM is required.
+
+_APPSRV_DOMAIN_VIEWS = ["PSPMDOMAIN_VW", "PS_PSPMDOMAIN1_VW"]
+
+_DOMAIN_TYPE_RULES = [
+    # (substring, label, key)  — evaluated in order; first match wins
+    ("_APP",   "App Server",        "app_server"),
+    ("APPDOM", "App Server",        "app_server"),
+    ("_PRCS",  "Process Scheduler", "process_scheduler"),
+    ("PRCSDOM","Process Scheduler", "process_scheduler"),
+    ("_WEB",   "Web / PIA",         "web"),
+]
+
+def _classify_domain(name):
+    n = (name or "").upper()
+    for fragment, label, key in _DOMAIN_TYPE_RULES:
+        if fragment in n:
+            return label, key
+    # common web-tier aliases
+    if n in ("PS", "PEOPLESOFT"):
+        return "Web / PIA", "web"
+    return "Integration Broker", "ib"
+
+
+def _parse_host_port(hp_str):
+    """Split 'host:port' or 'host:port1:port2' into structured fields."""
+    parts = str(hp_str or "").split(":")
+    host = parts[0].strip() if parts else ""
+    port = parts[1].strip() if len(parts) > 1 else None
+    alt_port = parts[2].strip() if len(parts) > 2 else None
+    return {
+        "host": host or None,
+        "port": port or None,
+        "alt_port": alt_port or None,
+    }
+
+
+def app_server_domains(env_name):
+    """
+    Return PeopleSoft application domain topology from runtime views.
+
+    Tries PSPMDOMAIN_VW first, falls back to PS_PSPMDOMAIN1_VW.
+    Returns domains grouped by PM_DOMAIN_NAME, with each domain's
+    listeners, inferred type, and host breakdown.
+    """
+    from connectors import ptmetadata
+
+    source_view = None
+    for view in _APPSRV_DOMAIN_VIEWS:
+        if ptmetadata.has_table(env_name, view):
+            source_view = view
+            break
+
+    if source_view is None:
+        return {
+            "items": [],
+            "source_view": None,
+            "warnings": [{
+                "code": "app_server_domains_unavailable",
+                "message": (
+                    "App Server domain monitoring unavailable: "
+                    "neither PSPMDOMAIN_VW nor PS_PSPMDOMAIN1_VW is accessible."
+                ),
+                "severity": "warning",
+            }],
+        }
+
+    try:
+        available_cols = table_columns(env_name, source_view)
+        want = ["PM_DOMAIN_NAME", "PM_HOST_PORT"]
+        if "pm_systemid" in available_cols:
+            want.insert(0, "PM_SYSTEMID")
+        sel = [c for c in want if c.lower() in available_cols]
+        rows = query(env_name, f"""
+            SELECT {", ".join(sel)}
+              FROM sysadm.{source_view}
+             ORDER BY PM_DOMAIN_NAME, PM_HOST_PORT
+        """, {})
+    except Exception as exc:
+        return {
+            "items": [],
+            "source_view": source_view,
+            "warnings": [{
+                "code": "app_server_domains_query_failed",
+                "message": f"{source_view} query failed: {exc}",
+                "severity": "warning",
+            }],
+        }
+
+    # Group by domain name
+    groups = {}
+    for row in rows:
+        dname = str(row.get("pm_domain_name") or "").strip()
+        if not dname:
+            continue
+        if dname not in groups:
+            groups[dname] = {"domain_name": dname, "listeners": []}
+        hp = str(row.get("pm_host_port") or "").strip()
+        if hp:
+            groups[dname]["listeners"].append(_parse_host_port(hp))
+
+    items = []
+    for dname, g in sorted(groups.items()):
+        type_label, type_key = _classify_domain(dname)
+        listeners = g["listeners"]
+        # Collect unique hosts
+        hosts = sorted({l["host"] for l in listeners if l["host"]})
+        # Primary listener = first entry with a non-empty port
+        primary = next((l for l in listeners if l.get("port")), listeners[0] if listeners else {})
+        items.append({
+            "domain_name": dname,
+            "domain_type": type_key,
+            "domain_type_label": type_label,
+            "hosts": hosts,
+            "primary_host": primary.get("host"),
+            "primary_port": primary.get("port"),
+            "alt_port": primary.get("alt_port"),
+            "listener_count": len(listeners),
+            "title": dname,
+            "relationship": type_label,
+        })
+
+    type_counts = {}
+    for item in items:
+        k = item["domain_type_label"]
+        type_counts[k] = type_counts.get(k, 0) + 1
+
+    return {
+        "items": items,
+        "source_view": source_view,
+        "counts": {
+            "total": len(items),
+            **type_counts,
+        },
+        "warnings": [],
+    }
+
+
 def process_scheduler_servers(env_name):
     """Return Process Scheduler server status rows from PSSERVERSTAT."""
     from connectors import ptmetadata

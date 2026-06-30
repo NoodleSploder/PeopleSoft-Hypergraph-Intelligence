@@ -101,6 +101,12 @@ def runtime_servers(env: str = "HCM"):
     return psdb.process_scheduler_servers(env)
 
 
+@router.get("/domains")
+def runtime_domains(env: str = "HCM"):
+    """Return App Server domain topology from PSPMDOMAIN_VW (or PS_PSPMDOMAIN1_VW fallback)."""
+    return psdb.app_server_domains(env)
+
+
 @router.get("/graph")
 def runtime_graph(env: str = "HCM", db: str = None, process_limit: int = 30, session_limit: int = 30):
     """Return a best-effort graph of active runtime relationships."""

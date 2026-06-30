@@ -495,10 +495,17 @@
 -   Runtime dashboard
 -   Runtime graph API
 -   Runtime graph visualization (force-directed SVG, `/admin/runtime` Graph card)
+-   Process Scheduler Server status: `process_scheduler_servers()` in psdb.py
+    queries PSSERVERSTAT; `/api/runtime/servers`; card in `/admin/runtime`
+-   App Server Domain Topology: `app_server_domains()` in psdb.py discovers
+    `PSPMDOMAIN_VW` (primary) or `PS_PSPMDOMAIN1_VW` (fallback) at runtime via
+    `ptmetadata.has_table()` — no hard dependency on PSAPPSRV/PSAPPSRVDOM;
+    `/api/runtime/domains`; "App Server Domains" card in `/admin/runtime` with
+    domain type chips (App Server / Process Scheduler / Web PIA / Integration Broker);
+    non-fatal warning when neither view is accessible
 
 ### Remaining
 
--   App Server monitoring
 -   Alerts
 
 ------------------------------------------------------------------------

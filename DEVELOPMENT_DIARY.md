@@ -1625,3 +1625,27 @@ deep-linking between the AE Object Explorer and the Runtime Monitor.
 - UI: `/admin/envcompare` Portals tab enhanced with "Deep Object Comparison" sub-panel; `runPortalObjectCompare()` + `renderPortalObjectDiff()` JS; shows stat boxes + definition diff table + collapsible children/permissions diff sections with add/remove/change chips.
 - Portal UOM `_links` now includes `compare` link to `/api/envcompare/portal-object?name=X`.
 - Test: PORTAL_GROUPLETS → 141 children differ (FSCM has FSCM-specific grouplets: Asset Management, Accounts Payable, etc.).
+
+---
+
+## 2026-06-30 — App Server Domain Monitoring (PSPMDOMAIN_VW)
+
+**Context:** AE grants unblocked. Previous implementation assumed PSAPPSRV / PSAPPSRVDOM which do not exist in HCMDMO or FSCMDMO. Neither table exists in any environment.
+
+**What changed:**
+
+- `connectors/psdb.py` — added `app_server_domains(env_name)`:
+  - Discovery-first: checks `PSPMDOMAIN_VW` then `PS_PSPMDOMAIN1_VW` using `ptmetadata.has_table()`; returns a non-fatal warning dict if neither is accessible — no crash, no hard-coded dependency
+  - Groups raw rows by `PM_DOMAIN_NAME`; parses `PM_HOST_PORT` into `{host, port, alt_port}`; infers domain type from name suffix (`_APP` → App Server, `_PRCS` → Process Scheduler, `_WEB` → Web/PIA, default → Integration Broker)
+  - Returns `{items, source_view, counts, warnings}` — `source_view` tells the caller which view was actually used
+  - Added constants: `_APPSRV_DOMAIN_VIEWS`, `_DOMAIN_TYPE_RULES`, helpers `_classify_domain()`, `_parse_host_port()`
+
+- `routers/runtime.py` — added `GET /api/runtime/domains?env=` endpoint
+
+- `routers/admin.py` — added "App Server Domains" card (above the Process Scheduler Servers card); `loadDomains()` JS function with type chips (green=App Server, amber=Proc Sched, blue=Web/PIA, grey=IB); source view attribution footer; wired into `refresh()` via `Promise.allSettled`
+
+- `ARCHITECTURE.md` — added App Server Domain Topology data source table and discovery contract description
+
+**Live results (2026-06-30):**
+- HCM (PSPMDOMAIN_VW): 4 domains — HCMDMO (IB), HCMDMO_APP (App Server :9043), HCMDMO_PRCS (Proc Sched), HCMDMO_WEB (Web/PIA)
+- FSCM (PSPMDOMAIN_VW): 8 domains — FSCMDMO_APP, APPDOM (App Server), FSCMDMO_PRCS, PRCSDOM (Proc Sched), FSCMDMO_WEB, ps/peoplesoft (Web/PIA), FSCMDMO (IB)

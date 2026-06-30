@@ -195,6 +195,20 @@ Display live execution state across the full PeopleSoft stack:
 Oracle sessions, blocking chains, long ops, Process Scheduler queue, active AE programs,
 IB transaction queue depth, web server request rates, tuxedo domain status.
 
+**App Server Domain Topology** is read from runtime views discovered at query time:
+
+| View | Columns | Notes |
+|------|---------|-------|
+| `SYSADM.PSPMDOMAIN_VW` | PM_SYSTEMID, PM_DOMAIN_NAME, PM_HOST_PORT | Primary; available in PeopleTools 8.58+ |
+| `SYSADM.PS_PSPMDOMAIN1_VW` | PM_DOMAIN_NAME, PM_HOST_PORT | Fallback; same data, no system ID |
+
+The connector (`psdb.app_server_domains`) discovers which view is accessible at runtime
+using `ptmetadata.has_table()`, queries the first available one, groups rows by
+PM_DOMAIN_NAME, infers domain type from name suffix (`_APP` → App Server, `_PRCS` →
+Process Scheduler, `_WEB` → Web/PIA), and returns a structured domain list with listener
+counts and host:port breakdown. If neither view is accessible, a non-fatal warning is
+returned and the UI degrades gracefully. `PSAPPSRV` and `PSAPPSRVDOM` are not required.
+
 *Enabled by:* Execution Monitor, Oracle connectors, IB connector, infrastructure connectors.
 
 ### Transaction Replay

@@ -3717,6 +3717,12 @@ select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
   </div>
 </div>
 
+<!-- ── App Server Domains ── -->
+<div class="card">
+  <h2>App Server Domains</h2>
+  <div id="domArea"><span class="muted" style="font-size:12px">Loading…</span></div>
+</div>
+
 <!-- ── Process Scheduler Servers ── -->
 <div class="card">
   <h2>Process Scheduler Servers</h2>
@@ -4044,6 +4050,48 @@ async function loadStatus() {
   }
 }
 
+async function loadDomains() {
+  const env = $('envSel').value;
+  if (!env) { $('domArea').innerHTML = '<span class="muted" style="font-size:12px">No environment selected.</span>'; return; }
+  try {
+    const d = await api(`/api/runtime/domains?env=${env}`);
+    const items = d.items || [];
+    const warnings = d.warnings || [];
+    if (!items.length) {
+      const wmsg = warnings.length ? warnings.map(w => esc(w.message||String(w))).join(' ') : 'No domain data found.';
+      $('domArea').innerHTML = `<span class="muted" style="font-size:12px">${wmsg}</span>`;
+      return;
+    }
+    const TYPE_CLS = {
+      app_server:        'chip-success',
+      process_scheduler: 'chip-warn',
+      web:               'chip-info',
+      ib:                'chip-muted',
+    };
+    let html = `<table><thead><tr>
+      <th>Domain</th><th>Type</th><th>Host</th><th>Port</th><th>Listeners</th>
+    </tr></thead><tbody>`;
+    for (const dom of items) {
+      const cls = TYPE_CLS[dom.domain_type] || 'chip-muted';
+      const altPort = dom.alt_port ? ` / ${esc(dom.alt_port)}` : '';
+      html += `<tr>
+        <td class="mono">${esc(dom.domain_name)}</td>
+        <td><span class="chip ${cls}" style="font-size:10px;padding:2px 8px;">${esc(dom.domain_type_label)}</span></td>
+        <td class="mono" style="font-size:11px">${esc((dom.hosts||[]).join(', '))}</td>
+        <td class="mono" style="font-size:11px">${esc(dom.primary_port||'—')}${altPort}</td>
+        <td style="text-align:center;color:#8ab">${dom.listener_count}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    if (d.source_view) {
+      html += `<div style="font-size:9px;color:#334;margin-top:4px;text-align:right;">Source: ${esc(d.source_view)}</div>`;
+    }
+    $('domArea').innerHTML = html;
+  } catch(e) {
+    $('domArea').innerHTML = `<span class="muted" style="font-size:12px">Domains unavailable: ${esc(e.message)}</span>`;
+  }
+}
+
 async function loadServers() {
   const env = $('envSel').value;
   if (!env) { $('srvArea').innerHTML = '<span class="muted" style="font-size:12px">No environment selected.</span>'; return; }
@@ -4212,7 +4260,7 @@ ${d.prcsservername ? `<div class="p-field"><span class="p-label">Process Server<
 
 async function refresh() {
   $('lastTs').textContent = 'Refreshing…';
-  await Promise.allSettled([loadStatus(), loadServers(), loadProcesses(), loadOracle()]);
+  await Promise.allSettled([loadStatus(), loadDomains(), loadServers(), loadProcesses(), loadOracle()]);
   $('lastTs').textContent = 'Last: ' + new Date().toLocaleTimeString();
   if (autoR) {
     clearTimeout(arTimer);
