@@ -219,9 +219,20 @@
 -   SQL Workspace backend cancellation handling with explicit cancelled status propagation for aborted executions
 -   Canonical object routing for permission-list aliases in the Object Explorer
 
+### Completed (access-path visualization pass)
+
+-   Component UOM: "Security" flat rows → "Who Has Access" grouped by permlist
+    with role count, operator count, decoded actions; "Permission Lists" items
+    now show action chips (Update/Display / Add, Update/Display)
+-   Page UOM: same "Who Has Access" grouped section
+-   Permission List UOM: "Components" items now show action chips
+-   `_access_summary()` shared helper (generalized from portal helper)
+-   `_DETAIL_SKIP` noise fields removed (authorizedactions, displayonly, raw_*)
+-   `labelFor()` now checks `row.title`/`row.label` before field fallbacks
+
 ### Remaining
 
--   Broader permission-decoding and access-path visualization improvements
+-   Deeper permission-decoding (page-level action grants, menu grants)
 
 ------------------------------------------------------------------------
 
@@ -332,11 +343,14 @@
 -   PeopleCode linkage
 -   Process Explorer
 -   AE step SQL text: `PSAESTMTDEFN` → `PSSQLTEXTDEFN` (SQLTYPE=1) batch-resolved, displayed in "SQL Steps" section of AE object page
+-   Runtime instance deep-linking: `runtime_instances()` enriches each item with
+    title (#N), runstatus chip, computed duration, and `_links.admin` →
+    `/admin/runtime?instance=N`; Runtime Monitor page handles `?instance=N` URL
+    param to auto-open the process detail panel
 
 ### Remaining
 
--   Runtime detail
--   Restart analysis
+-   Restart analysis (PSAEAPPLSTATE checkpoints, restart eligibility)
 
 ------------------------------------------------------------------------
 

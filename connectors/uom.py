@@ -1321,8 +1321,10 @@ def sections_for_permissionlist(pl):
          "data": {"count": len(roles), "note": "" if roles else "PSROLECLASS not accessible or no roles assigned"}},
         {"name": "Menus", "items": menus,
          "data": {"count": len(menus), "note": "" if menus else "PSAUTHITEM not accessible or no menus granted"}},
-        {"name": "Components", "items": components,
-         "data": {"count": len(components), "note": "" if components else "PSAUTHITEM/PSPNLGRPDEFN not accessible or no components granted"}},
+        {"name": "Components", "items": [
+            {**c, "relationship": ", ".join(c.get("decoded_actions") or [])}
+            for c in components
+        ], "data": {"count": len(components), "note": "" if components else "PSAUTHITEM/PSPNLGRPDEFN not accessible or no components granted"}},
         {"name": "Graph Preview", "items": graph_nodes,
          "data": {"node_count": len(graph_nodes), "edge_count": len(graph_edges)}},
         {"name": "Warnings", "items": pl.get("warnings", []),
@@ -1504,6 +1506,8 @@ def sections_for_component(component):
     counts = meta.get("counts", {})
     graph_nodes = component.get("_graph", {}).get("nodes", [])
     graph_edges = component.get("_graph", {}).get("edges", [])
+    security_rows = rels.get("security", [])
+    access_summary = _access_summary(security_rows)
     return [
         {"name": "Definition", "items": [], "data": {
             "pnlgrpname": component["name"],
@@ -1521,12 +1525,17 @@ def sections_for_component(component):
         {"name": "Records Used By Pages", "items": rels.get("page_records", []), "data": {"count": len(rels.get("page_records", []))}},
         {"name": "Menu Placement", "items": rels.get("menu_placements", []), "data": {"count": len(rels.get("menu_placements", []))}},
         {"name": "Portal Registry", "items": rels.get("portal_refs", []), "data": {"count": len(rels.get("portal_refs", []))}},
-        {"name": "Permission Lists", "items": rels.get("permissionlists", []), "data": {"count": len(rels.get("permissionlists", []))}},
-        {"name": "Security", "items": rels.get("security", []), "data": {
-            "access_paths": len(rels.get("security", [])),
-            "operators": counts.get("operators", 0),
-            "roles": counts.get("roles", 0),
+        {"name": "Permission Lists", "items": [
+            {**r, "relationship": ", ".join(psdb.decode_authorized_actions(
+                r.get("authorizedactions"), r.get("displayonly")
+            ).get("decoded_actions") or [])}
+            for r in rels.get("permissionlists", [])
+        ], "data": {"count": len(rels.get("permissionlists", []))}},
+        {"name": "Who Has Access", "items": access_summary, "data": {
+            "total_paths": len(security_rows),
             "permissionlists": counts.get("permissionlists", 0),
+            "roles": counts.get("roles", 0),
+            "operators": counts.get("operators", 0),
         }},
         {"name": "Related Content", "items": rels.get("related_content", []), "data": {"count": len(rels.get("related_content", []))}},
         {"name": "Event Mapping", "items": rels.get("event_mapping", []), "data": {"count": len(rels.get("event_mapping", []))}},
@@ -1761,12 +1770,12 @@ def sections_for_page(page_obj):
         {"name": "Related Content", "items": rels.get("related_content", []), "data": {"count": len(rels.get("related_content", []))}},
         {"name": "Drop Zones", "items": rels.get("drop_zones", []), "data": {"count": len(rels.get("drop_zones", []))}},
         {"name": "Transfers", "items": rels.get("transfers", []), "data": {"count": len(rels.get("transfers", []))}},
-        {"name": "Security", "items": rels.get("security", []), "data": {
+        {"name": "Who Has Access", "items": _access_summary(rels.get("security", [])), "data": {
+            "total_paths": counts.get("access_paths", 0),
             "components": counts.get("components", 0),
             "permissionlists": counts.get("permissionlists", 0),
             "roles": counts.get("roles", 0),
             "operators": counts.get("operators", 0),
-            "access_paths": counts.get("access_paths", 0),
         }},
         {"name": "Graph Preview", "items": graph_nodes, "data": {"node_count": len(graph_nodes), "edge_count": len(graph_edges)}},
         {"name": "Warnings", "items": page_obj.get("warnings", []), "data": {"count": len(page_obj.get("warnings", []))}},
@@ -1946,24 +1955,27 @@ def _portal_label_items(items, use_reftype_chip=False):
     return out
 
 
-def _portal_access_summary(access_paths):
+def _access_summary(access_rows, classid_key="classid", role_key="rolename", user_key="roleuser"):
     """
-    Group flat access_paths rows (permlist→role→operator) into one row per
-    permission list, with role names and operator count as detail.
+    Group flat access rows (permlist→role→operator) into one row per permission
+    list, collecting role names, operator count, and granted actions.
+    Applies to component security, page security, and portal access paths.
     """
     groups = {}
-    for row in (access_paths or []):
-        classid = str(row.get("classid") or row.get("portal_permname") or "").strip()
-        rolename = str(row.get("rolename") or "").strip()
-        roleuser = str(row.get("roleuser") or "").strip()
+    for row in (access_rows or []):
+        classid = str(row.get(classid_key) or row.get("portal_permname") or "").strip()
+        rolename = str(row.get(role_key) or "").strip()
+        roleuser = str(row.get(user_key) or "").strip()
         if not classid:
             continue
         if classid not in groups:
-            groups[classid] = {"roles": {}, "_links": row.get("_links", {})}
+            groups[classid] = {"roles": {}, "actions": set()}
         if rolename:
             groups[classid]["roles"].setdefault(rolename, set())
             if roleuser:
                 groups[classid]["roles"][rolename].add(roleuser)
+        for act in (row.get("decoded_actions") or []):
+            groups[classid]["actions"].add(str(act))
 
     summary = []
     for classid, info in sorted(groups.items()):
@@ -1973,15 +1985,22 @@ def _portal_access_summary(access_paths):
         role_sample = ", ".join(role_list[:3])
         if len(role_list) > 3:
             role_sample += f" +{len(role_list) - 3} more"
-        summary.append({
+        item = {
             "classid": classid,
             "title": classid,
             "roles": len(roles),
             "operators": op_count,
             "via_roles": role_sample,
             "_links": {"admin": f"/admin/object/permissionlist/{classid}"},
-        })
+        }
+        if info["actions"]:
+            item["actions"] = ", ".join(sorted(info["actions"]))
+        summary.append(item)
     return summary
+
+
+# Keep backward-compatible alias for portal code
+_portal_access_summary = _access_summary
 
 
 def sections_for_portal_registry(portal_obj):

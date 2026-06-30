@@ -473,9 +473,36 @@ def runtime_instances(env, ae_applid, limit=20):
     for row in rows:
         item = dict(row)
         status_code = str(item.get("runstatus") or "")
-        item["runstatus_label"] = run_status_labels.get(status_code, f"Status {status_code}")
+        status_label = run_status_labels.get(status_code, f"Status {status_code}")
+        item["runstatus_label"] = status_label
+        item["relationship"] = status_label
+
+        prcsinstance = item.get("prcsinstance")
+        if prcsinstance:
+            item["title"] = f"#{prcsinstance}"
+            item.setdefault("_links", {})["admin"] = f"/admin/runtime?instance={prcsinstance}"
+
         if item.get("oprid"):
             item.setdefault("_links", {})["operator"] = f"/admin/object/operator/{item['oprid']}"
+
+        begin = item.get("begindttm")
+        end = item.get("enddttm")
+        if begin and end:
+            try:
+                from datetime import datetime
+                fmt = "%Y-%m-%dT%H:%M:%S"
+                b = datetime.fromisoformat(str(begin)[:19])
+                e = datetime.fromisoformat(str(end)[:19])
+                secs = int((e - b).total_seconds())
+                if secs < 60:
+                    item["duration"] = f"{secs}s"
+                elif secs < 3600:
+                    item["duration"] = f"{secs // 60}m {secs % 60}s"
+                else:
+                    item["duration"] = f"{secs // 3600}h {(secs % 3600) // 60}m"
+            except Exception:
+                pass
+
         enriched.append(item)
 
     return {"items": enriched, "warnings": [err] if err else []}

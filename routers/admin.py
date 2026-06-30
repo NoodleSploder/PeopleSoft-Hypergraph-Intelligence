@@ -1987,6 +1987,9 @@ const _DETAIL_SKIP = new Set([
     'bcname','bcitemname','objectvalue1',
     'has_peoplecode','encoded_reference','source','progseq','objectid1',
     'portal_permtype_label','portal_reftype_label','portal_reftype','portal_permtype',
+    'authorizedactions','displayonly','raw_authorizedactions','raw_displayonly',
+    'pnlitemname','target_portal_objname','portal_iscascade',
+    'runstatus','runstatus_label','prcstype','prcsname','runlocation','outdesttype','outdestformat',
 ]);
 
 function detailFor(row) {
@@ -4302,8 +4305,16 @@ async function loadRtGraph() {
   const cfg = await api('/api/runtime/config').catch(() => ({envs:[], dbs:[]}));
   $('envSel').innerHTML = cfg.envs.map(e => `<option value="${e}">${e}</option>`).join('');
   $('dbSel').innerHTML  = cfg.dbs.map(d  => `<option value="${d}">${d}</option>`).join('');
+  const urlParams = new URLSearchParams(window.location.search);
+  const envParam = urlParams.get('env');
+  if (envParam) {
+    const envOpt = $('envSel').querySelector(`option[value="${envParam}"]`);
+    if (envOpt) envOpt.selected = true;
+  }
   await refresh();
   arTimer = setTimeout(refresh, INTERVAL);
+  const instParam = urlParams.get('instance');
+  if (instParam) showProc(instParam);
 })();
 // Hide the top-right ENV control in the shared shell header (keep page-local ENV controls visible)
 try {

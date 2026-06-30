@@ -1509,3 +1509,76 @@ generic row renderer in `routers/admin.py`.
 - `GET /api/peoplesoft/object/portal_registry/EOCO_EOEC?env=HCM` — folder
   object: "Children" shows 9 items (5 folders, 4 content refs) with human
   labels and reftype chips.
+
+### Access-Path Visualization — Component, Page, Permission List
+
+Improved access-path and permission decoding display across three UOM object types.
+
+**`connectors/uom.py`**:
+
+- `_portal_access_summary()` generalized into `_access_summary(access_rows, ...)` —
+  groups flat permlist→role→operator rows into one row per permission list,
+  collecting role count, operator count, role sample, and unique `decoded_actions`.
+  `_portal_access_summary` kept as backward-compatible alias.
+
+- `sections_for_component()` — "Security" (flat 158-row list) replaced by
+  **"Who Has Access"** (3 grouped rows, one per permission list) using
+  `_access_summary()`; each row shows classid, roles count, operators count,
+  and `actions` field for the granted permissions (Update/Display, Add, etc.).
+  "Permission Lists" section items now carry a `relationship` chip decoded from
+  `authorizedactions` (Update/Display / Add, Update/Display / etc.).
+
+- `sections_for_page()` — "Security" (flat 158-row list) replaced by
+  **"Who Has Access"** using `_access_summary()`.
+
+- `sections_for_permissionlist()` — "Components" items now carry a
+  `relationship` chip from each row's `decoded_actions` list.
+
+**`routers/admin.py`** (Object Explorer JS):
+
+- `_DETAIL_SKIP` — added `authorizedactions`, `displayonly`,
+  `raw_authorizedactions`, `raw_displayonly`, `pnlitemname`,
+  `target_portal_objname`, `portal_iscascade` to eliminate noise from
+  permission-decoded rows.
+
+**Verification:**
+- `python -m py_compile connectors/uom.py routers/admin.py` — OK.
+- `scripts/smoke_admin_shell.py` — all pages pass.
+- `GET /api/peoplesoft/object/component/EOEC_CCI_INSTAL?env=HCM` —
+  "Permission Lists": [EOCO9000 chip=Update/Display, EOEC9000 chip=Update/Display,
+  EOEC9010 chip=Add, Update/Display]; "Who Has Access": [EOCO9000 6 ops,
+  EOEC9000 141 ops, EOEC9010 5 ops] — 3 rows vs prior 158 flat rows.
+- `GET /api/peoplesoft/object/permissionlist/EOCO9000?env=HCM` — "Components":
+  items have action chips (Update/Display / Add, Update/Display).
+
+### AE Runtime Detail — Instance Deep-Linking
+
+Enhanced AE Object Explorer Runtime Instances section and added process instance
+deep-linking between the AE Object Explorer and the Runtime Monitor.
+
+**`connectors/ae.py`** — `runtime_instances()`:
+- Each item now gets `title = f"#{prcsinstance}"` so `labelFor()` shows the
+  instance number instead of falling through to `oprid`.
+- `relationship = runstatus_label` — status chip (Success / Error / Hold /
+  Queued) shown as a colored chip next to the instance number.
+- `_links.admin = f"/admin/runtime?instance={prcsinstance}"` — deep-link to
+  the Runtime Monitor's process detail panel.
+- `duration` field computed from `begindttm`/`enddttm` when both are present
+  (e.g., "15s", "2m 30s", "1h 5m").
+
+**`routers/admin.py`** (Runtime Monitor init):
+- Added `URLSearchParams` parsing in the runtime page init block.
+- `?env=ENV` selects the correct environment on load.
+- `?instance=N` auto-invokes `showProc(N)` after data loads, opening the
+  process detail slide-in panel directly.
+- `_DETAIL_SKIP` expanded with `runstatus`, `runstatus_label`, `prcstype`,
+  `prcsname`, `runlocation`, `outdesttype`, `outdestformat` to suppress noise
+  from runtime rows.
+
+**Verification:**
+- `python -m py_compile connectors/ae.py routers/admin.py` — OK.
+- `scripts/smoke_admin_shell.py` — all pages pass.
+- `GET /api/peoplesoft/object/application_engine/PSPM_REAPER?env=HCM` —
+  Runtime Instances: 20 items, first 3 show title=#606394, chip=Success,
+  duration=15s, _links.admin=/admin/runtime?instance=606394.
+- Deep-link `/admin/runtime?instance=606394` supported by URL param handler.
