@@ -4144,6 +4144,109 @@ def menu_payload(env, menuname):
     }
 
 
+_MSG_SEVERITY_CHIP = {
+    "0": ("chip-info",  "Message"),
+    "1": ("chip-warn",  "Warning"),
+    "2": ("chip-error", "Error"),
+    "3": ("chip-crit",  "Cancel"),
+}
+
+
+def message_catalog_object(env, name):
+    """Load a message catalog entry. Name must be '{set_nbr}.{msg_nbr}'."""
+    warnings = []
+    try:
+        sn_str, mn_str = name.split(".", 1)
+        set_nbr = int(sn_str)
+        msg_nbr = int(mn_str)
+    except (ValueError, AttributeError):
+        return {
+            "environment": env.upper(), "type": "message_catalog", "name": name,
+            "status": "not_found", "warnings": [{"code": "invalid_name",
+                "message": f"Invalid message catalog name: {name!r}. Expected SET.MSG format."}],
+        }
+
+    msg = psdb.get_message(env, set_nbr, msg_nbr)
+    if not msg:
+        warnings.append({"code": "not_found", "message": f"Message {name} not found."})
+
+    set_info = psdb.message_set_info(env, set_nbr)
+
+    return {
+        "environment": env.upper(),
+        "type": "message_catalog",
+        "name": name,
+        "display_name": f"Msg {name}",
+        "description": str(msg.get("message_text") or "").strip() if msg else "",
+        "status": "resolved" if msg else "not_found",
+        "set_nbr": set_nbr,
+        "msg_nbr": msg_nbr,
+        "message": msg or {},
+        "set_info": set_info or {},
+        "warnings": warnings,
+        "_links": {"admin": object_url("message_catalog", name)},
+    }
+
+
+def sections_for_message_catalog(obj):
+    msg = obj.get("message") or {}
+    set_info = obj.get("set_info") or {}
+    sections = []
+
+    overview = {}
+    if msg.get("severity") is not None:
+        severity_val = str(msg.get("severity") or "0")
+        _, label = _MSG_SEVERITY_CHIP.get(severity_val, ("chip-muted", "Unknown"))
+        overview["Severity"] = label
+    if set_info.get("descr"):
+        overview["Message Set"] = (
+            f"{obj['set_nbr']} — {str(set_info['descr']).strip()}"
+        )
+    else:
+        overview["Message Set"] = str(obj.get("set_nbr", ""))
+    overview["Message Number"] = str(obj.get("msg_nbr", ""))
+
+    msg_text = str(msg.get("message_text") or "").strip()
+    if msg_text:
+        overview["Message Text"] = msg_text
+
+    explanation = str(msg.get("descrlong") or "").strip()
+    if explanation:
+        overview["Explanation"] = explanation
+
+    sections.append({"name": "Definition", "items": [], "data": overview})
+
+    return [s for s in sections if s.get("data") or s.get("items")]
+
+
+def message_catalog_payload(env, name):
+    obj = message_catalog_object(env, name)
+    msg = obj.get("message") or {}
+    set_info = obj.get("set_info") or {}
+
+    return {
+        "environment": env.upper(),
+        "type": "message_catalog",
+        "name": name,
+        "display_name": obj.get("display_name", f"Msg {name}"),
+        "description": obj.get("description", ""),
+        "status": obj.get("status", "unknown"),
+        "overview": {
+            "set_nbr": obj.get("set_nbr"),
+            "msg_nbr": obj.get("msg_nbr"),
+            "severity": str(msg.get("severity") or ""),
+            "severity_label": msg.get("severity_label") or "",
+            "message_text": str(msg.get("message_text") or "").strip(),
+            "explanation": str(msg.get("descrlong") or "").strip(),
+            "set_description": str(set_info.get("descr") or "").strip() or None,
+        },
+        "sections": sections_for_message_catalog(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
 def canonical_object(env, object_type, name):
     object_type = object_type.lower()
     if object_type == "component_interface":
@@ -4193,6 +4296,8 @@ def canonical_object(env, object_type, name):
         return app_package_object(env, name)
     if object_type == "menu":
         return menu_object(env, name)
+    if object_type == "message_catalog":
+        return message_catalog_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])

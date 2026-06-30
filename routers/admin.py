@@ -18,6 +18,7 @@ _NAV = [
     ("ci",         "CIs",           "/admin/ci"),
     ("menu",       "Menus",         "/admin/menu"),
     ("pcsearch",   "PC Search",     "/admin/pcsearch"),
+    ("msgcat",     "Messages",      "/admin/msgcat"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -2480,6 +2481,7 @@ const _DETAIL_SKIP = new Set([
     'pnlitemname','target_portal_objname','portal_iscascade',
     'runstatus','runstatus_label','prcstype','prcsname','runlocation','outdesttype','outdestformat',
     'nav_path','nav_parent_label','nav_grandparent_label','nav_gpar_objname',
+    'message_set_nbr','message_nbr','severity','severity_label',
 ]);
 
 function detailFor(row) {
@@ -2875,6 +2877,12 @@ const TYPE_CHIP_CFG = {
     routing:            {label:'IB Routing',    bg:'#001818',border:'#00aabb44',color:'#00aabb'},
     application_package:{label:'App Package',   bg:'#180a1a',border:'#cc44ff44',color:'#cc44ff'},
     application_class:  {label:'App Class',     bg:'#12081a',border:'#aa33ee44',color:'#aa33ee'},
+    message_catalog:    {label:'Message',       bg:'#0a1800',border:'#66cc2244',color:'#88dd44'},
+    menu:               {label:'Menu',          bg:'#1a1200',border:'#cc880044',color:'#cc8800'},
+    query:              {label:'PS Query',      bg:'#001820',border:'#0099bb44',color:'#00bbdd'},
+    tree:               {label:'Tree',          bg:'#001a0a',border:'#00bb6644',color:'#00bb66'},
+    ci:                 {label:'CI',            bg:'#001a1a',border:'#00aaaa44',color:'#00cccc'},
+    sql_definition:     {label:'SQL Def',       bg:'#1a1200',border:'#ddaa0044',color:'#ddaa00'},
 };
 
 function typeChipHtml(type) {
@@ -10691,6 +10699,143 @@ async function selectMenu(r,el){
   table+='</tbody></table>';
   d.innerHTML=hdr+table;
 }
+doSearch();
+</script>""")
+
+
+@router.get("/msgcat", response_class=HTMLResponse)
+def admin_msgcat():
+    return _shell("Message Catalog", "msgcat", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:340px;min-width:240px;border-right:1px solid #00e5ff22;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input,select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:5px 8px;font-size:12px}
+input:focus,select:focus{outline:none;border-color:#00e5ff}
+button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(0,229,255,.07);border-left-color:#00e5ff55}
+.item.sel{background:rgba(0,229,255,.12);border-left-color:#00e5ff}
+.item-ref{font-family:monospace;font-size:12px;color:#d7faff}
+.item-text{font-size:11px;color:#aac;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;margin-right:3px}
+.chip-info{background:#001830;border:1px solid #00e5ff44;color:#00e5ff}
+.chip-warn{background:#2a1800;border:1px solid #ffaa00;color:#ffaa00}
+.chip-error{background:#2a0000;border:1px solid #ff4444;color:#ff6666}
+.chip-crit{background:#1a0020;border:1px solid #aa44ff;color:#cc88ff}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778}
+.stat{display:inline-block;padding:4px 12px;border:1px solid #00e5ff33;background:#001830;font-size:11px;margin:2px}
+.stat b{color:#00e5ff;font-size:16px;display:block}
+.msg-text{background:#030d14;border:1px solid #1e3040;padding:12px 14px;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;margin:4px 0 12px}
+.explain{background:#030d14;border:1px solid #1e304066;padding:10px 14px;font-size:11px;line-height:1.6;color:#aac;white-space:pre-wrap;word-break:break-word;margin-top:4px}
+.muted{color:#556;font-style:italic}
+a{color:#00e5ff;text-decoration:none} a:hover{text-decoration:underline}
+</style>
+<div class="topbar">
+  <input id="mcSearch" type="text" placeholder="Search message text..." style="width:260px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <select id="mcSet" style="width:130px" onchange="doSearch()">
+    <option value="">All Sets</option>
+  </select>
+  <select id="mcSeverity" style="width:110px" onchange="doSearch()">
+    <option value="">All Severities</option>
+    <option value="0">Message</option>
+    <option value="1">Warning</option>
+    <option value="2">Error</option>
+    <option value="3">Cancel</option>
+  </select>
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Messages</h2>
+    <div id="list" class="muted">Search to load messages.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Message</h2>
+    <div id="detail" class="muted">Select a message from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const SEV_CHIP = {'0':['chip-info','Message'],'1':['chip-warn','Warning'],'2':['chip-error','Error'],'3':['chip-crit','Cancel']};
+
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function sevChip(sev) {
+  const [cls, label] = SEV_CHIP[String(sev)] || ['chip-muted', 'Unknown'];
+  return `<span class="chip ${cls}">${label}</span>`;
+}
+
+async function loadSets() {
+  const d = await api(`/api/peoplesoft/message-sets?env=${ENV}`);
+  if (!d) return;
+  const sel = document.getElementById('mcSet');
+  (d.items || []).forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.message_set_nbr;
+    const desc = s.descr ? ` — ${s.descr}` : '';
+    const cnt = s.msg_count ? ` (${s.msg_count})` : '';
+    opt.textContent = `Set ${s.message_set_nbr}${desc}${cnt}`;
+    sel.appendChild(opt);
+  });
+}
+
+async function doSearch() {
+  const q = document.getElementById('mcSearch').value.trim();
+  const setNbr = document.getElementById('mcSet').value;
+  const sev = document.getElementById('mcSeverity').value;
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading...</div>';
+  const params = new URLSearchParams({env: ENV, limit: 200});
+  if (q) params.set('q', q);
+  if (setNbr) params.set('set_nbr', setNbr);
+  if (sev !== '') params.set('severity', sev);
+  const d = await api(`/api/peoplesoft/messages?${params}`);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading messages.</div>'; return; }
+  const items = d.items || [];
+  document.getElementById('stats').textContent = `${items.length} result${items.length !== 1 ? 's' : ''}`;
+  if (!items.length) { list.innerHTML = '<div class="muted">No messages found.</div>'; return; }
+  list.innerHTML = items.map((m, i) =>
+    `<div class="item" id="item-${i}" onclick="selectMsg(${i})" data-idx="${i}">
+       <div class="item-ref">${sevChip(m.severity)}${esc(m.name)}</div>
+       <div class="item-text">${esc((m.message_text||'').slice(0,80))}</div>
+     </div>`
+  ).join('');
+  window._msgItems = items;
+}
+
+function selectMsg(idx) {
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${idx}`);
+  if (el) el.classList.add('sel');
+  const m = window._msgItems[idx];
+  if (!m) return;
+  const sev = String(m.severity || '0');
+  const text = m.message_text || '';
+  const explain = m.descrlong || '';
+  const adminUrl = `/admin/object/message_catalog/${esc(m.name)}`;
+  let html = `
+    <div style="margin-bottom:12px">
+      ${sevChip(m.severity)}
+      <span style="font-family:monospace;font-size:13px">${esc(m.name)}</span>
+      &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
+    </div>
+    <div class="stat"><b>${esc(m.message_set_nbr)}</b>Set</div>
+    <div class="stat"><b>${esc(m.message_nbr)}</b>Msg #</div>
+    ${text ? `<h2>Message Text</h2><div class="msg-text">${esc(text)}</div>` : ''}
+    ${explain ? `<h2>Explanation</h2><div class="explain">${esc(explain)}</div>` : ''}
+  `;
+  document.getElementById('detail').innerHTML = html;
+}
+
+loadSets();
 doSearch();
 </script>""")
 

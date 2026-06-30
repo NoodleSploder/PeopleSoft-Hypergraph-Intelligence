@@ -747,6 +747,25 @@ def build(env="HCM", limit=50, persist=True):
                 add_edge(graph, "ci", ci_name, "component", comp, "WRAPS", r)
         return len(rows)
 
+    def messages():
+        if not ptmetadata.has_table(env, "PSMSGCATDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT MESSAGE_SET_NBR, MESSAGE_NBR, SEVERITY, MESSAGE_TEXT
+              FROM SYSADM.PSMSGCATDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY MESSAGE_SET_NBR, MESSAGE_NBR
+        """) or []
+        for r in rows:
+            sn = r.get("message_set_nbr")
+            mn = r.get("message_nbr")
+            if sn is None or mn is None:
+                continue
+            name = f"{sn}.{mn}"
+            text = str(r.get("message_text") or "").strip() or name
+            add_node(graph, "message_catalog", name, text[:80], r)
+        return len(rows)
+
     for name, loader in (
         ("operators", operators),
         ("roles", roles),
@@ -762,6 +781,7 @@ def build(env="HCM", limit=50, persist=True):
         ("sql_definitions", sql_definitions),
         ("queries", queries),
         ("component_interfaces", component_interfaces),
+        ("messages", messages),
     ):
         provider(graph, name, loader)
 

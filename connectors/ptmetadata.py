@@ -567,6 +567,17 @@ OBJECT_REGISTRY.setdefault("menu", {
     ],
 })
 
+OBJECT_REGISTRY.setdefault("message_catalog", {
+    "display_title": "Message Catalog",
+    "icon": "message-square",
+    "graph_node_type": "message_catalog",
+    "object_page": "/admin/object/message_catalog/{name}",
+    "discovery": {"table": "PSMSGCATDEFN", "name_column": "MESSAGE_SET_NBR"},
+    "search": {"provider": "message_catalog", "table": "PSMSGCATDEFN"},
+    "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 for object_type in [
     "content_reference",
     "section",
@@ -1124,6 +1135,41 @@ def global_search(env, q, limit=20):
                         "name": name,
                         "description": description,
                         "score": score,
+                        "icon": entry["icon"],
+                        "_links": {"admin": entry["object_page"].format(name=name)},
+                    })
+            except Exception as exc:
+                results.append({
+                    "type": object_type, "name": None,
+                    "description": f"Search failed: {exc}",
+                    "score": 0, "icon": entry["icon"], "error": True,
+                })
+            continue
+
+        if provider.get("provider") == "message_catalog":
+            try:
+                table_name = provider["table"]
+                if not has_table(env, table_name):
+                    continue
+                # Search message text; also match numeric set queries like "50" or "50.1180"
+                rows = psdb.query(env, f"""
+                    SELECT MESSAGE_SET_NBR, MESSAGE_NBR, SEVERITY, MESSAGE_TEXT
+                      FROM SYSADM.{table_name}
+                     WHERE UPPER(MESSAGE_TEXT) LIKE :pat
+                        OR UPPER(DESCRLONG)    LIKE :pat
+                     ORDER BY MESSAGE_SET_NBR, MESSAGE_NBR
+                     FETCH FIRST {limit} ROWS ONLY
+                """, {"pat": f"%{q.upper()}%"})
+                for row in rows:
+                    sn = row.get("message_set_nbr")
+                    mn = row.get("message_nbr")
+                    name = f"{sn}.{mn}"
+                    text = str(row.get("message_text") or "").strip()
+                    results.append({
+                        "type": object_type,
+                        "name": name,
+                        "description": text[:120] if text else None,
+                        "score": 12,
                         "icon": entry["icon"],
                         "_links": {"admin": entry["object_page"].format(name=name)},
                     })

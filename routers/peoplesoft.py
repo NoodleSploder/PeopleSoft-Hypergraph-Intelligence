@@ -338,6 +338,9 @@ def object_payload(env, object_type, object_name):
     if object_type == "menu":
         return attach_graph_context(uom.menu_payload(env, object_name), env)
 
+    if object_type == "message_catalog":
+        return uom.message_catalog_payload(env, object_name)
+
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
 
@@ -1006,6 +1009,26 @@ def peoplesoft_cis(env: str = "HCM", q: str = "", limit: int = 100):
         if name:
             row.setdefault("_links", {})["admin"] = f"/admin/object/ci/{name}"
     return rows
+
+
+@router.get("/api/peoplesoft/messages")
+def peoplesoft_messages(env: str = "HCM", q: str = "", set_nbr: str = "",
+                        severity: str = "", limit: int = 100):
+    """Search Message Catalog (PSMSGCATDEFN) by text or message set number."""
+    sn = int(set_nbr) if set_nbr.strip().isdigit() else None
+    sv = int(severity) if severity.strip().isdigit() else None
+    result = psdb.search_messages(env, q=q, set_nbr=sn, severity=sv, limit=limit)
+    for item in result.get("items", []):
+        name = item.get("name")
+        if name:
+            item.setdefault("_links", {})["admin"] = f"/admin/object/message_catalog/{name}"
+    return result
+
+
+@router.get("/api/peoplesoft/message-sets")
+def peoplesoft_message_sets(env: str = "HCM"):
+    """Return list of message sets with descriptions and message counts."""
+    return psdb.message_sets(env)
 
 
 @router.get("/api/peoplesoft/security/reports")

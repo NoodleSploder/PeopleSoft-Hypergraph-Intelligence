@@ -2003,3 +2003,50 @@ Harness now covers 13 pages (was 7).
 - `python3 -c "import main"` → OK
 - Page count confirmed: 13 entries across `DEFAULT_PAGES`.
 - Blocker: headless Chrome is not available in this environment; harness requires `--base-url` pointing to a running DeathStar instance. Run against staging to validate the new page entries before next deploy.
+
+---
+
+## 2026-06-30 — Message Catalog Explorer (Phase 5 Knowledge Graph)
+
+Full vertical slice for PeopleSoft Message Catalog (PSMSGCATDEFN / PSMSGSETDEFN).
+Messages are referenced throughout PeopleCode via `MsgGet()`, `MessageBox()`, `Error MsgGet()`, etc.
+Previously completely absent from the platform.
+
+**`connectors/psdb.py`**:
+- `search_messages(env, q, set_nbr, severity, limit)` — searches PSMSGCATDEFN by MESSAGE_TEXT and DESCRLONG (LIKE). Supports optional set_nbr and severity filters. Returns items with computed `severity_label` and `name` (`set.msg` format). Degrades if PSMSGCATDEFN is not accessible.
+- `message_sets(env)` — attempts PSMSGSETDEFN JOIN PSMSGCATDEFN for counts+descriptions; falls back to GROUP BY on PSMSGCATDEFN alone. Returns `source` field indicating which path was used.
+- `get_message(env, set_nbr, msg_nbr)` — fetches a specific message. Returns None gracefully if not found or table missing.
+- `message_set_info(env, set_nbr)` — fetches set description from PSMSGSETDEFN (optional; returns None if table missing).
+- `_MSG_SEVERITY` labels: 0=Message, 1=Warning, 2=Error, 3=Cancel.
+
+**`connectors/ptmetadata.py`**:
+- Added `message_catalog` to `OBJECT_REGISTRY` with `discovery.table=PSMSGCATDEFN`, custom `search.provider="message_catalog"`, icon `message-square`.
+- Added `message_catalog` provider handler in `global_search()` — searches MESSAGE_TEXT and DESCRLONG. Returns `{set_nbr}.{msg_nbr}` as `name`, truncated message text as description.
+
+**`connectors/uom.py`**:
+- `message_catalog_object(env, name)` — parses `{set_nbr}.{msg_nbr}` name, calls `get_message` + `message_set_info`, returns structured object with `message` and `set_info` dicts.
+- `sections_for_message_catalog(obj)` — single "Definition" section: Severity chip label, Message Set, Message Number, Message Text, Explanation.
+- `message_catalog_payload(env, name)` — full UOM payload with overview kv grid + sections.
+- Wired into `canonical_object()`.
+
+**`routers/peoplesoft.py`**:
+- `GET /api/peoplesoft/messages?env=&q=&set_nbr=&severity=&limit=` — search endpoint. Adds `_links.admin` to each result.
+- `GET /api/peoplesoft/message-sets?env=` — returns all message sets.
+- `message_catalog` wired into `object_payload()` dispatcher.
+
+**`connectors/graphdb.py`**:
+- `messages()` provider added to `build()`: queries PSMSGCATDEFN with ROWNUM limit, creates `message_catalog` nodes with `{set_nbr}.{msg_nbr}` as node name, message text (truncated to 80 chars) as display name. No edges (messages are referenced by PeopleCode but edge detection would require source parsing). `has_table("PSMSGCATDEFN")` guard.
+
+**`routers/admin.py`**:
+- Added `("msgcat", "Messages", "/admin/msgcat")` to `_NAV`.
+- Added `message_catalog` / `menu` / `query` / `tree` / `ci` / `sql_definition` to `TYPE_CHIP_CFG` (was previously falling through to grey default).
+- Added `message_set_nbr`, `message_nbr`, `severity`, `severity_label` to `_DETAIL_SKIP`.
+- `/admin/msgcat` page: two-panel layout; top bar has text search + Set filter dropdown (populated from `/api/peoplesoft/message-sets`) + Severity filter dropdown; sidebar shows messages with severity chip, `set.msg` ref, and truncated text; detail panel shows severity chip + stat boxes + message text block + explanation block + "Object Explorer ↗" link.
+
+**`scripts/smoke_admin_shell.py`**:
+- Added `/admin/msgcat` → marker `#mcSearch`, env=True, nav=True. Harness now covers 14 pages (was 13).
+
+**Verification:**
+- `python -m py_compile connectors/psdb.py connectors/ptmetadata.py connectors/uom.py connectors/graphdb.py routers/peoplesoft.py routers/admin.py` → ALL OK (pre-existing `\-` warning in admin.py PC tokenizer regex, not introduced here)
+- `python3 -c "import main"` → OK
+- Live tests require DB access; message catalog tables (PSMSGCATDEFN, PSMSGSETDEFN) expected to be accessible given SYSADM schema grants on HCM.

@@ -4292,3 +4292,132 @@ def process_scheduler_servers(env_name):
         "counts": {"total": len(items), "running": running, "stopped": len(items) - running},
         "warnings": [],
     }
+
+
+# ── Message Catalog ───────────────────────────────────────────────────────────
+
+_MSG_SEVERITY = {0: "Message", 1: "Warning", 2: "Error", 3: "Cancel"}
+
+
+def _msg_severity_label(value):
+    try:
+        return _MSG_SEVERITY.get(int(value), str(value))
+    except (TypeError, ValueError):
+        return str(value or "")
+
+
+def search_messages(env_name, q="", set_nbr=None, severity=None, limit=100):
+    """Search PSMSGCATDEFN by text content or message set number."""
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSMSGCATDEFN"):
+        return {"items": [], "warnings": ["PSMSGCATDEFN not accessible"]}
+
+    clauses = []
+    params = {}
+    if q:
+        clauses.append(
+            "(UPPER(MESSAGE_TEXT) LIKE UPPER(:q) OR UPPER(DESCRLONG) LIKE UPPER(:q2))"
+        )
+        params["q"] = f"%{q}%"
+        params["q2"] = f"%{q}%"
+    if set_nbr is not None:
+        clauses.append("MESSAGE_SET_NBR = :set_nbr")
+        params["set_nbr"] = int(set_nbr)
+    if severity is not None:
+        clauses.append("SEVERITY = :severity")
+        params["severity"] = int(severity)
+
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    sql = f"""
+        SELECT MESSAGE_SET_NBR, MESSAGE_NBR, SEVERITY, MESSAGE_TEXT, DESCRLONG
+          FROM SYSADM.PSMSGCATDEFN
+         {where}
+         ORDER BY MESSAGE_SET_NBR, MESSAGE_NBR
+         FETCH FIRST :lim ROWS ONLY
+    """
+    params["lim"] = limit
+    try:
+        rows = query(env_name, sql, params)
+    except Exception as exc:
+        return {"items": [], "warnings": [f"Search failed: {exc}"]}
+
+    items = []
+    for row in rows:
+        item = dict(row)
+        item["severity_label"] = _msg_severity_label(item.get("severity"))
+        item["name"] = f"{item['message_set_nbr']}.{item['message_nbr']}"
+        items.append(item)
+    return {"items": items, "count": len(items), "warnings": []}
+
+
+def message_sets(env_name):
+    """Return message sets with descriptions and message counts."""
+    from connectors import ptmetadata
+    warnings = []
+
+    if ptmetadata.has_table(env_name, "PSMSGSETDEFN"):
+        try:
+            rows = query(env_name, """
+                SELECT s.MESSAGE_SET_NBR, s.DESCR,
+                       COUNT(m.MESSAGE_NBR) AS msg_count
+                  FROM SYSADM.PSMSGSETDEFN s
+                  LEFT JOIN SYSADM.PSMSGCATDEFN m
+                    ON m.MESSAGE_SET_NBR = s.MESSAGE_SET_NBR
+                 GROUP BY s.MESSAGE_SET_NBR, s.DESCR
+                 ORDER BY s.MESSAGE_SET_NBR
+            """, {})
+            return {"items": rows, "source": "PSMSGSETDEFN", "warnings": []}
+        except Exception as exc:
+            warnings.append(f"PSMSGSETDEFN join failed: {exc}")
+
+    if not ptmetadata.has_table(env_name, "PSMSGCATDEFN"):
+        return {"items": [], "warnings": ["PSMSGCATDEFN not accessible"]}
+
+    try:
+        rows = query(env_name, """
+            SELECT MESSAGE_SET_NBR, NULL AS DESCR,
+                   COUNT(*) AS msg_count
+              FROM SYSADM.PSMSGCATDEFN
+             GROUP BY MESSAGE_SET_NBR
+             ORDER BY MESSAGE_SET_NBR
+        """, {})
+        return {"items": rows, "source": "PSMSGCATDEFN", "warnings": warnings}
+    except Exception as exc:
+        return {"items": [], "warnings": warnings + [f"message_sets fallback failed: {exc}"]}
+
+
+def get_message(env_name, set_nbr, msg_nbr):
+    """Fetch a specific message by set number and message number."""
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSMSGCATDEFN"):
+        return None
+    try:
+        rows = query(env_name, """
+            SELECT MESSAGE_SET_NBR, MESSAGE_NBR, SEVERITY, MESSAGE_TEXT, DESCRLONG
+              FROM SYSADM.PSMSGCATDEFN
+             WHERE MESSAGE_SET_NBR = :sn AND MESSAGE_NBR = :mn
+        """, {"sn": int(set_nbr), "mn": int(msg_nbr)})
+    except Exception:
+        return None
+    if not rows:
+        return None
+    row = dict(rows[0])
+    row["severity_label"] = _msg_severity_label(row.get("severity"))
+    row["name"] = f"{row['message_set_nbr']}.{row['message_nbr']}"
+    return row
+
+
+def message_set_info(env_name, set_nbr):
+    """Return message set header (description) for a given set number."""
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSMSGSETDEFN"):
+        return None
+    try:
+        rows = query(env_name, """
+            SELECT MESSAGE_SET_NBR, DESCR, DESCRLONG
+              FROM SYSADM.PSMSGSETDEFN
+             WHERE MESSAGE_SET_NBR = :sn
+        """, {"sn": int(set_nbr)})
+    except Exception:
+        return None
+    return dict(rows[0]) if rows else None

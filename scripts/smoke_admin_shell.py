@@ -146,6 +146,7 @@ DEFAULT_PAGES = [
     ("/admin/menu",     "#mSearch",    True, True,  []),
     ("/admin/reports",  "#catalog",    True, True,  []),
     ("/admin/pcsearch", "#pcq",        True, True,  []),
+    ("/admin/msgcat",   "#mcSearch",   True, True,  []),
 ]
 
 
