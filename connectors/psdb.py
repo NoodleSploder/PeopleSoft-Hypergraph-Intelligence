@@ -3556,30 +3556,42 @@ def search_trees(env_name, q="", setid=None, limit=100):
 
     cols = select_existing_columns(
         env_name, "PSTREEDEFN",
-        ["TREENAME", "SETID", "SETCNTRLVALUE", "EFFDT", "EFF_STATUS",
-         "TREESTRCTPNM", "TREE_RECNAME", "DESCR", "OBJECTOWNERID"],
-        required=["TREENAME"],
+        ["TREE_NAME", "SETID", "SETCNTRLVALUE", "EFFDT", "EFF_STATUS",
+         "TREE_STRCT_ID", "DESCR", "ALL_VALUES", "USE_LEVELS", "VALID_TREE",
+         "NODE_COUNT", "LEAF_COUNT"],
+        required=["TREE_NAME"],
     )
     if not cols:
         return []
+
+    alias_map = {
+        "TREE_NAME": "TREENAME",
+        "TREE_STRCT_ID": "TREESTRCTPNM",
+    }
+    select_exprs = [
+        f"t.{col} AS {alias_map[col]}" if col in alias_map else f"t.{col}"
+        for col in cols
+    ]
 
     setid_clause = ""
     if setid:
         setid_clause = "AND UPPER(t.SETID) = UPPER(:setid)"
         params["setid"] = setid
 
+    descr_clause = "OR UPPER(t.DESCR) LIKE :pattern" if "DESCR" in cols else ""
+
     return query(env_name, f"""
         SELECT * FROM (
-            SELECT {", ".join(f"t.{c}" for c in cols)}
+            SELECT {", ".join(select_exprs)}
               FROM SYSADM.PSTREEDEFN t
-             WHERE (UPPER(t.TREENAME) LIKE :pattern OR UPPER(t.DESCR) LIKE :pattern)
+             WHERE (UPPER(t.TREE_NAME) LIKE :pattern {descr_clause})
                {setid_clause}
                AND t.EFFDT = (
                    SELECT MAX(t2.EFFDT) FROM SYSADM.PSTREEDEFN t2
-                    WHERE t2.TREENAME = t.TREENAME AND t2.SETID = t.SETID
+                    WHERE t2.TREE_NAME = t.TREE_NAME AND t2.SETID = t.SETID
                       AND t2.SETCNTRLVALUE = t.SETCNTRLVALUE
                )
-             ORDER BY t.TREENAME
+             ORDER BY t.TREE_NAME
         ) WHERE ROWNUM <= {limit}
     """, params)
 

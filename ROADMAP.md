@@ -132,6 +132,12 @@ Remaining providers include:
 
 Continue enriching graph relationships.
 
+Current work:
+
+- Shared UOM relationship graph helper introduced for Tree and Component Interface providers.
+- Continue migrating mature UOM providers from ad hoc graph loops to declarative relationship specs where behavior can be preserved.
+- Align UOM `_relationships`, UOM `_graph`, and Knowledge Graph ingestion around one relationship vocabulary.
+
 Examples:
 
 - CALLS

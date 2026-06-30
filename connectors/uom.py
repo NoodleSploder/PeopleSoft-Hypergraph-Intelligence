@@ -233,6 +233,58 @@ def add_node(nodes, node):
     nodes[node["id"]] = node
 
 
+def _relation_value(row, selector):
+    if callable(selector):
+        return selector(row)
+    return row.get(selector)
+
+
+def relationship_graph(root_type, root_name, relationships, specs):
+    """Build a small UOM graph from relationship rows and declarative specs."""
+    root_name = root_name.upper()
+    nodes = {}
+    edges = []
+
+    add_node(nodes, graph_node(root_type, root_name))
+
+    for spec in specs:
+        rows = relationships.get(spec["relationship"], []) or []
+        for row in rows:
+            target_name = _relation_value(row, spec["target_name"])
+            if target_name:
+                target_type = _relation_value(row, spec.get("target_type")) if spec.get("target_type") else spec["node_type"]
+                target_type = target_type or spec["node_type"]
+                add_node(nodes, graph_node(target_type, target_name, row))
+                edges.append(graph_edge(
+                    spec.get("source_type", root_type),
+                    _relation_value(row, spec["source_name"]) if spec.get("source_name") else root_name,
+                    target_type,
+                    target_name,
+                    _relation_value(row, spec["edge"]) if spec.get("edge") else spec["default_edge"],
+                ))
+
+            for extra in spec.get("extra_edges", []):
+                source_name = _relation_value(row, extra["source_name"])
+                extra_target_name = _relation_value(row, extra["target_name"])
+                if not source_name or not extra_target_name:
+                    continue
+                source_type = _relation_value(row, extra.get("source_type")) if extra.get("source_type") else extra["source_node_type"]
+                source_type = source_type or extra["source_node_type"]
+                target_type = _relation_value(row, extra.get("target_type")) if extra.get("target_type") else extra["target_node_type"]
+                target_type = target_type or extra["target_node_type"]
+                add_node(nodes, graph_node(source_type, source_name, row))
+                add_node(nodes, graph_node(target_type, extra_target_name, row))
+                edges.append(graph_edge(
+                    source_type,
+                    source_name,
+                    target_type,
+                    extra_target_name,
+                    _relation_value(row, extra["edge"]) if callable(extra.get("edge")) else extra["edge"],
+                ))
+
+    return {"nodes": list(nodes.values()), "edges": edges}
+
+
 def field_graph(env, field_ref, relationships=None):
     relationships = relationships or field_object(env, field_ref)["_relationships"]
     field_name = field_ref.upper()
@@ -3093,29 +3145,29 @@ def _tree_field_link(row, rec_key, field_key, rel_label):
 def tree_graph(env, tree_name, relationships=None):
     relationships = relationships or tree_object(env, tree_name)["_relationships"]
     name = tree_name.upper()
-    nodes = {}
-    edges = []
-
-    add_node(nodes, graph_node("tree", name))
-
-    for row in relationships.get("records", []):
-        recname = row.get("recname")
-        rel = row.get("relationship") or "uses_record"
-        if recname:
-            add_node(nodes, graph_node("record", recname, row))
-            edges.append(graph_edge("tree", name, "record", recname, rel))
-
-    for row in relationships.get("fields", []):
-        field_ref = row.get("name")
-        recname = row.get("recname")
-        if field_ref:
-            add_node(nodes, graph_node("field", field_ref, row))
-            edges.append(graph_edge("tree", name, "field", field_ref, row.get("relationship") or "uses_field"))
-        if recname:
-            add_node(nodes, graph_node("record", recname, row))
-            edges.append(graph_edge("record", recname, "field", field_ref, "contains_field"))
-
-    return {"nodes": list(nodes.values()), "edges": edges}
+    return relationship_graph("tree", name, relationships, [
+        {
+            "relationship": "records",
+            "node_type": "record",
+            "target_name": "recname",
+            "edge": lambda row: row.get("relationship") or "uses_record",
+        },
+        {
+            "relationship": "fields",
+            "node_type": "field",
+            "target_name": "name",
+            "edge": lambda row: row.get("relationship") or "uses_field",
+            "extra_edges": [
+                {
+                    "source_node_type": "record",
+                    "source_name": "recname",
+                    "target_node_type": "field",
+                    "target_name": "name",
+                    "edge": "contains_field",
+                },
+            ],
+        },
+    ])
 
 
 def tree_object(env, tree_name):
@@ -3440,40 +3492,41 @@ def _dedupe_rows(rows, key_fields):
 def ci_graph(env, ci_name, relationships=None):
     relationships = relationships or ci_object(env, ci_name)["_relationships"]
     name = ci_name.upper()
-    nodes = {}
-    edges = []
-
-    add_node(nodes, graph_node("ci", name))
-
-    for row in relationships.get("components", []):
-        component = row.get("pnlgrpname")
-        if component:
-            add_node(nodes, graph_node("component", component, row))
-            edges.append(graph_edge("ci", name, "component", component, "wraps_component"))
-
-    for row in relationships.get("menus", []):
-        menu = row.get("menuname")
-        if menu:
-            add_node(nodes, graph_node("menu", menu, row))
-            edges.append(graph_edge("ci", name, "menu", menu, "declared_on_menu"))
-
-    for row in relationships.get("records", []):
-        recname = row.get("recname")
-        if recname:
-            add_node(nodes, graph_node("record", recname, row))
-            edges.append(graph_edge("ci", name, "record", recname, row.get("relationship") or "uses_record"))
-
-    for row in relationships.get("fields", []):
-        field_ref = row.get("name")
-        recname = row.get("recname")
-        if field_ref:
-            add_node(nodes, graph_node("field", field_ref, row))
-            edges.append(graph_edge("ci", name, "field", field_ref, row.get("relationship") or "exposes_field"))
-        if recname and field_ref:
-            add_node(nodes, graph_node("record", recname, row))
-            edges.append(graph_edge("record", recname, "field", field_ref, "contains_field"))
-
-    return {"nodes": list(nodes.values()), "edges": edges}
+    return relationship_graph("ci", name, relationships, [
+        {
+            "relationship": "components",
+            "node_type": "component",
+            "target_name": "pnlgrpname",
+            "default_edge": "wraps_component",
+        },
+        {
+            "relationship": "menus",
+            "node_type": "menu",
+            "target_name": "menuname",
+            "default_edge": "declared_on_menu",
+        },
+        {
+            "relationship": "records",
+            "node_type": "record",
+            "target_name": "recname",
+            "edge": lambda row: row.get("relationship") or "uses_record",
+        },
+        {
+            "relationship": "fields",
+            "node_type": "field",
+            "target_name": "name",
+            "edge": lambda row: row.get("relationship") or "exposes_field",
+            "extra_edges": [
+                {
+                    "source_node_type": "record",
+                    "source_name": "recname",
+                    "target_node_type": "field",
+                    "target_name": "name",
+                    "edge": "contains_field",
+                },
+            ],
+        },
+    ])
 
 
 def ci_object(env, ci_name):

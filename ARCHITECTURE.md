@@ -182,7 +182,7 @@ enable later ones — build vertically, not horizontally.
 | 1 | **Connector**| `connectors/<module>.py` | Grant-aware SQL; returns structured dicts; owns all SQL for the domain |
 | 2 | **REST API** | `routers/<module>.py` | Thin FastAPI router; no SQL; delegates to connector |
 | 3 | **Metadata Provider** | `connectors/ptmetadata.py` OBJECT_REGISTRY | Object type registration; discovery table; description columns |
-| 4 | **UOM Provider** | `connectors/uom.py` | Canonical object: id, type, name, description, owner, status, warnings, _links, _relationships, _graph, _metadata |
+| 4 | **UOM Provider** | `connectors/uom.py` | Canonical object: id, type, name, description, owner, status, warnings, _links, _relationships, _graph, _metadata. Providers should reuse shared UOM relationship graph helpers where practical so object pages and graph previews stay aligned. |
 | 5 | **Graph Provider** | `connectors/graphdb.py` | Nodes and typed edges contributed to the Knowledge Graph |
 | 6 | **Search Provider** | `connectors/ptmetadata.py` search | Results returned by `/api/peoplesoft/search` |
 | 7 | **Runtime Provider** | `connectors/execution.py` or domain connector | Live state: active instances, queue depths, error counts |

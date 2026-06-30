@@ -6,6 +6,78 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-06-30 — Shared UOM Relationship Graph Helper
+
+Date/time: 2026-06-30 11:11 CDT
+
+Features implemented:
+- Started the relationship-provider extraction roadmap slice with a shared
+  `relationship_graph()` helper in `connectors/uom.py`.
+- Refactored Tree and Component Interface graph previews to use declarative
+  relationship specs instead of local hand-written node/edge loops.
+- Preserved existing UOM payload and `/api/peoplesoft/graph/...` response
+  shapes: graph previews still return `nodes` and `edges`, with the same root,
+  target object types, admin links, and relationship labels.
+- Fixed Tree metadata discovery/search column names for PeopleTools tables that
+  expose `TREE_NAME` and `TREE_STRCT_ID` instead of the older aliases.
+- Routed global Tree search through the dedicated grant-aware tree search
+  provider and de-duplicated global results by tree name while preserving
+  variant rows in `/api/peoplesoft/trees`.
+
+Files modified:
+- `connectors/uom.py`
+- `connectors/ptmetadata.py`
+- `connectors/psdb.py`
+- `ARCHITECTURE.md`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Kept the first extraction narrow and provider-local: Tree and CI were the
+  newest providers and already had similar field/record relationship loops.
+- Left older Record, Page, Component, Portal, and security graph builders alone
+  until each can be migrated with endpoint parity checks.
+- Documented the expectation that UOM providers should reuse shared graph
+  helpers where practical, without changing router URLs or API contracts.
+
+Bugs fixed:
+- Tree discovery/global search no longer uses invalid `PSTREEDEFN.TREENAME` or
+  `TREESTRCTPNM` column references.
+- `/api/peoplesoft/trees` now aliases physical `TREE_NAME`/`TREE_STRCT_ID`
+  columns back to the existing response keys (`treename`, `treestrctpnm`).
+
+Technical debt:
+- Removed duplicated Tree/CI graph loop structure.
+- Remaining debt: older UOM providers still build `_graph` imperatively and
+  should be migrated in small, verified slices.
+
+Verification:
+- `python -m py_compile connectors/psdb.py connectors/ptmetadata.py connectors/uom.py routers/peoplesoft.py routers/admin.py`
+  — OK; existing unrelated `routers/admin.py` invalid escape SyntaxWarning remains.
+- `python -c "import main; print('main import ok')"` — OK.
+- Direct synthetic `tree_graph()` and `ci_graph()` checks returned expected
+  root nodes, object nodes, and relationship edges.
+- Restart note: direct `systemctl restart/start deathstar-api` required
+  interactive authentication in this shell. An old orphaned manual uvicorn
+  process was also occupying 8088. Cleared the port and started the same uvicorn
+  command manually from the project venv for live HTTP verification; systemd
+  subsequently reclaimed the service and is active on port 8088.
+- `GET /api/sqlws/config` — OK, returned `['HCM', 'FSCM']`.
+- `GET /api/peoplesoft/graph/ci/CI_JOB_DATA?env=HCM` — OK, returned
+  `ci:CI_JOB_DATA` with 504 nodes and 988 edges.
+- `GET /api/peoplesoft/trees?env=HCM&q=DEPT&limit=10` — OK, returned Tree rows
+  with `treename` and `treestrctpnm`.
+- `GET /api/peoplesoft/search?env=HCM&q=DEPT&limit=25` — OK, returned unique
+  Tree names in global search.
+- `GET /api/peoplesoft/graph/tree/DEPT_SECURITY?env=HCM` — OK, returned
+  `tree:DEPT_SECURITY` with 4 nodes and 4 edges.
+
+Next recommended work:
+- Continue relationship extraction with a similarly small provider, likely
+  Page or Component after comparing current graph output.
+
+------------------------------------------------------------------------
+
 ## 2026-06-30 — Oracle ASH Integration + Runtime Monitor Alerts
 
 **Oracle ASH (V$ACTIVE_SESSION_HISTORY) is now accessible** following the AE/Oracle grant

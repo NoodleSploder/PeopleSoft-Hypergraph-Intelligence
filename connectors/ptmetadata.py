@@ -527,10 +527,10 @@ OBJECT_REGISTRY.setdefault("tree", {
     "icon": "git-branch",
     "graph_node_type": "tree",
     "object_page": "/admin/object/tree/{name}",
-    "discovery": {"table": "PSTREEDEFN", "name_column": "TREENAME"},
-    "search": {"table": "PSTREEDEFN", "name_column": "TREENAME",
+    "discovery": {"table": "PSTREEDEFN", "name_column": "TREE_NAME"},
+    "search": {"provider": "tree", "table": "PSTREEDEFN", "name_column": "TREE_NAME",
                "description_columns": ["DESCR"],
-               "extra_search_columns": ["TREESTRCTPNM", "SETID", "OBJECTOWNERID"]},
+               "extra_search_columns": ["TREE_STRCT_ID", "SETID"]},
     "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
     "relationships": [
         {"edge_type": "USES", "target_type": "record", "direction": "out", "label": "Structure Record"},
@@ -1002,6 +1002,48 @@ def global_search(env, q, limit=20):
                         "description": description,
                         "score": score,
                         "icon": entry["icon"],
+                        "_links": {"admin": entry["object_page"].format(name=name)},
+                    })
+            except Exception as exc:
+                results.append({
+                    "type": object_type, "name": None,
+                    "description": f"Search failed: {exc}",
+                    "score": 0, "icon": entry["icon"], "error": True,
+                })
+            continue
+
+        if provider.get("provider") == "tree":
+            try:
+                rows = psdb.search_trees(env, q=q, limit=limit)
+                seen_names = set()
+                for row in rows:
+                    name = str(row.get("treename") or "").strip()
+                    if not name:
+                        continue
+                    if name.upper() in seen_names:
+                        continue
+                    seen_names.add(name.upper())
+
+                    name_upper = name.upper()
+                    score = 10
+                    if name_upper == q.upper():
+                        score += 100
+                    elif name_upper.startswith(q.upper()):
+                        score += 50
+
+                    results.append({
+                        "type": object_type,
+                        "name": name,
+                        "description": row.get("descr") or "",
+                        "score": score,
+                        "icon": entry["icon"],
+                        "metadata": {
+                            "setid": row.get("setid"),
+                            "setcntrlvalue": row.get("setcntrlvalue"),
+                            "tree_structure": row.get("treestrctpnm"),
+                            "effdt": row.get("effdt"),
+                            "status": row.get("eff_status"),
+                        },
                         "_links": {"admin": entry["object_page"].format(name=name)},
                     })
             except Exception as exc:
