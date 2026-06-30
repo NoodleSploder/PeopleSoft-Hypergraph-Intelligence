@@ -191,9 +191,17 @@
 -   IB linkage
 -   Graph provider
 
+### Completed
+
+-   Application Package UOM: `app_package_object()` / `sections_for_app_package()` /
+    `app_package_payload()` backed by PSPACKAGEDEFN + PSAPPCLASSDEFN + PSPCMPROG
+    (objectid1=104); Object Explorer canonical pages; global search provider;
+    selector wired into Graph Explorer and Object Explorer; objectid1=104 corrected
+    from "IB Handler" to "App Package Class" across PEOPLECODE_OBJECT_TYPES,
+    \_OID1_PARENT_TYPES, and decode_semantic_path()
+
 ### Remaining
 
--   Application Package parsing
 -   Larger source pagination
 
 ------------------------------------------------------------------------

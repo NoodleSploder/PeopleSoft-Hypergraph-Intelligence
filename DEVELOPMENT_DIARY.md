@@ -1582,3 +1582,25 @@ deep-linking between the AE Object Explorer and the Runtime Monitor.
   Runtime Instances: 20 items, first 3 show title=#606394, chip=Success,
   duration=15s, _links.admin=/admin/runtime?instance=606394.
 - Deep-link `/admin/runtime?instance=606394` supported by URL param handler.
+
+---
+
+## 2026-06-30 — Application Package UOM (Priority #8)
+
+**What changed:**
+- `connectors/peoplecode.py` — corrected objectid1=104 from "Handler (IB new)" to "App Package Class". Updated `PEOPLECODE_OBJECT_TYPES`, `_OID1_PARENT_TYPES`, and `decode_semantic_path()` to properly parse the variable-depth path structure (OV1=packageroot, OV2..OVn-1=qualifypath segments, OVn=OnExecute).
+- `connectors/ptmetadata.py` — wired `application_package` in `OBJECT_REGISTRY` with real PSPACKAGEDEFN discovery/search; added `app_package` custom search provider in `global_search()` (searches PACKAGEROOT + DESCR, returns root-level packages distinct). Also wired `application_class` with PSAPPCLASSDEFN discovery.
+- `connectors/uom.py` — added `app_package_object()`, `sections_for_app_package()`, `app_package_payload()`. Sections: Definition (PSPACKAGEDEFN PACKAGELEVEL=0), Sub-Packages (PACKAGELEVEL>0), Classes (PSAPPCLASSDEFN with qualifypath+classid), PeopleCode (PSPCMPROG objectid1=104 grouped by class).
+- `routers/peoplesoft.py` — added `application_package` branch to canonical object dispatcher calling `app_package_payload()`.
+- `routers/admin.py` — added App Package option to Object Explorer and Graph Explorer selectors; updated `inferObject()` for packageroot, `labelFor()` for packageroot+appclassid, `_DETAIL_SKIP` for packageroot/appclassid/qualifypath/full_path; added TYPE_CHIP_CFG entries for application_package and application_class.
+
+**Data confirmed:**
+- PSPACKAGEDEFN: 4245 rows, PSAPPCLASSDEFN: 12622 rows — both accessible
+- objectid1=104 in PSPCMPROG: 15300 programs — ALL are App Package class PeopleCode (not IB handlers; IB handler classes ARE app classes)
+- Largest packages: HRS_CANDIDATE_MANAGER (303 classes), PTUNI_REVIEW (256), HCR_PERSON_SERVICES (250)
+- HRS_COMMON: 91 sub-packages, 170 classes, 160 PeopleCode programs
+
+**Live test results:**
+- `/api/peoplesoft/object/application_package/HRS_COMMON?env=HCM` → 4 sections, 170 classes ✓
+- Global search "HRS_CANDID" → application_package HRS_CANDIDATE_MANAGER score=66 ✓
+- Object Explorer `/admin/object/application_package/HRS_COMMON` → renders with "App Package" chip ✓

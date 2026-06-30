@@ -12,10 +12,10 @@ PEOPLECODE_OBJECT_TYPES = {
     43: "Menu",
     46: "Menu Item",
     58: "Component Interface",
-    60: "Subscription",       # IB subscription PeopleCode (OV1=service_op, OV3="Subscription")
-    66: "Application Engine", # AE PeopleCode (OV1=applid, OV2=section, OV6=step, OV7=OnExecute)
+    60: "Subscription",        # IB subscription PeopleCode (OV1=service_op, OV3="Subscription")
+    66: "Application Engine",  # AE PeopleCode (OV1=applid, OV2=section, OV6=step, OV7=OnExecute)
     74: "Component Interface",
-    104: "Handler",           # IB handler PeopleCode (OV1=service_op, OV3=OnExecute)
+    104: "App Package Class",  # App Package class PeopleCode (OV1=packageroot, OV2...=path, OVn-1=classid, OVn=OnExecute)
 }
 
 # Known PeopleCode event names (uppercase for comparison)
@@ -294,12 +294,20 @@ def decode_semantic_path(row):
         ]
         event_scope = "component_interface"
     elif oid1 == 104:
-        path = [
-            _path_item("service_operation", ov[1]),
-            _path_item("handler", ov[2]),
-            _path_item("event", event_label(event)),
-        ]
-        event_scope = "ib_handler"
+        # App Package class PeopleCode: OV1=packageroot, OV2...(n-1)=path, OVn=OnExecute
+        # Collect all non-blank OVs; the last one is the event, the rest form the class path
+        parts = [ov[i] for i in range(1, 8) if ov[i]]
+        if len(parts) >= 2:
+            pkg_parts = parts[:-1]   # everything before the event
+            path = [_path_item("application_package", pkg_parts[0])]
+            if len(pkg_parts) > 2:
+                path.append(_path_item("sub_package", ":".join(pkg_parts[1:-1])))
+            if len(pkg_parts) > 1:
+                path.append(_path_item("app_class", pkg_parts[-1]))
+            path.append(_path_item("event", event_label(event)))
+        else:
+            path = [_path_item("application_package", ov[1]), _path_item("event", event_label(event))]
+        event_scope = "app_package_class"
     else:
         path = [_path_item(f"objectvalue{i}", ov[i]) for i in range(1, 8)]
 
@@ -324,7 +332,7 @@ _OID1_PARENT_TYPES = {
     60: "service_operation",    # IB subscription PeopleCode: OV1 = service op name
     66: "application_engine",   # AE PeopleCode: OV1 = AE applid
     74: "component_interface",
-    104: "service_operation",   # IB handler PeopleCode: OV1 = service op name
+    104: "application_package", # App Package class PeopleCode: OV1 = package root
 }
 
 

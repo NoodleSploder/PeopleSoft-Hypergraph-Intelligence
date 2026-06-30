@@ -3559,6 +3559,255 @@ def ci_payload(ci):
     }
 
 
+def app_package_object(env, package_name):
+    package_name = package_name.strip().upper()
+    warnings = []
+    defn = {}
+    sub_packages = []
+    classes = []
+    peoplecode_items = []
+
+    if not ptmetadata.has_table(env, "PSPACKAGEDEFN"):
+        warnings.append(ptmetadata.warning("no_access", "PSPACKAGEDEFN not accessible"))
+        return canonical_base(
+            env, "application_package", package_name,
+            display_name=package_name, status="unavailable", warnings=warnings,
+            _links={"admin": object_url("application_package", package_name)},
+            _metadata={"environment": env.upper()},
+        )
+
+    try:
+        defn_cols = psdb.select_existing_columns(
+            env, "PSPACKAGEDEFN",
+            ["PACKAGEROOT", "PACKAGEID", "QUALIFYPATH", "PACKAGELEVEL", "DESCR",
+             "VERSION", "LASTUPDDTTM", "LASTUPDOPRID", "OBJECTOWNERID"],
+            required=["PACKAGEROOT"],
+        )
+        rows = psdb.query(env, f"""
+            SELECT {", ".join(defn_cols)}
+              FROM SYSADM.PSPACKAGEDEFN
+             WHERE PACKAGEROOT = :pkg AND PACKAGELEVEL = 0
+             FETCH FIRST 1 ROWS ONLY
+        """, {"pkg": package_name})
+        if rows:
+            defn = dict(rows[0])
+    except Exception as exc:
+        warnings.append(ptmetadata.warning("query_error", str(exc)))
+
+    try:
+        sp_rows = psdb.query(env, """
+            SELECT QUALIFYPATH, PACKAGELEVEL, DESCR
+              FROM SYSADM.PSPACKAGEDEFN
+             WHERE PACKAGEROOT = :pkg AND PACKAGELEVEL > 0
+             ORDER BY QUALIFYPATH
+        """, {"pkg": package_name})
+        sub_packages = [dict(r) for r in sp_rows]
+    except Exception as exc:
+        warnings.append(ptmetadata.warning("sub_packages_error", str(exc)))
+
+    if ptmetadata.has_table(env, "PSAPPCLASSDEFN"):
+        try:
+            cls_rows = psdb.query(env, """
+                SELECT APPCLASSID, QUALIFYPATH, DESCR
+                  FROM SYSADM.PSAPPCLASSDEFN
+                 WHERE PACKAGEROOT = :pkg
+                 ORDER BY QUALIFYPATH, APPCLASSID
+            """, {"pkg": package_name})
+            classes = [dict(r) for r in cls_rows]
+        except Exception as exc:
+            warnings.append(ptmetadata.warning("classes_error", str(exc)))
+
+    if ptmetadata.has_table(env, "PSPCMPROG"):
+        try:
+            pc_rows = psdb.query(env, """
+                SELECT DISTINCT OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3,
+                       OBJECTVALUE4, OBJECTVALUE5
+                  FROM SYSADM.PSPCMPROG
+                 WHERE OBJECTID1 = 104 AND OBJECTVALUE1 = :pkg
+                 ORDER BY OBJECTVALUE2, OBJECTVALUE3, OBJECTVALUE4
+                 FETCH FIRST 500 ROWS ONLY
+            """, {"pkg": package_name})
+            peoplecode_items = [dict(r) for r in pc_rows]
+        except Exception as exc:
+            warnings.append(ptmetadata.warning("peoplecode_error", str(exc)))
+
+    descr = str(defn.get("descr") or "").strip() or None
+    owner = str(defn.get("objectownerid") or "").strip() or None
+    version = str(defn.get("version") or "").strip() or None
+
+    return {
+        "environment": env.upper(),
+        "type": "application_package",
+        "name": package_name,
+        "display_name": package_name,
+        "description": descr,
+        "status": "resolved" if defn else "partial",
+        "definition": {
+            k: v for k, v in defn.items()
+            if v not in (None, "", " ")
+        },
+        "sub_packages": sub_packages,
+        "classes": classes,
+        "peoplecode": peoplecode_items,
+        "counts": {
+            "sub_packages": len(sub_packages),
+            "classes": len(classes),
+            "peoplecode_programs": len(peoplecode_items),
+        },
+        "warnings": warnings,
+        "_links": {"admin": object_url("application_package", package_name)},
+        "_metadata": {
+            "environment": env.upper(),
+            "descr": descr,
+            "owner": owner,
+            "version": version,
+        },
+    }
+
+
+def sections_for_app_package(pkg):
+    sections = []
+    warnings = list(pkg.get("warnings") or [])
+    defn = pkg.get("definition") or {}
+    counts = pkg.get("counts") or {}
+
+    overview_fields = {}
+    if defn.get("descr"):
+        overview_fields["Description"] = defn["descr"]
+    if defn.get("objectownerid"):
+        overview_fields["Owner"] = defn["objectownerid"]
+    if defn.get("version"):
+        overview_fields["Version"] = defn["version"]
+    if defn.get("lastupdoprid"):
+        overview_fields["Last Updated By"] = defn["lastupdoprid"]
+    if defn.get("lastupddttm"):
+        overview_fields["Last Updated"] = str(defn["lastupddttm"])
+
+    sections.append({
+        "name": "Definition",
+        "items": [],
+        "data": overview_fields or defn,
+    })
+
+    # Sub-packages (folder structure)
+    sub_pkgs = pkg.get("sub_packages") or []
+    if sub_pkgs:
+        sp_items = []
+        for sp in sub_pkgs:
+            qpath = str(sp.get("qualifypath") or "").strip()
+            descr = str(sp.get("descr") or "").strip()
+            level = sp.get("packagelevel", 1)
+            item = {
+                "title": qpath,
+                "description": descr or None,
+                "level": level,
+                "qualifypath": qpath,
+            }
+            sp_items.append(item)
+        sections.append({
+            "name": "Sub-Packages",
+            "items": sp_items,
+            "data": {"count": len(sp_items)},
+        })
+
+    # Classes grouped by qualifypath
+    classes = pkg.get("classes") or []
+    if classes:
+        cls_items = []
+        for cls in classes:
+            classid = str(cls.get("appclassid") or "").strip()
+            qpath = str(cls.get("qualifypath") or "").strip()
+            descr = str(cls.get("descr") or "").strip()
+            full_path = f"{pkg['name']}:{qpath}:{classid}" if qpath else f"{pkg['name']}:{classid}"
+            item = {
+                "title": classid,
+                "description": descr or None,
+                "qualifypath": qpath or None,
+                "full_path": full_path,
+                "relationship": qpath or pkg["name"],
+            }
+            cls_items.append(item)
+        sections.append({
+            "name": "Classes",
+            "items": cls_items,
+            "data": {"count": len(cls_items)},
+        })
+
+    # PeopleCode programs grouped by class
+    pc_items = pkg.get("peoplecode") or []
+    if pc_items:
+        seen = set()
+        pc_display = []
+        for row in pc_items:
+            parts = [
+                str(row.get(f"objectvalue{i}") or "").strip()
+                for i in range(2, 6)
+                if str(row.get(f"objectvalue{i}") or "").strip()
+            ]
+            # last part is the event (OnExecute), second-to-last is the class
+            if len(parts) >= 2:
+                class_name = parts[-2]
+                event = parts[-1]
+                sub_path = ":".join(parts[:-2]) if len(parts) > 2 else None
+            elif parts:
+                class_name = parts[0]
+                event = "OnExecute"
+                sub_path = None
+            else:
+                continue
+
+            key = (sub_path or "", class_name)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            full_ref = f"{pkg['name']}:{':'.join(parts[:-1])}"
+            pc_display.append({
+                "title": class_name,
+                "sub_package": sub_path,
+                "event": event,
+                "full_ref": full_ref,
+                "relationship": sub_path or pkg["name"],
+            })
+
+        sections.append({
+            "name": "PeopleCode",
+            "items": pc_display,
+            "data": {"programs": len(pc_items), "classes": len(seen)},
+        })
+
+    if warnings:
+        sections.append({"name": "Warnings", "items": [], "data": {"warnings": warnings}})
+
+    return sections
+
+
+def app_package_payload(env, package_name):
+    pkg = app_package_object(env, package_name)
+    counts = pkg.get("counts") or {}
+    defn = pkg.get("definition") or {}
+    descr = pkg.get("description") or ""
+
+    return {
+        "environment": env.upper(),
+        "type": "application_package",
+        "name": package_name,
+        "display_name": package_name,
+        "description": descr,
+        "status": pkg.get("status", "partial"),
+        "overview": {
+            "description": descr,
+            "owner": str(defn.get("objectownerid") or "").strip() or None,
+            "version": str(defn.get("version") or "").strip() or None,
+            "sub_packages": counts.get("sub_packages", 0),
+            "classes": counts.get("classes", 0),
+            "peoplecode_programs": counts.get("peoplecode_programs", 0),
+        },
+        "sections": sections_for_app_package(pkg),
+        "_links": pkg["_links"], "_uom": pkg,
+    }
+
+
 def canonical_object(env, object_type, name):
     object_type = object_type.lower()
     if object_type == "component_interface":
@@ -3604,6 +3853,8 @@ def canonical_object(env, object_type, name):
         return tree_object(env, name)
     if object_type == "ci":
         return ci_object(env, name)
+    if object_type == "application_package":
+        return app_package_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])

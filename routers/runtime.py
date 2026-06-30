@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from connectors import execution
+from connectors import execution, psdb
 
 router = APIRouter(prefix="/api/runtime", tags=["Runtime"])
 
@@ -93,6 +93,12 @@ def runtime_ib(env: str = "HCM"):
 def runtime_user_sessions(env: str = "HCM", limit: int = 50):
     """Return recent/active PeopleSoft user sessions from PSACCESSLOG."""
     return execution.user_sessions(env, limit=limit)
+
+
+@router.get("/servers")
+def runtime_servers(env: str = "HCM"):
+    """Return Process Scheduler server status from PSSERVERSTAT."""
+    return psdb.process_scheduler_servers(env)
 
 
 @router.get("/graph")

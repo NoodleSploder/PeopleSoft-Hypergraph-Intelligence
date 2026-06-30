@@ -343,18 +343,21 @@ OBJECT_REGISTRY = {
         "icon": "package",
         "graph_node_type": "application_package",
         "object_page": "/admin/object/application_package/{name}",
-        "discovery": None,
-        "search": None,
-        "supported_versions": ["planned"],
+        "discovery": {"table": "PSPACKAGEDEFN", "name_column": "PACKAGEROOT"},
+        "search": {"provider": "app_package", "table": "PSPACKAGEDEFN", "name_column": "PACKAGEROOT",
+                   "description_columns": ["DESCR"]},
+        "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
     },
     "application_class": {
         "display_title": "Application Class",
         "icon": "box",
         "graph_node_type": "application_class",
         "object_page": "/admin/object/application_class/{name}",
-        "discovery": None,
-        "search": None,
-        "supported_versions": ["planned"],
+        "discovery": {"table": "PSAPPCLASSDEFN", "name_column": "APPCLASSID"},
+        "search": {"table": "PSAPPCLASSDEFN", "name_column": "APPCLASSID",
+                   "description_columns": ["DESCR"],
+                   "extra_search_columns": ["PACKAGEROOT", "QUALIFYPATH"]},
+        "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
     },
     "sql_definition": {
         "display_title": "SQL Definition",
@@ -893,6 +896,47 @@ def global_search(env, q, limit=20):
                     "score": 0,
                     "icon": entry["icon"],
                     "error": True,
+                })
+            continue
+
+        if provider.get("provider") == "app_package":
+            try:
+                table_name = provider["table"]
+                if not has_table(env, table_name):
+                    continue
+                rows = psdb.query(env, f"""
+                    SELECT DISTINCT PACKAGEROOT as name, MAX(DESCR) as description,
+                           COUNT(*) as class_count
+                      FROM sysadm.PSPACKAGEDEFN
+                     WHERE UPPER(PACKAGEROOT) LIKE :pat
+                        OR UPPER(DESCR) LIKE :pat
+                     GROUP BY PACKAGEROOT
+                     ORDER BY PACKAGEROOT
+                     FETCH FIRST {limit} ROWS ONLY
+                """, {"pat": f"%{q.upper()}%"})
+                for row in rows:
+                    name = str(row.get("name") or "").strip()
+                    if not name:
+                        continue
+                    description = str(row.get("description") or "").strip() or None
+                    score = 16
+                    if name.upper() == q.upper():
+                        score += 100
+                    elif name.upper().startswith(q.upper()):
+                        score += 50
+                    results.append({
+                        "type": object_type,
+                        "name": name,
+                        "description": description,
+                        "score": score,
+                        "icon": entry["icon"],
+                        "_links": {"admin": entry["object_page"].format(name=name)},
+                    })
+            except Exception as exc:
+                results.append({
+                    "type": object_type, "name": None,
+                    "description": f"Search failed: {exc}",
+                    "score": 0, "icon": entry["icon"], "error": True,
                 })
             continue
 

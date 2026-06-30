@@ -332,6 +332,9 @@ def object_payload(env, object_type, object_name):
             raise HTTPException(status_code=404, detail="Component Interface not found")
         return attach_graph_context(uom.ci_payload(ci_obj), env)
 
+    if object_type == "application_package":
+        return uom.app_package_payload(env, object_name)
+
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
 

@@ -3303,3 +3303,61 @@ def security_report(env_name, report_type, limit=100):
             "note": f"Query failed: {exc}",
             "available_reports": list(REPORTS.keys()),
         }
+
+
+PSSERVERSTAT_STATUS_LABELS = {
+    "0": "Unknown",
+    "1": "Stopped",
+    "2": "Starting",
+    "3": "Running",
+    "4": "Stopping",
+    "5": "Error",
+    "6": "Suspended",
+}
+
+PSSERVERSTAT_DAEMON_LABELS = {
+    "0": "None",
+    "1": "Restart",
+    "2": "Stop",
+    "3": "Reload",
+}
+
+
+def process_scheduler_servers(env_name):
+    """Return Process Scheduler server status rows from PSSERVERSTAT."""
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSSERVERSTAT"):
+        return {"items": [], "warnings": ["PSSERVERSTAT not accessible"]}
+
+    cols = select_existing_columns(
+        env_name, "PSSERVERSTAT",
+        ["SERVERNAME", "SERVERSTATUS", "BEGINDTTM", "LASTUPDDTTM",
+         "SRVRHOSTNAME", "SERVERACTION", "DAEMONACTION", "DAEMONPROCESSID",
+         "SCHDLROESRVCNT", "SCHDLRAESRVCNT", "MAXCPU", "MINMEM",
+         "PRCSTHRESHOLD", "PRCSDISKSPACE", "ORDERNO"],
+        required=["SERVERNAME"],
+    )
+    try:
+        rows = query(env_name, f"""
+            SELECT {", ".join(cols)}
+              FROM sysadm.psserverstat
+             ORDER BY serverstatus DESC, lastupddttm DESC
+        """, {})
+    except Exception as exc:
+        return {"items": [], "warnings": [f"PSSERVERSTAT query failed: {exc}"]}
+
+    items = []
+    for row in rows:
+        item = dict(row)
+        status_code = str(item.get("serverstatus") or "")
+        item["serverstatus_label"] = PSSERVERSTAT_STATUS_LABELS.get(status_code, f"Status {status_code}")
+        daemon_code = str(item.get("daemonaction") or "")
+        item["daemonaction_label"] = PSSERVERSTAT_DAEMON_LABELS.get(daemon_code, "")
+        items.append(item)
+
+    running = sum(1 for i in items if str(i.get("serverstatus") or "") == "3")
+    return {
+        "items": items,
+        "counts": {"total": len(items), "running": running, "stopped": len(items) - running},
+        "warnings": [],
+    }

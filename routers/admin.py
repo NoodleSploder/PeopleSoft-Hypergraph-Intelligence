@@ -1366,6 +1366,7 @@ def admin_graph():
                 <option value="query">PS Query</option>
                 <option value="tree">Tree</option>
                 <option value="ci">Component Interface</option>
+                <option value="application_package">App Package</option>
             </select>
             <input id="objectName" placeholder="Object name">
             <button onclick="loadGraph()">Explore</button>
@@ -1854,6 +1855,7 @@ def object_explorer_page(object_type="", object_name=""):
                 <option value="query">PS Query</option>
                 <option value="tree">Tree</option>
                 <option value="ci">Component Interface</option>
+                <option value="application_package">App Package</option>
             </select>
             <input id="objectName" placeholder="Object name">
             <button onclick="openTypedObject()">Open</button>
@@ -1966,6 +1968,7 @@ function inferObject(row) {
     if (row.portal_objname) return objectUrl('portal_registry', row.portal_objname);
     if (row.tree_name) return objectUrl('tree', row.tree_name);
     if (row.bcname) return objectUrl('ci', row.bcname);
+    if (row.packageroot) return objectUrl('application_package', row.packageroot);
     return null;
 }
 
@@ -1977,6 +1980,7 @@ function labelFor(row) {
         row.routingdefnname || row.msgnodename || row.queuename || row.ptibapplname ||
         row.ib_operationname || row.ae_step || row.tree_name || row.tree_node || row.tree_branch || row.range_from ||
         row.bcname || row.bcitemname ||
+        row.packageroot || row.appclassid ||
         row.objectvalue1 || '(item)';
 }
 
@@ -1984,7 +1988,7 @@ const _DETAIL_SKIP = new Set([
     '_links','title','label','name','reference','oprid','roleuser','rolename','classid','pnlgrpname','pnlname',
     'recname','fieldname','portal_objname','menuname','routingdefnname','msgnodename','queuename','ptibapplname',
     'ib_operationname','ae_step','ae_section','ae_applid','tree_name','tree_node','tree_branch','range_from',
-    'bcname','bcitemname','objectvalue1',
+    'bcname','bcitemname','objectvalue1','packageroot','appclassid','qualifypath','full_path',
     'has_peoplecode','encoded_reference','source','progseq','objectid1',
     'portal_permtype_label','portal_reftype_label','portal_reftype','portal_permtype',
     'authorizedactions','displayonly','raw_authorizedactions','raw_displayonly',
@@ -2383,6 +2387,8 @@ const TYPE_CHIP_CFG = {
     node:               {label:'IB Node',       bg:'#1a1800',border:'#ccaa0044',color:'#ccaa00'},
     queue:              {label:'IB Queue',       bg:'#180018',border:'#cc66ff44',color:'#cc66ff'},
     routing:            {label:'IB Routing',    bg:'#001818',border:'#00aabb44',color:'#00aabb'},
+    application_package:{label:'App Package',   bg:'#180a1a',border:'#cc44ff44',color:'#cc44ff'},
+    application_class:  {label:'App Class',     bg:'#12081a',border:'#aa33ee44',color:'#aa33ee'},
 };
 
 function typeChipHtml(type) {
@@ -3711,6 +3717,12 @@ select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
   </div>
 </div>
 
+<!-- ── Process Scheduler Servers ── -->
+<div class="card">
+  <h2>Process Scheduler Servers</h2>
+  <div id="srvArea"><span class="muted" style="font-size:12px">Loading…</span></div>
+</div>
+
 <!-- ── Process Scheduler ── -->
 <div class="card">
   <h2>Process Scheduler</h2>
@@ -4032,6 +4044,40 @@ async function loadStatus() {
   }
 }
 
+async function loadServers() {
+  const env = $('envSel').value;
+  if (!env) { $('srvArea').innerHTML = '<span class="muted" style="font-size:12px">No environment selected.</span>'; return; }
+  try {
+    const d = await api(`/api/runtime/servers?env=${env}`);
+    const items = d.items || [];
+    if (!items.length) {
+      $('srvArea').innerHTML = '<span class="muted" style="font-size:12px">PSSERVERSTAT not accessible or no servers found.</span>';
+      return;
+    }
+    const STATUS_CLS = { '3': 'chip-success', '2': 'chip-warn', '1': 'chip-muted', '5': 'chip-error' };
+    let html = '<table><thead><tr><th>Server</th><th>Status</th><th>Host</th><th>AE Servers</th><th>Max CPU</th><th>Last Updated</th></tr></thead><tbody>';
+    for (const s of items) {
+      const cls = STATUS_CLS[String(s.serverstatus)] || 'chip-muted';
+      const dt = (s.lastupddttm || '').replace('T',' ').substr(0,19);
+      html += `<tr>
+        <td class="mono">${esc(s.servername||'')}</td>
+        <td><span class="chip ${cls}" style="font-size:10px;padding:2px 8px;">${esc(s.serverstatus_label||'')}</span></td>
+        <td class="mono" style="font-size:11px">${esc(s.srvrhostname||'')}</td>
+        <td style="text-align:center">${s.schdlraesrvcnt ?? '—'}</td>
+        <td style="text-align:center">${s.maxcpu ?? '—'}</td>
+        <td class="mono" style="font-size:10px">${dt}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    if (d.warnings && d.warnings.length) {
+      html += d.warnings.map(w => `<div class="alert-box" style="margin-top:6px">${esc(w)}</div>`).join('');
+    }
+    $('srvArea').innerHTML = html;
+  } catch(e) {
+    $('srvArea').innerHTML = `<span class="muted" style="font-size:12px">Servers unavailable: ${esc(e.message)}</span>`;
+  }
+}
+
 async function loadProcesses() {
   const env = $('envSel').value;
   if (!env) return;
@@ -4166,7 +4212,7 @@ ${d.prcsservername ? `<div class="p-field"><span class="p-label">Process Server<
 
 async function refresh() {
   $('lastTs').textContent = 'Refreshing…';
-  await Promise.allSettled([loadStatus(), loadProcesses(), loadOracle()]);
+  await Promise.allSettled([loadStatus(), loadServers(), loadProcesses(), loadOracle()]);
   $('lastTs').textContent = 'Last: ' + new Date().toLocaleTimeString();
   if (autoR) {
     clearTimeout(arTimer);
