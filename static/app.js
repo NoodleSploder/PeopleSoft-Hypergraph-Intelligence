@@ -1,70 +1,92 @@
+/* DeathStar shared frontend — env selector persistence + sync */
+
 (function () {
-    const LINKS = [
-        { label: "Home", href: "/static/index.html" },
-        { label: "API Docs", href: "/docs" },
-        { label: "Tracing Config", href: "/api/tracing/config" },
-        { label: "Live Events", href: "/api/live/events" },
-        { label: "IB Nodes", href: "/api/ib/nodes" },
-        { label: "Build HCM Graph", href: "/api/graph/build?env=HCM" },
-        { label: "Build FSCM Graph", href: "/api/graph/build?env=FSCM" },
-    ];
+    'use strict';
 
-    function isActive(href) {
-        const currentPath = window.location.pathname;
-        const currentSearch = window.location.search;
-        const url = new URL(href, window.location.origin);
+    const LS_KEY = 'ps_env';
 
-        if (url.pathname === "/static/index.html" && (currentPath === "/" || currentPath === "/static/index.html")) {
-            return true;
-        }
-
-        if (url.pathname !== currentPath) {
-            return false;
-        }
-
-        if (!url.search) {
-            return true;
-        }
-
-        return url.search === currentSearch;
+    function getStoredEnv() {
+        try { return localStorage.getItem(LS_KEY) || ''; } catch (_) { return ''; }
+    }
+    function setStoredEnv(val) {
+        try { localStorage.setItem(LS_KEY, val); } catch (_) {}
     }
 
-    function createBanner() {
-        if (document.querySelector(".pe-shell-banner")) {
-            return;
+    /* Sync per-page legacy #envSel (if present) to the chosen value and
+       fire its change event so the page JS reacts. */
+    function syncPageEnvSel(val) {
+        const ps = document.getElementById('envSel');
+        if (ps && ps.value !== val) {
+            ps.value = val;
+            ps.dispatchEvent(new Event('change'));
+        }
+    }
+
+    /* Populate all .ds-env-sel selects from /api/sqlws/config, then restore
+       the saved selection and sync any legacy #envSel on the page. */
+    function initGlobalEnv() {
+        const selects = document.querySelectorAll('.ds-env-sel');
+        const saved = getStoredEnv();
+
+        /* Always seed legacy #envSel if already rendered with options */
+        const ps = document.getElementById('envSel');
+        if (ps && saved) {
+            if (ps.querySelector('option[value="' + saved + '"]')) ps.value = saved;
         }
 
-        const banner = document.createElement("div");
-        banner.className = "pe-shell-banner";
+        if (!selects.length) return;
 
-        const brand = document.createElement("a");
-        brand.className = "pe-shell-brand";
-        brand.href = "/static/index.html";
-        brand.textContent = "PeopleSoft Explorer";
-        banner.appendChild(brand);
+        fetch('/api/sqlws/config')
+            .then(r => r.json())
+            .then(data => {
+                const envs = (data.environments || []).map(e => e.name || e);
+                selects.forEach(sel => {
+                    const cur = sel.value || saved;
+                    sel.innerHTML = '';
+                    envs.forEach(e => {
+                        const o = document.createElement('option');
+                        o.value = o.textContent = e;
+                        if (e === cur) o.selected = true;
+                        sel.appendChild(o);
+                    });
+                    if (!sel.value && saved) sel.value = saved;
 
-        const nav = document.createElement("nav");
-        nav.className = "pe-shell-nav";
-        nav.setAttribute("aria-label", "PeopleSoft Explorer navigation");
+                    sel.addEventListener('change', () => {
+                        const v = sel.value;
+                        setStoredEnv(v);
+                        /* sync sibling .ds-env-sel selects */
+                        document.querySelectorAll('.ds-env-sel').forEach(s => {
+                            if (s !== sel) s.value = v;
+                        });
+                        /* sync legacy page #envSel */
+                        syncPageEnvSel(v);
+                        /* call page hook if defined */
+                        if (typeof window.onEnvChange === 'function') window.onEnvChange(v);
+                    });
+                });
 
-        LINKS.forEach((item) => {
-            const link = document.createElement("a");
-            link.href = item.href;
-            link.textContent = item.label;
-            if (isActive(item.href)) {
-                link.className = "active";
-                link.setAttribute("aria-current", "page");
-            }
-            nav.appendChild(link);
-        });
-
-        banner.appendChild(nav);
-        document.body.insertBefore(banner, document.body.firstChild);
+                /* After populating, seed legacy #envSel */
+                const chosen = selects[0] && selects[0].value;
+                if (chosen) syncPageEnvSel(chosen);
+            })
+            .catch(() => {
+                /* config fetch failed — restore saved value if options exist */
+                selects.forEach(sel => {
+                    if (saved && sel.querySelector('option[value="' + saved + '"]')) {
+                        sel.value = saved;
+                    }
+                });
+                if (saved) syncPageEnvSel(saved);
+            });
     }
 
-    if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", createBanner);
-    } else {
-        createBanner();
-    }
-}());
+    document.addEventListener('DOMContentLoaded', initGlobalEnv);
+
+    /* Expose helpers for pages */
+    window.dsGetEnv = function () {
+        const sel = document.querySelector('.ds-env-sel');
+        return sel ? sel.value : getStoredEnv();
+    };
+    window.dsSetEnv = setStoredEnv;
+    window.dsGetStoredEnv = getStoredEnv;
+})();

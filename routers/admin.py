@@ -5,21 +5,128 @@ from fastapi.responses import HTMLResponse
 
 router = APIRouter(prefix="/admin", tags=["DeathStar Admin"])
 
+# ── Navigation items ───────────────────────────────────────────────────────
+_NAV = [
+    ("home",       "Home",          "/admin/"),
+    ("users",      "Users",         "/admin/users"),
+    ("runtime",    "Runtime",       "/admin/runtime"),
+    ("sqlws",      "SQL Workspace", "/admin/sqlws"),
+    ("ib",         "IB Explorer",   "/admin/ib"),
+    ("envcompare", "Env Compare",   "/admin/envcompare"),
+    ("tools",      "Tools",         "/admin/tools"),
+    ("docs",       "Docs",          "/admin/docs"),
+]
+
+
+def _shell(title: str, active: str, content: str, env: bool = True, noscroll: bool = False) -> str:
+    """Render a complete HTML page with the standard two-level shell."""
+    nav_links = '<a class="ds-brand" href="/admin">&#x25cf; PeopleSoft Explorer</a>'
+    for key, label, href in _NAV:
+        cls = "ds-nav-link ds-active" if key == active else "ds-nav-link"
+        nav_links += f'<a class="{cls}" href="{href}">{label}</a>'
+
+    env_html = ""
+    if env:
+        env_html = (
+            '<div class="ds-env">'
+            '<span class="ds-env-lbl">Env</span>'
+            '<select class="ds-env-sel" id="globalEnv"></select>'
+            '</div>'
+        )
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DeathStar — {title}</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js"></script>
+</head>
+<body>
+<nav class="ds-nav">{nav_links}</nav>
+<div class="ds-page-hdr">
+  <span class="ds-page-title">{title}</span>
+  {env_html}
+</div>
+<div class="{'ds-content ds-noscroll' if noscroll else 'ds-content'}">
+{content}
+</div>
+</body>
+</html>"""
+
 
 @router.get("/", response_class=HTMLResponse)
 def admin_home():
-    return """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>DeathStar Admin</title>
+    return _shell("Home", "home", env=False, content="""\
+<div class="pe-home">
+  <div class="pe-hero">
+    <p class="pe-kicker">DeathStar Platform</p>
+    <h1>PeopleSoft Explorer</h1>
+    <p>Unified diagnostic, development, security, and monitoring
+    console for PeopleSoft environments.</p>
+    <div class="pe-actions">
+      <a href="/admin/runtime">Runtime Monitor</a>
+      <a href="/admin/sqlws">SQL Workspace</a>
+      <a href="/admin/ib">IB Explorer</a>
+      <a href="/admin/envcompare">Env Compare</a>
+    </div>
+  </div>
+  <div class="pe-grid">
+    <div class="pe-card">
+      <span>Identity &amp; Security</span>
+      User management, operator search, role explorer, permission analysis.
+      <div style="margin-top:8px;font-size:11px">
+        <a href="/admin/users">Users</a> &middot;
+        <a href="/admin/operator">Operators</a> &middot;
+        <a href="/admin/role">Roles</a> &middot;
+        <a href="/admin/security">Security Explorer</a>
+      </div>
+    </div>
+    <div class="pe-card">
+      <span>Object Exploration</span>
+      Browse records, fields, components, pages, PeopleCode, and AE programs.
+      <div style="margin-top:8px;font-size:11px">
+        <a href="/admin/record">Records</a> &middot;
+        <a href="/admin/field">Fields</a> &middot;
+        <a href="/admin/peoplecode">PeopleCode</a> &middot;
+        <a href="/admin/objects">Object Explorer</a>
+      </div>
+    </div>
+    <div class="pe-card">
+      <span>Integration &amp; Tracing</span>
+      Integration Broker, transaction tracing, and process monitoring.
+      <div style="margin-top:8px;font-size:11px">
+        <a href="/admin/ib">IB Explorer</a> &middot;
+        <a href="/admin/tracing">Transaction Tracing</a> &middot;
+        <a href="/admin/runtime">Runtime Monitor</a>
+      </div>
+    </div>
+    <div class="pe-card">
+      <span>Analytics &amp; Tools</span>
+      Knowledge Graph, SQL Workspace, environment comparison, platform tools.
+      <div style="margin-top:8px;font-size:11px">
+        <a href="/admin/sqlws">SQL Workspace</a> &middot;
+        <a href="/admin/envcompare">Env Compare</a> &middot;
+        <a href="/admin/tools">Tools</a> &middot;
+        <a href="/admin/graph">Graph Explorer</a>
+      </div>
+    </div>
+  </div>
+</div>""")
+
+
+@router.get("/users", response_class=HTMLResponse)
+def admin_users():
+    return _shell("User Management", "users", content="""\
+<div style="padding:24px">
     <style>
         body {
             background: #050b12;
             color: #d7faff;
             font-family: Arial, sans-serif;
             margin: 0;
-            padding: 40px;
+            padding: 0;
         }
 
         h1 {
@@ -73,46 +180,7 @@ def admin_home():
         a:hover {
             text-decoration: underline;
         }
-    </style>
-</head>
-<body>
-    <h1>DEATHSTAR ADMIN</h1>
-
-    <div class="card">
-        <h2>Navigation</h2>
-        <a href="/admin/runtime">Runtime Monitor</a>
-        <br>
-        <a href="/admin/security">PeopleSoft Security Explorer</a>
-        <br>
-        <a href="/admin/graph">PeopleSoft Graph Explorer</a>
-        <br>
-        <a href="/admin/object">PeopleSoft Object Explorer</a>
-        <br>
-        <a href="/admin/portal">Portal Explorer</a>
-        <br>
-        <a href="/admin/metadata">PeopleTools Metadata Engine</a>
-        <br>
-        <a href="/admin/graphdb">DeathStar Knowledge Graph</a>
-        <br>
-        <a href="/admin/sqlws">SQL Workspace</a>
-        <br>
-        <a href="/admin/ib">Integration Broker Explorer</a>
-        <br>
-        <a href="/admin/envcompare">Environment Comparison</a>
-        <br>
-        <a href="/admin/tracing">Transaction Tracing</a>
-        <br>
-        <a href="/admin/record">Record Explorer</a>
-        &nbsp;&nbsp;|&nbsp;&nbsp;
-        <a href="/admin/field">Field Explorer</a>
-        &nbsp;&nbsp;|&nbsp;&nbsp;
-        <a href="/admin/peoplecode">PeopleCode Explorer</a>
-        &nbsp;&nbsp;|&nbsp;&nbsp;
-        <a href="/admin/role">Role Explorer</a>
-        &nbsp;&nbsp;|&nbsp;&nbsp;
-        <a href="/admin/operator">Operator Explorer</a>
-    </div>
-
+</style>
     <div class="card">
         <h2>Authelia Users</h2>
 
@@ -414,25 +482,19 @@ async function loadAudit() {
 
 init();
 </script>
-</body>
-</html>
-"""
+</div>""")
 
 
 @router.get("/security", response_class=HTMLResponse)
 def admin_security():
-    return """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>DeathStar Security Explorer</title>
+    return _shell("Security Explorer", "security", content="""\
     <style>
         body {
             background: #050b12;
             color: #d7faff;
             font-family: Arial, sans-serif;
             margin: 0;
-            padding: 40px;
+            padding: 0;
         }
 
         h1 {
@@ -557,12 +619,7 @@ def admin_security():
                 grid-template-columns: 1fr;
             }
         }
-    </style>
-</head>
-<body>
-    <h1>SECURITY EXPLORER</h1>
-    <a href="/admin/">Back to Admin</a>
-
+</style>
     <div class="card">
         <div class="toolbar">
             <input id="roleSearch" placeholder="Filter roles">
@@ -1123,26 +1180,19 @@ async function loadReport() {
         document.getElementById('reportNote').textContent = 'Error: ' + e.message;
     }
 }
-</script>
-</body>
-</html>
-"""
+</script>""")
 
 
 @router.get("/graph", response_class=HTMLResponse)
 def admin_graph():
-    return """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>DeathStar Graph Explorer</title>
+    return _shell("Graph Explorer", "graphdb", content="""\
     <style>
         body {
             background: #050b12;
             color: #d7faff;
             font-family: Arial, sans-serif;
             margin: 0;
-            padding: 40px;
+            padding: 0;
         }
 
         h1 {
@@ -1282,12 +1332,7 @@ def admin_graph():
             font-size: 12px;
             min-height: 36px;
         }
-    </style>
-</head>
-<body>
-    <h1>GRAPH EXPLORER</h1>
-    <a href="/admin/">Back to Admin</a>
-
+</style>
     <div class="card">
         <div class="toolbar">
             <select id="objectType">
@@ -1597,25 +1642,18 @@ function showTab(name) {
   document.getElementById('tabVisual').classList.toggle('active', name==='visual');
   if (name==='visual' && _kgNodes.length) kgDrawSvg();
 }
-</script>
-</body>
-</html>
-"""
+</script>""")
 
 
 def object_explorer_page(object_type="", object_name=""):
-    html = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>DeathStar Object Explorer</title>
-    <style>
+    html = _shell("Object Explorer", "objects", content="""\
+<style>
         body {
             background: #050b12;
             color: #d7faff;
             font-family: Arial, sans-serif;
             margin: 0;
-            padding: 40px;
+            padding: 0;
         }
 
         h1 {
@@ -1734,12 +1772,7 @@ def object_explorer_page(object_type="", object_name=""):
                 grid-template-columns: 1fr;
             }
         }
-    </style>
-</head>
-<body>
-    <h1>OBJECT EXPLORER</h1>
-    <a href="/admin/">Back to Admin</a>
-
+</style>
     <div class="card">
         <div class="toolbar">
             <input id="globalSearch" placeholder="Search PeopleSoft objects">
@@ -2416,14 +2449,13 @@ if (INITIAL_TYPE && INITIAL_NAME) {
     loadObject(INITIAL_TYPE, INITIAL_NAME, {updateUrl: false});
 }
 </script>
-</body>
-</html>
-"""
-    return (
+""")
+    html = (
         html
         .replace("__OBJECT_TYPE__", json.dumps(object_type))
         .replace("__OBJECT_NAME__", json.dumps(object_name))
     )
+    return html
 
 
 @router.get("/object", response_class=HTMLResponse)
@@ -2438,18 +2470,14 @@ def admin_object(object_type: str, object_name: str):
 
 @router.get("/portal", response_class=HTMLResponse)
 def admin_portal():
-    return """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>DeathStar Portal Explorer</title>
+    return _shell("Portal Explorer", "objects", content="""\
     <style>
         body {
             background: #050b12;
             color: #d7faff;
             font-family: Arial, sans-serif;
             margin: 0;
-            padding: 32px;
+            padding: 0;
         }
 
         h1 {
@@ -2588,14 +2616,7 @@ def admin_portal():
                 grid-template-columns: 1fr;
             }
         }
-    </style>
-</head>
-<body>
-    <h1>PORTAL EXPLORER</h1>
-    <a href="/admin/">Back to Admin</a>
-    &nbsp;|&nbsp;
-    <a id="objectLink" href="/admin/object">Open in Object Explorer</a>
-
+</style>
     <div class="card toolbar">
         <input id="searchText" placeholder="Search content references">
         <button onclick="searchPortal()">Search</button>
@@ -2825,26 +2846,19 @@ const params = new URLSearchParams(window.location.search);
 if (params.get('portal')) {
     loadPortal(params.get('portal'));
 }
-</script>
-</body>
-</html>
-"""
+</script>""")
 
 
 @router.get("/metadata", response_class=HTMLResponse)
 def admin_metadata():
-    return """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>DeathStar Metadata Engine</title>
+    return _shell("Metadata Engine", "objects", content="""\
     <style>
         body {
             background: #050b12;
             color: #d7faff;
             font-family: Arial, sans-serif;
             margin: 0;
-            padding: 40px;
+            padding: 0;
         }
 
         h1 {
@@ -2932,12 +2946,7 @@ def admin_metadata():
                 grid-template-columns: 1fr;
             }
         }
-    </style>
-</head>
-<body>
-    <h1>METADATA ENGINE</h1>
-    <a href="/admin/">Back to Admin</a>
-
+</style>
     <div class="card">
         <button onclick="loadMetadata()">Refresh</button>
         <button onclick="clearCache()">Clear Cache</button>
@@ -3089,26 +3098,19 @@ async function loadMetadata() {
 }
 
 loadMetadata();
-</script>
-</body>
-</html>
-"""
+</script>""")
 
 
 @router.get("/graphdb", response_class=HTMLResponse)
 def admin_graphdb():
-    return """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>DeathStar Knowledge Graph</title>
+    return _shell("Knowledge Graph", "graphdb", content="""\
     <style>
         body {
             background: #050b12;
             color: #d7faff;
             font-family: Arial, sans-serif;
             margin: 0;
-            padding: 40px;
+            padding: 0;
         }
 
         h1 {
@@ -3200,12 +3202,7 @@ def admin_graphdb():
                 grid-template-columns: 1fr;
             }
         }
-    </style>
-</head>
-<body>
-    <h1>KNOWLEDGE GRAPH</h1>
-    <a href="/admin/">Back to Admin</a>
-
+</style>
     <div class="card">
         <button onclick="buildGraph()">Rebuild Graph</button>
         <button onclick="clearGraph()">Clear Graph</button>
@@ -3485,21 +3482,14 @@ document.getElementById('searchText').addEventListener('keydown', event => {
 
 loadStats();
 loadSnapshots();
-</script>
-</body>
-</html>
-"""
+</script>""")
 
 
 @router.get("/runtime", response_class=HTMLResponse)
 def admin_runtime():
-    return """
-<!DOCTYPE html>
-<html>
-<head>
-<title>DeathStar Runtime Monitor</title>
+    return _shell("Runtime Monitor", "runtime", noscroll=False, content="""\
 <style>
-body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:20px;}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;}
 h1{color:#00e5ff;text-shadow:0 0 12px #00e5ff;letter-spacing:4px;margin-bottom:4px;}
 h2{color:#00e5ff;border-bottom:1px solid #00e5ff33;padding-bottom:6px;font-size:13px;
    letter-spacing:2px;text-transform:uppercase;margin:20px 0 10px;}
@@ -3576,22 +3566,12 @@ nav a{color:#00e5ff;text-decoration:none;} nav a:hover{text-decoration:underline
   background:rgba(0,0,0,.5);z-index:999;}
 .overlay.open{display:block;}
 </style>
-</head>
-<body>
 <div class="overlay" id="overlay" onclick="closeProc()"></div>
 <div id="procPanel">
   <button class="close-btn" onclick="closeProc()">&#x2715;</button>
   <h1 style="font-size:14px;margin:0 0 4px;color:#00e5ff;">PROCESS DETAIL</h1>
   <div id="procPanelBody"></div>
 </div>
-<h1>&#9889; RUNTIME MONITOR</h1>
-<nav>
-  <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
-  <a href="/admin/object">Objects</a> &nbsp;&middot;&nbsp;
-  <a href="/admin/security">Security</a> &nbsp;&middot;&nbsp;
-  <a href="/admin/graphdb">Knowledge Graph</a>
-</nav>
-
 <div class="ctrl">
   <div><span class="lbl">Environment</span><select id="envSel" onchange="refresh()"></select></div>
   <div><span class="lbl">Oracle DB</span><select id="dbSel" onchange="refresh()"></select></div>
@@ -4199,18 +4179,12 @@ async function loadRtGraph() {
   await refresh();
   arTimer = setTimeout(refresh, INTERVAL);
 })();
-</script>
-</body>
-</html>
-"""
+</script>""")
 
 
 @router.get("/sqlws", response_class=HTMLResponse)
 def admin_sqlws():
-    return r"""<!DOCTYPE html>
-<html>
-<head>
-<title>DeathStar SQL Workspace</title>
+    return _shell("SQL Workspace", "sqlws", noscroll=True, content="""\
 <style>
 *{box-sizing:border-box;}
 body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;height:100vh;display:flex;flex-direction:column;}
@@ -4297,17 +4271,6 @@ tr:hover td{background:rgba(0,229,255,.04);}
 .ac-detail{color:#445;font-size:10px;text-align:right;}
 .ac-type-col{color:#00e5ff44;font-size:9px;text-transform:uppercase;}
 </style>
-</head>
-<body>
-
-<div class="topbar">
-  <h1>&#9889; SQL WORKSPACE</h1>
-  <nav><a href="/admin">Home</a> &nbsp;&middot;&nbsp; <a href="/admin/runtime">Runtime</a> &nbsp;&middot;&nbsp; <a href="/admin/object">Objects</a></nav>
-  <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
-    <span class="lbl" style="margin:0;">Env</span>
-    <select id="envSel" style="width:90px;"></select>
-  </div>
-</div>
 
 <div class="main">
 
@@ -5110,20 +5073,14 @@ async function deleteHistory(id) {
     _bindDetectTimer = setTimeout(() => _detectBinds($('sqlInput').value), 400);
   });
 })();
-</script>
-</body>
-</html>
-"""
+</script>""")
 
 
 @router.get("/ib", response_class=HTMLResponse)
 @router.get("/ib/{section}", response_class=HTMLResponse)
 @router.get("/ib/{section}/{name}", response_class=HTMLResponse)
 def admin_ib(section: str = None, name: str = None):
-    return """<!DOCTYPE html>
-<html>
-<head>
-<title>DeathStar — Integration Broker Explorer</title>
+    return _shell("IB Explorer", "ib", noscroll=True, content="""\
 <style>
 *{box-sizing:border-box;}
 body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;display:flex;flex-direction:column;height:100vh;}
@@ -5209,22 +5166,6 @@ a.obj-link:hover{text-decoration:underline;}
 .detail-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;height:60%;color:#223;font-size:13px;gap:8px;}
 .detail-placeholder svg{opacity:.15;}
 </style>
-</head>
-<body>
-
-<div class="topbar">
-  <h1>&#127760; INTEGRATION BROKER EXPLORER</h1>
-  <nav>
-    <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
-    <a href="/admin/runtime">Runtime</a> &nbsp;&middot;&nbsp;
-    <a href="/admin/object">Objects</a> &nbsp;&middot;&nbsp;
-    <a href="/admin/sqlws">SQL Workspace</a>
-  </nav>
-  <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
-    <span class="lbl" style="margin:0;">Env</span>
-    <select id="envSel" onchange="reload()"></select>
-  </div>
-</div>
 
 <div class="main">
 
@@ -6066,18 +6007,141 @@ function reload() {
     switchTab('overview');
   }
 })();
-</script>
-</body>
-</html>
-"""
+</script>""")
+
+
+@router.get("/tools", response_class=HTMLResponse)
+def admin_tools():
+    return _shell("Tools", "tools", env=False, content="""\
+<style>
+.tools-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;padding:20px;}
+.tool-card{border:1px solid rgba(0,229,255,.2);background:rgba(0,20,30,.7);padding:0;}
+.tool-card-head{padding:12px 16px;border-bottom:1px solid rgba(0,229,255,.1);display:flex;align-items:center;gap:10px;}
+.tool-card-icon{font-size:20px;}
+.tool-card-title{font-size:12px;font-weight:700;letter-spacing:1px;color:var(--cyan,#00e5ff);text-transform:uppercase;}
+.tool-card-body{padding:14px 16px;}
+.tool-card-body p{font-size:11px;color:#7faab2;line-height:1.55;margin:0 0 12px;}
+.tool-link{display:block;padding:7px 10px;border:1px solid rgba(0,229,255,.2);color:#00e5ff;
+           font-size:11px;margin-bottom:6px;text-decoration:none;background:rgba(0,229,255,.04);}
+.tool-link:hover{background:rgba(0,229,255,.12);border-color:rgba(0,229,255,.5);}
+.tool-link-ext::after{content:" ↗";opacity:.6;}
+.build-row{display:flex;gap:6px;margin-top:8px;}
+#buildStatus{font-size:11px;color:#7faab2;padding:4px 0;}
+</style>
+
+<div class="tools-grid">
+
+  <!-- Tracing Config -->
+  <div class="tool-card">
+    <div class="tool-card-head">
+      <span class="tool-card-icon">&#9881;</span>
+      <span class="tool-card-title">Tracing Config</span>
+    </div>
+    <div class="tool-card-body">
+      <p>View and update the active request tracing configuration. Controls which operations are traced and at what verbosity.</p>
+      <a class="tool-link tool-link-ext" href="/api/tracing/config" target="_blank">View Tracing Config (JSON)</a>
+      <a class="tool-link" href="/admin/tracing">&#9741; Transaction Tracing</a>
+    </div>
+  </div>
+
+  <!-- Live Events -->
+  <div class="tool-card">
+    <div class="tool-card-head">
+      <span class="tool-card-icon">&#9670;</span>
+      <span class="tool-card-title">Live Events</span>
+    </div>
+    <div class="tool-card-body">
+      <p>Server-sent event stream of real-time system events. Connect from a browser or curl to watch events as they happen.</p>
+      <a class="tool-link tool-link-ext" href="/api/live/events" target="_blank">Open Live Event Stream</a>
+    </div>
+  </div>
+
+  <!-- IB Nodes -->
+  <div class="tool-card">
+    <div class="tool-card-head">
+      <span class="tool-card-icon">&#128279;</span>
+      <span class="tool-card-title">IB Nodes</span>
+    </div>
+    <div class="tool-card-body">
+      <p>Raw JSON listing of all Integration Broker nodes discovered across connected environments.</p>
+      <a class="tool-link tool-link-ext" href="/api/ib/nodes" target="_blank">View IB Nodes (JSON)</a>
+      <a class="tool-link" href="/admin/ib">&#127760; IB Explorer</a>
+    </div>
+  </div>
+
+  <!-- Knowledge Graph Build -->
+  <div class="tool-card">
+    <div class="tool-card-head">
+      <span class="tool-card-icon">&#9672;</span>
+      <span class="tool-card-title">Knowledge Graph</span>
+    </div>
+    <div class="tool-card-body">
+      <p>Trigger a full rebuild of the in-memory PeopleSoft knowledge graph for HCM or FSCM. Rebuilds are incremental when a prior graph exists.</p>
+      <div class="build-row">
+        <button onclick="buildGraph('HCM')">Build HCM Graph</button>
+        <button onclick="buildGraph('FSCM')">Build FSCM Graph</button>
+      </div>
+      <div id="buildStatus"></div>
+      <a class="tool-link" href="/admin/graphdb" style="margin-top:10px;">&#9672; Knowledge Graph Explorer</a>
+    </div>
+  </div>
+
+  <!-- API Docs -->
+  <div class="tool-card">
+    <div class="tool-card-head">
+      <span class="tool-card-icon">&#128218;</span>
+      <span class="tool-card-title">API Docs</span>
+    </div>
+    <div class="tool-card-body">
+      <p>Interactive Swagger UI for all DeathStar REST endpoints. Try out queries directly from the browser.</p>
+      <a class="tool-link tool-link-ext" href="/docs" target="_blank">Open Swagger UI</a>
+      <a class="tool-link tool-link-ext" href="/redoc" target="_blank">ReDoc Reference</a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+async function buildGraph(env) {
+    const el = document.getElementById('buildStatus');
+    el.textContent = `Building ${env} graph…`;
+    try {
+        const r = await fetch(`/api/graph/build?env=${encodeURIComponent(env)}`);
+        const d = await r.json();
+        el.textContent = `${env}: ${d.status || 'done'} — ${d.nodes ?? '?'} nodes, ${d.edges ?? '?'} edges`;
+    } catch (e) {
+        el.textContent = `Error: ${e.message}`;
+    }
+}
+</script>""")
+
+@router.get("/docs", response_class=HTMLResponse)
+def admin_docs():
+    return _shell("Documentation", "docs", env=False, content="""\
+<div style="padding:32px;max-width:800px">
+  <h2>API Reference</h2>
+  <p style="color:var(--muted);font-size:12px;margin:6px 0 16px">Interactive OpenAPI documentation.</p>
+  <div class="pe-actions">
+    <a href="/docs" target="_blank">Swagger UI</a>
+    <a href="/redoc" target="_blank">ReDoc</a>
+  </div>
+  <h2 style="margin-top:32px">Platform Reference</h2>
+  <div class="pe-grid" style="margin-top:8px">
+    <div class="pe-card">
+      <span>Build Vertically</span>
+      Every module follows: connector &rarr; API &rarr; UOM &rarr; graph &rarr; UI &rarr; search &rarr; navigation.
+    </div>
+    <div class="pe-card">
+      <span>Safety Rules</span>
+      Never crash on missing Oracle grants. Use ptmetadata.has_table() and return warnings. Keep SQL in connectors, routers thin.
+    </div>
+  </div>
+</div>""")
 
 
 @router.get("/envcompare", response_class=HTMLResponse)
 def admin_envcompare():
-    return """<!DOCTYPE html>
-<html>
-<head>
-<title>DeathStar — Environment Comparison</title>
+    return _shell("Environment Comparison", "envcompare", noscroll=True, env=False, content="""\
 <style>
 *{box-sizing:border-box;}
 body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;display:flex;flex-direction:column;min-height:100vh;}
@@ -6137,18 +6201,6 @@ a.obj-link:hover{text-decoration:underline;}
 .spinner{display:none;color:#00e5ff;font-size:11px;margin-left:8px;}
 .spinner.on{display:inline;}
 </style>
-</head>
-<body>
-
-<div class="topbar">
-  <h1>&#9878; ENVIRONMENT COMPARISON</h1>
-  <nav>
-    <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
-    <a href="/admin/runtime">Runtime</a> &nbsp;&middot;&nbsp;
-    <a href="/admin/sqlws">SQL Workspace</a> &nbsp;&middot;&nbsp;
-    <a href="/admin/ib">IB Explorer</a>
-  </nav>
-</div>
 
 <div class="main">
 
@@ -6678,18 +6730,12 @@ function metaCells(r, type) {
   // If only one env, pick it for both (will show all-identical).
   loadSummary();
 })();
-</script>
-</body>
-</html>
-"""
+</script>""")
 
 
 @router.get("/tracing", response_class=HTMLResponse)
 def admin_tracing():
-    return """<!DOCTYPE html>
-<html>
-<head>
-<title>DeathStar — Transaction Tracing</title>
+    return _shell("Transaction Tracing", "runtime", noscroll=True, content="""\
 <style>
 *{box-sizing:border-box;}
 body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;display:flex;flex-direction:column;height:100vh;}
@@ -6761,33 +6807,22 @@ a.obj-link:hover{text-decoration:underline;}
 #opridSuggest .sug-item:hover{background:#0b2030;}
 .suggest-wrap{position:relative;display:inline-block;}
 </style>
-</head>
-<body>
 
-<div class="topbar">
-  <h1>&#9741; TRANSACTION TRACING</h1>
-  <nav>
-    <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
-    <a href="/admin/runtime">Runtime</a> &nbsp;&middot;&nbsp;
-    <a href="/admin/envcompare">Env Compare</a>
-  </nav>
-  <!-- Search bar -->
-  <div class="ctrl" style="margin:0;margin-left:16px;">
-    <span class="lbl">Env</span>
-    <select id="envSel" style="width:70px;"></select>
-    <span class="lbl">DB</span>
-    <select id="dbSel" style="width:80px;"></select>
-    <span class="lbl">OPRID</span>
-    <div class="suggest-wrap">
-      <input id="opridInput" type="text" placeholder="JSMITH" autocomplete="off"
-             oninput="suggestOprids()" onkeydown="handleKey(event)">
-      <div id="opridSuggest"></div>
-    </div>
-    <span class="lbl">Hours</span>
-    <input id="hoursInput" type="number" value="24" min="1" max="720">
-    <button id="traceBtn" onclick="runTrace()">Trace</button>
-    <span class="spin" id="spin">&#9679;&#9679;&#9679;</span>
+<div class="ds-toolbar">
+  <span class="lbl">Env</span>
+  <select id="envSel" style="width:70px;"></select>
+  <span class="lbl">DB</span>
+  <select id="dbSel" style="width:80px;"></select>
+  <span class="lbl">OPRID</span>
+  <div class="suggest-wrap" style="position:relative;">
+    <input id="opridInput" type="text" placeholder="JSMITH" autocomplete="off"
+           oninput="suggestOprids()" onkeydown="handleKey(event)">
+    <div id="opridSuggest"></div>
   </div>
+  <span class="lbl">Hours</span>
+  <input id="hoursInput" type="number" value="24" min="1" max="720" style="width:60px;">
+  <button id="traceBtn" onclick="runTrace()">Trace</button>
+  <span class="spin" id="spin">&#9679;&#9679;&#9679;</span>
 </div>
 
 <div class="main">
@@ -7083,19 +7118,13 @@ function collapseAll() {
     loadActive();
   }
 })();
-</script>
-</body>
-</html>
-"""
+</script>""")
 
 
 @router.get("/record", response_class=HTMLResponse)
 @router.get("/record/{recname}", response_class=HTMLResponse)
 def admin_record(recname: str = None):
-    return """<!DOCTYPE html>
-<html>
-<head>
-<title>DeathStar — Record Explorer</title>
+    return _shell("Record Explorer", "objects", noscroll=True, content="""\
 <style>
 *{box-sizing:border-box;}
 body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;display:flex;flex-direction:column;height:100vh;}
@@ -7164,21 +7193,6 @@ a.obj-link:hover{text-decoration:underline;}
 .spin.on{display:inline;}
 .rec-header{font-size:16px;font-family:monospace;color:#00e5ff;margin-bottom:4px;}
 </style>
-</head>
-<body>
-
-<div class="topbar">
-  <h1>&#9641; RECORD EXPLORER</h1>
-  <nav>
-    <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
-    <a href="/admin/object">Objects</a> &nbsp;&middot;&nbsp;
-    <a href="/admin/sqlws">SQL Workspace</a>
-  </nav>
-  <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
-    <span style="font-size:10px;color:#667;text-transform:uppercase;">Env</span>
-    <select id="envSel" onchange="clearRecord()"></select>
-  </div>
-</div>
 
 <div class="main">
 
@@ -7640,18 +7654,12 @@ function recRow(rec, onclick) {
   const match = path.match(/\\/admin\\/record\\/([^/]+)$/);
   if (match) loadRecord(decodeURIComponent(match[1]));
 })();
-</script>
-</body>
-</html>
-"""
+</script>""")
 
 
 @router.get("/field", response_class=HTMLResponse)
 def admin_field():
-    return """<!DOCTYPE html>
-<html>
-<head>
-<title>DeathStar Field Explorer</title>
+    return _shell("Field Explorer", "objects", noscroll=True, content="""\
 <style>
 *{box-sizing:border-box;}
 body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;height:100vh;display:flex;flex-direction:column;}
@@ -7704,22 +7712,6 @@ a.obj-link:hover{text-decoration:underline;}
 .search-row{display:flex;gap:6px;margin-bottom:8px;}
 .search-row input{flex:1;}
 </style>
-</head>
-<body>
-<div class="topbar">
-  <div>
-    <h1>&#8801; FIELD EXPLORER</h1>
-    <nav style="margin-top:4px;">
-      <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
-      <a href="/admin/record">Record Explorer</a> &nbsp;&middot;&nbsp;
-      <a href="/admin/object">Objects</a> &nbsp;&middot;&nbsp;
-      <a href="/admin/sqlws">SQL Workspace</a>
-    </nav>
-  </div>
-  <div style="margin-left:auto;display:flex;gap:12px;align-items:flex-end;">
-    <div><span class="lbl">Environment</span><select id="envSel" onchange="clearField()"></select></div>
-  </div>
-</div>
 <div class="main">
   <!-- Sidebar -->
   <div class="sidebar">
@@ -7957,19 +7949,13 @@ function setTab(name) {
     else loadField(fParam, null);
   }
 })();
-</script>
-</body>
-</html>
-"""
+</script>""")
 
 
 @router.get("/operator", response_class=HTMLResponse)
 @router.get("/operator/{oprid_val:path}", response_class=HTMLResponse)
 def admin_operator(oprid_val: str = None):
-    return """<!DOCTYPE html>
-<html>
-<head>
-<title>DeathStar Operator Explorer</title>
+    return _shell("Operator Explorer", "security", noscroll=True, content="""\
 <style>
 *{box-sizing:border-box;}
 body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;height:100vh;display:flex;flex-direction:column;}
@@ -8016,22 +8002,6 @@ a.obj-link:hover{text-decoration:underline;}
 .search-row{display:flex;gap:6px;margin-bottom:8px;}
 .search-row input{flex:1;}
 </style>
-</head>
-<body>
-<div class="topbar">
-  <div>
-    <h1>&#9786; OPERATOR EXPLORER</h1>
-    <nav style="margin-top:4px;">
-      <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
-      <a href="/admin/role">Role Explorer</a> &nbsp;&middot;&nbsp;
-      <a href="/admin/security">Security</a> &nbsp;&middot;&nbsp;
-      <a href="/admin/tracing">Transaction Trace</a>
-    </nav>
-  </div>
-  <div style="margin-left:auto;display:flex;gap:12px;align-items:flex-end;">
-    <div><span class="lbl">Environment</span><select id="envSel" onchange="clearOp()"></select></div>
-  </div>
-</div>
 <div class="main">
   <div class="sidebar">
     <h2>Operator Search</h2>
@@ -8227,19 +8197,13 @@ function setTab(name) {
     loadOp(opParam, el||null);
   }
 })();
-</script>
-</body>
-</html>
-"""
+</script>""")
 
 
 @router.get("/role", response_class=HTMLResponse)
 @router.get("/role/{rolename:path}", response_class=HTMLResponse)
 def admin_role(rolename: str = None):
-    return """<!DOCTYPE html>
-<html>
-<head>
-<title>DeathStar Role Explorer</title>
+    return _shell("Role Explorer", "security", noscroll=True, content="""\
 <style>
 *{box-sizing:border-box;}
 body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;height:100vh;display:flex;flex-direction:column;}
@@ -8291,22 +8255,6 @@ a.obj-link:hover{text-decoration:underline;}
 .search-row input{flex:1;}
 .count-tag{font-size:10px;color:#445;margin-bottom:6px;}
 </style>
-</head>
-<body>
-<div class="topbar">
-  <div>
-    <h1>&#9632; ROLE EXPLORER</h1>
-    <nav style="margin-top:4px;">
-      <a href="/admin">Home</a> &nbsp;&middot;&nbsp;
-      <a href="/admin/security">Security</a> &nbsp;&middot;&nbsp;
-      <a href="/admin/field">Field Explorer</a> &nbsp;&middot;&nbsp;
-      <a href="/admin/record">Record Explorer</a>
-    </nav>
-  </div>
-  <div style="margin-left:auto;display:flex;gap:12px;align-items:flex-end;">
-    <div><span class="lbl">Environment</span><select id="envSel" onchange="clearRole()"></select></div>
-  </div>
-</div>
 <div class="main">
   <!-- Sidebar -->
   <div class="sidebar">
@@ -8562,20 +8510,13 @@ function setTab(name) {
     loadRole(roleName, el || null);
   }
 })();
-</script>
-</body>
-</html>
-"""
+</script>""")
 
 
 @router.get("/peoplecode", response_class=HTMLResponse)
 @router.get("/peoplecode/{reference:path}", response_class=HTMLResponse)
 def admin_peoplecode(reference: str = None):
-    return """<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>PeopleCode Explorer — DeathStar</title>
+    return _shell("PeopleCode Explorer", "objects", noscroll=True, content="""\
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0d0d0d;color:#ccc;font-family:monospace;font-size:13px}
@@ -8590,7 +8531,7 @@ nav a:hover{color:#fff}
 .chip-row{display:flex;gap:6px;flex-wrap:wrap;padding:8px 16px;background:#111;border-bottom:1px solid #222}
 .type-chip{padding:3px 9px;border-radius:10px;font-size:11px;cursor:pointer;border:1px solid;opacity:0.5;transition:opacity .15s}
 .type-chip.on{opacity:1}
-.layout{display:flex;height:calc(100vh - 130px)}
+.layout{display:flex;flex:1;min-height:0;}
 .sidebar{width:400px;min-width:280px;border-right:1px solid #222;overflow-y:auto;flex-shrink:0}
 .detail-pane{flex:1;overflow-y:auto;padding:16px}
 .result-item{padding:8px 12px;border-bottom:1px solid #1a1a1a;cursor:pointer;display:flex;flex-direction:column;gap:3px}
@@ -8613,22 +8554,9 @@ nav a:hover{color:#fff}
 .ref{font-size:11px;color:#556;font-family:monospace;word-break:break-all}
 pre{background:#0a0a0a;border:1px solid #222;padding:12px;border-radius:3px;overflow-x:auto;font-size:11px;line-height:1.5;white-space:pre-wrap}
 </style>
-</head>
-<body>
-<nav>
-  <a href="/admin">Home</a>
-  <a href="/admin/object">Objects</a>
-  <a href="/admin/record">Records</a>
-  <a href="/admin/field">Fields</a>
-  <a href="/admin/peoplecode">PeopleCode</a>
-  <a href="/admin/role">Roles</a>
-  <a href="/admin/operator">Operators</a>
-  <a href="/admin/ib">IB Explorer</a>
-</nav>
-
-<div class="topbar">
-  <select id="envSel"><option value="HCM">HCM</option><option value="FSCM">FSCM</option></select>
-  <input type="text" id="searchQ" placeholder="Search PeopleCode (name, event, object)..." oninput="schedSearch()">
+<div class="ds-toolbar">
+  <select id="envSel"></select>
+  <input type="text" id="searchQ" placeholder="Search PeopleCode (name, event, object)..." oninput="schedSearch()" style="flex:1;">
   <button onclick="doSearch()">Search</button>
   <span id="resultCount" class="stat"></span>
 </div>
@@ -8864,7 +8792,4 @@ function highlightPeopleCode(source) {
     await loadPC(initRef);
   }
 })();
-</script>
-</body>
-</html>
-"""
+</script>""")

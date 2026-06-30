@@ -1,34 +1,88 @@
+# ============================================================
 # Python
+# ============================================================
+
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.so
+.python-version
+
+# Virtual environments
 .venv/
 venv/
 env/
 
-# Runtime / cache
+# ============================================================
+# Build / Test
+# ============================================================
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ============================================================
+# Runtime
+# ============================================================
+
 *.log
 *.pid
 .cache/
-.pytest_cache/
 
-# Secrets / local config
+logs/*
+!logs/.gitkeep
+
+# ============================================================
+# Generated Data
+# ============================================================
+
+# Generated knowledge graphs
+data/knowledge_graph_*.json
+
+# Graph snapshots
+data/graph_snapshots/*.json
+data/graph_snapshots/manifest.json
+!data/graph_snapshots/.gitkeep
+
+# SQL Workspace history
+data/sqlws_history.jsonl
+
+# Temporary files
+data/*.tmp
+
+# ============================================================
+# Secrets / Local Configuration
+# ============================================================
+
 config.json
+.env
+.env.*
+
 *.key
 *.pem
 *.crt
 *.p12
 *.jks
+
 keys/
-.env
-.env.*
 
-# Generated data
-data/knowledge_graph_*.json
-data/*.tmp
+# ============================================================
+# IDE / Editor
+# ============================================================
 
-# OS/editor
-.DS_Store
 .vscode/
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
 .idea/
+
+# ============================================================
+# Operating System
+# ============================================================
+
+.DS_Store
+Thumbs.db
