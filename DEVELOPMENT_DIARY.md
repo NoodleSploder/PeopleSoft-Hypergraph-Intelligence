@@ -6,6 +6,68 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-06-30 — Page UOM Relationship Graph Extraction
+
+Date/time: 2026-06-30 11:38 CDT
+
+Features implemented:
+- Continued the relationship-provider extraction roadmap slice by moving the
+  Page UOM graph preview onto the shared `relationship_graph()` helper.
+- Extended the helper to support explicit source-node types/names for inbound
+  edges such as Component -> Page and Permission List -> Page.
+- Added optional root-node data support so providers can preserve existing
+  root metadata when using the shared helper.
+- Added `limit_relationships()` so providers can keep existing preview caps
+  while declaring relationship graph specs.
+
+Files modified:
+- `connectors/uom.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Migrated the UOM Page graph builder only. The older router-specific
+  `/api/peoplesoft/graph/page/...` path still exists and should be reconciled
+  separately to avoid changing legacy graph behavior inside this slice.
+- Preserved the previous Page UOM preview caps: components 20, records 30,
+  fields 40, subpages 20, permission lists 40.
+- Preserved Page root metadata in graph preview nodes.
+
+Bugs fixed:
+- None; this was an internal maintainability slice.
+
+Technical debt:
+- Removed another ad hoc UOM graph loop.
+- Remaining debt: Record, Component, Portal, and security graph builders still
+  have imperative graph construction. The legacy router page graph also still
+  duplicates Page relationship logic.
+
+Verification:
+- `python -m py_compile connectors/uom.py connectors/ptmetadata.py connectors/psdb.py routers/peoplesoft.py routers/admin.py`
+  — OK; existing unrelated `routers/admin.py` invalid escape SyntaxWarning remains.
+- Direct `uom.page_object('HCM', 'JOB_DATA1')['_graph']` check returned 112
+  nodes and 111 edges, matching the pre-refactor UOM graph count.
+- Direct Page graph preview retained root page metadata (`pnlname=JOB_DATA1`)
+  and did not include the blank record node present in the older router graph.
+- Direct synthetic Tree and Component Interface graph checks still returned the
+  expected shared-helper edges.
+- Direct `uom.page_payload(...)` check showed Graph Preview `node_count=112`
+  and `edge_count=111`.
+- Reloaded `deathstar-api.service` by terminating the current unit PID and
+  allowing systemd to restart it; service came back active on port 8088.
+- `GET /api/peoplesoft/object/page/JOB_DATA1?env=HCM` — OK, Graph Preview
+  returned `node_count=112`, `edge_count=111`, and root node metadata retained
+  `pnlname=JOB_DATA1`.
+- `GET /api/sqlws/config` — OK baseline.
+
+Next recommended work:
+- Reconcile or retire the older router-specific Page graph path in favor of
+  UOM graph output.
+- Continue relationship extraction with Component or Record after capturing
+  before/after graph counts.
+
+------------------------------------------------------------------------
+
 ## 2026-06-30 — Shared UOM Relationship Graph Helper
 
 Date/time: 2026-06-30 11:11 CDT

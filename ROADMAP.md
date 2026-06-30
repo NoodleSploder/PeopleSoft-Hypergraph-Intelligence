@@ -134,7 +134,7 @@ Continue enriching graph relationships.
 
 Current work:
 
-- Shared UOM relationship graph helper introduced for Tree and Component Interface providers.
+- Shared UOM relationship graph helper introduced for Tree, Component Interface, and Page providers.
 - Continue migrating mature UOM providers from ad hoc graph loops to declarative relationship specs where behavior can be preserved.
 - Align UOM `_relationships`, UOM `_graph`, and Knowledge Graph ingestion around one relationship vocabulary.
 

@@ -239,25 +239,35 @@ def _relation_value(row, selector):
     return row.get(selector)
 
 
-def relationship_graph(root_type, root_name, relationships, specs):
+def relationship_graph(root_type, root_name, relationships, specs, root_data=None):
     """Build a small UOM graph from relationship rows and declarative specs."""
     root_name = root_name.upper()
     nodes = {}
     edges = []
 
-    add_node(nodes, graph_node(root_type, root_name))
+    add_node(nodes, graph_node(root_type, root_name, root_data))
 
     for spec in specs:
         rows = relationships.get(spec["relationship"], []) or []
         for row in rows:
             target_name = _relation_value(row, spec["target_name"])
+            source_name = _relation_value(row, spec["source_name"]) if spec.get("source_name") else root_name
             if target_name:
-                target_type = _relation_value(row, spec.get("target_type")) if spec.get("target_type") else spec["node_type"]
+                target_type = _relation_value(row, spec.get("target_type")) if spec.get("target_type") else (
+                    spec.get("target_node_type") or spec["node_type"]
+                )
                 target_type = target_type or spec["node_type"]
-                add_node(nodes, graph_node(target_type, target_name, row))
+                source_type = _relation_value(row, spec.get("source_type")) if spec.get("source_type") else (
+                    spec.get("source_node_type") or root_type
+                )
+                source_type = source_type or root_type
+                if spec.get("source_name"):
+                    add_node(nodes, graph_node(source_type, source_name, row))
+                if object_id(target_type, target_name) != object_id(root_type, root_name):
+                    add_node(nodes, graph_node(target_type, target_name, row))
                 edges.append(graph_edge(
-                    spec.get("source_type", root_type),
-                    _relation_value(row, spec["source_name"]) if spec.get("source_name") else root_name,
+                    source_type,
+                    source_name,
                     target_type,
                     target_name,
                     _relation_value(row, spec["edge"]) if spec.get("edge") else spec["default_edge"],
@@ -283,6 +293,13 @@ def relationship_graph(root_type, root_name, relationships, specs):
                 ))
 
     return {"nodes": list(nodes.values()), "edges": edges}
+
+
+def limit_relationships(relationships, limits):
+    limited = {}
+    for key, rows in relationships.items():
+        limited[key] = (rows or [])[:limits[key]] if key in limits else rows
+    return limited
 
 
 def field_graph(env, field_ref, relationships=None):
@@ -1795,34 +1812,56 @@ def page_object(env, page_name):
         "security": [attach_object_links(row, env) for row in security_items],
     }
 
-    nodes = {}
-    edges = []
-    add_node(nodes, graph_node("page", page_name, raw))
-    for component_row in (components or [])[:20]:
-        component_name = str(component_row.get("pnlgrpname") or "").strip()
-        if component_name:
-            add_node(nodes, graph_node("component", component_name, component_row))
-            edges.append(graph_edge("component", component_name, "page", page_name, "contains_page"))
-    for record in (records or [])[:30]:
-        recname = str(record.get("recname") or "").strip()
-        if recname:
-            add_node(nodes, graph_node("record", recname, record))
-            edges.append(graph_edge("page", page_name, "record", recname, "uses_record"))
-    for field in (fields or [])[:40]:
-        recname = str(field.get("recname") or "").strip()
-        fieldname = str(field.get("fieldname") or "").strip()
-        if recname and fieldname:
-            full_field = f"{recname}.{fieldname}"
-            add_node(nodes, graph_node("field", full_field, field))
-            edges.append(graph_edge("page", page_name, "field", full_field, "contains_field"))
-    for subpage in (subpages or [])[:20]:
-        subpage_name = str(subpage.get("pnlname") or "").strip()
-        if subpage_name:
-            add_node(nodes, graph_node("page", subpage_name, subpage))
-            edges.append(graph_edge("page", page_name, "page", subpage_name, "contains_subpage"))
-    for classid in sorted(permissionlists)[:40]:
-        add_node(nodes, graph_node("permissionlist", classid, {"classid": classid}))
-        edges.append(graph_edge("permissionlist", classid, "page", page_name, "secures_page"))
+    graph_relationships = limit_relationships(relationships, {
+        "components": 20,
+        "records": 30,
+        "fields": 40,
+        "subpages": 20,
+    })
+    graph_relationships["permissionlists"] = [
+        {"classid": classid}
+        for classid in sorted(permissionlists)[:40]
+    ]
+    graph = relationship_graph("page", page_name, graph_relationships, [
+        {
+            "relationship": "components",
+            "node_type": "page",
+            "source_node_type": "component",
+            "source_name": lambda row: str(row.get("pnlgrpname") or "").strip(),
+            "target_name": lambda row: page_name,
+            "default_edge": "contains_page",
+        },
+        {
+            "relationship": "records",
+            "node_type": "record",
+            "target_name": lambda row: str(row.get("recname") or "").strip(),
+            "default_edge": "uses_record",
+        },
+        {
+            "relationship": "fields",
+            "node_type": "field",
+            "target_name": lambda row: (
+                f"{str(row.get('recname') or '').strip()}.{str(row.get('fieldname') or '').strip()}"
+                if str(row.get("recname") or "").strip() and str(row.get("fieldname") or "").strip()
+                else ""
+            ),
+            "default_edge": "contains_field",
+        },
+        {
+            "relationship": "subpages",
+            "node_type": "page",
+            "target_name": lambda row: str(row.get("pnlname") or "").strip(),
+            "default_edge": "contains_subpage",
+        },
+        {
+            "relationship": "permissionlists",
+            "node_type": "page",
+            "source_node_type": "permissionlist",
+            "source_name": lambda row: str(row.get("classid") or "").strip(),
+            "target_name": lambda row: page_name,
+            "default_edge": "secures_page",
+        },
+    ], root_data=raw)
 
     return canonical_base(
         env, "page", page_name,
@@ -1836,7 +1875,7 @@ def page_object(env, page_name):
             "graph": graph_url("page", page_name),
         },
         _relationships=relationships,
-        _graph={"nodes": list(nodes.values()), "edges": edges},
+        _graph=graph,
         _metadata={
             "environment": env.upper(),
             "registry": ptmetadata.OBJECT_REGISTRY.get("page", {}),
