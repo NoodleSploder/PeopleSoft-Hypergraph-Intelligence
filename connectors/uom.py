@@ -4144,6 +4144,137 @@ def menu_payload(env, menuname):
     }
 
 
+_AW_STATUS_CHIP = {"A": ("chip-ok", "Active"), "I": ("chip-muted", "Inactive")}
+_AW_PROCESS_LABELS = {
+    "0": "No Approval", "1": "User", "2": "Role", "3": "Query",
+    "4": "App Class", "5": "Supervisory", "6": "Position",
+    "7": "Dept Security", "8": "Role User",
+}
+
+
+def approval_object(env, awdefnid):
+    data = psdb.get_approval(env, awdefnid.upper())
+    defn = data.get("definition")
+    return {
+        "environment": env.upper(),
+        "type": "approval",
+        "name": awdefnid.upper(),
+        "display_name": awdefnid.upper(),
+        "description": str(defn.get("descr") or "").strip() if defn else "",
+        "status": "resolved" if defn else "not_found",
+        "data": data,
+        "warnings": [{"code": w, "message": w} for w in data.get("warnings", [])],
+        "_links": {"admin": object_url("approval", awdefnid.upper())},
+    }
+
+
+def sections_for_approval(obj):
+    data = obj.get("data") or {}
+    defn = data.get("definition") or {}
+    stages = data.get("stages") or []
+    paths = data.get("paths") or []
+    steps = data.get("steps") or []
+    sections = []
+
+    overview = {}
+    if defn.get("descr"):
+        overview["Description"] = str(defn["descr"]).strip()
+    st = str(defn.get("status") or "").strip()
+    if st:
+        _, label = _AW_STATUS_CHIP.get(st, ("chip-muted", st))
+        overview["Status"] = label
+    if defn.get("objectownerid"):
+        overview["Owner"] = str(defn["objectownerid"]).strip()
+    if defn.get("lastupdoprid"):
+        overview["Last Updated By"] = str(defn["lastupdoprid"]).strip()
+    if defn.get("lastupddttm"):
+        overview["Last Updated"] = str(defn["lastupddttm"])
+    counts = data.get("counts") or {}
+    if counts:
+        overview["Stages"] = str(counts.get("stages", 0))
+        overview["Paths"] = str(counts.get("paths", 0))
+        overview["Steps"] = str(counts.get("steps", 0))
+    sections.append({"name": "Definition", "items": [], "data": overview})
+
+    if stages:
+        stage_items = []
+        # Group paths and steps by stage for display
+        paths_by_stage = {}
+        for p in paths:
+            sn = p.get("stage_no")
+            paths_by_stage.setdefault(sn, []).append(p)
+        steps_by_stage_path = {}
+        for st2 in steps:
+            key = (st2.get("stage_no"), st2.get("path_no"))
+            steps_by_stage_path.setdefault(key, []).append(st2)
+
+        for stage in stages:
+            sn = stage.get("stage_no")
+            pt_label = _AW_PROCESS_LABELS.get(str(stage.get("process_type") or ""), "")
+            stage_paths = paths_by_stage.get(sn, [])
+            stage_items.append({
+                "title": f"Stage {sn}: {str(stage.get('descr') or '').strip()}",
+                "relationship": pt_label or None,
+                "stage_no": sn,
+                "path_count": len(stage_paths),
+                "step_count": sum(
+                    len(steps_by_stage_path.get((sn, p.get("path_no")), []))
+                    for p in stage_paths
+                ),
+            })
+        sections.append({
+            "name": "Stages",
+            "items": stage_items,
+            "count": len(stage_items),
+        })
+
+    if steps:
+        step_items = []
+        for st3 in steps:
+            pt_label = _AW_PROCESS_LABELS.get(str(st3.get("process_type") or ""), "")
+            userlist = str(st3.get("awuserlistid") or "").strip()
+            step_items.append({
+                "title": (
+                    f"S{st3.get('stage_no')} P{st3.get('path_no')} "
+                    f"Step {st3.get('step_no')}: {str(st3.get('descr') or '').strip()}"
+                ),
+                "relationship": pt_label or None,
+                "userlist": userlist or None,
+            })
+        sections.append({"name": "Steps", "items": step_items, "count": len(step_items)})
+
+    return [s for s in sections if s.get("data") or s.get("items")]
+
+
+def approval_payload(env, awdefnid):
+    obj = approval_object(env, awdefnid)
+    data = obj.get("data") or {}
+    defn = data.get("definition") or {}
+    counts = data.get("counts") or {}
+    return {
+        "environment": env.upper(),
+        "type": "approval",
+        "name": awdefnid.upper(),
+        "display_name": awdefnid.upper(),
+        "description": obj.get("description", ""),
+        "status": obj.get("status", "unknown"),
+        "overview": {
+            "description": str(defn.get("descr") or "").strip(),
+            "status": str(defn.get("status") or "").strip(),
+            "status_label": obj.get("data", {}).get("definition", {}).get("status_label", ""),
+            "owner": str(defn.get("objectownerid") or "").strip() or None,
+            "last_updated_by": str(defn.get("lastupdoprid") or "").strip() or None,
+            "stage_count": counts.get("stages", 0),
+            "path_count": counts.get("paths", 0),
+            "step_count": counts.get("steps", 0),
+        },
+        "sections": sections_for_approval(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
 _MSG_SEVERITY_CHIP = {
     "0": ("chip-info",  "Message"),
     "1": ("chip-warn",  "Warning"),
@@ -4298,6 +4429,8 @@ def canonical_object(env, object_type, name):
         return menu_object(env, name)
     if object_type == "message_catalog":
         return message_catalog_object(env, name)
+    if object_type == "approval":
+        return approval_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])

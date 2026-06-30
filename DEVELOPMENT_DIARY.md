@@ -2050,3 +2050,79 @@ Previously completely absent from the platform.
 - `python -m py_compile connectors/psdb.py connectors/ptmetadata.py connectors/uom.py connectors/graphdb.py routers/peoplesoft.py routers/admin.py` → ALL OK (pre-existing `\-` warning in admin.py PC tokenizer regex, not introduced here)
 - `python3 -c "import main"` → OK
 - Live tests require DB access; message catalog tables (PSMSGCATDEFN, PSMSGSETDEFN) expected to be accessible given SYSADM schema grants on HCM.
+
+---
+
+## 2026-06-30 — Drift Detection & Approval Framework
+
+### Priority #10: Drift Detection (Graph Explorer DRIFT tab)
+
+**Goal:** Surface configuration drift by comparing the live in-memory graph against the most-recent snapshot directly inside the Object Explorer admin page.
+
+**`connectors/graphdb.py`**:
+- `drift(env, node_types, limit)` — loads the most-recent snapshot via `list_snapshots(env)["snapshots"][0]`, calls `load_snapshot()` to rehydrate, calls `current(env)` for the live graph, then delegates to `_diff_graphs(baseline, live, ...)`.
+- Wraps result with `baseline_snapshot` metadata and `drift_summary` dict: `new_count`, `removed_count`, `changed_count`, `new_by_type`, `removed_by_type`, `baseline_at`, `baseline_id`.
+- Semantics: `only_in_env2_nodes` = NEW objects (in live but not baseline), `only_in_env1_nodes` = REMOVED objects (in baseline but not live).
+
+**`routers/graphdb.py`**:
+- `GET /api/graphdb/drift?env=&node_types=&limit=` — thin router delegating to `graphdb.drift()`.
+
+**`routers/admin.py`**:
+- Added DRIFT tab button (`#tabDrift`) to Graph Explorer tab strip.
+- Added `#driftView` div: env selector, type-filter text input, "Check Drift" button, summary chips panel (new/removed/changed counts), side-by-side new/removed node panels, changed node panel.
+- `showTab()` extended to handle `'drift'` — shows `#driftView`, sets `#tabDrift.active`.
+- `runDrift()` JS function: calls `/api/graphdb/drift`, renders summary chips, populates `renderDriftNodes()` panels.
+- `renderDriftNodes(nodes, container)` — renders node cards with type chip, name, labels.
+- `renderDriftChanged(nodes, container)` — renders changed nodes showing which properties differed.
+
+**`scripts/smoke_admin_shell.py`**:
+- Graph Explorer check upgraded from `list/visual/impact` to `list/visual/impact/drift`: added `showTab('drift')`, asserts `#driftView` visible and `#tabDrift.active`.
+
+**Verification:**
+- `python -m py_compile` → OK on all modified files.
+- Live drift test: `drift('HCM')` against 7 existing HCM snapshots returned 0/0/0 (expected — no graph rebuild between snapshot and drift call).
+
+---
+
+### Priority #11: Approval Framework Vertical Slice
+
+**Goal:** Full end-to-end explorer for PeopleSoft Approval Framework workflow definitions (PSAWDEFN + sub-tables).
+
+**Data model:** PSAWDEFN (definition) → PSAWSTAGEDEFN (stages) → PSAWPATHDEFN (paths) → PSAWSTEPDEFN (steps). Sub-tables individually optional — each guarded by `has_table()`.
+
+**`connectors/psdb.py`**:
+- `_AW_STATUS` dict: `{"A": "Active", "I": "Inactive"}`
+- `_AW_PROCESS_TYPE` dict: maps `"0"`–`"8"` to No Approval / User / Role / Query / Application Class / Supervisory / Position / Department Security / Role User.
+- `search_approvals(env, q, status, limit)` — searches PSAWDEFN.AWDEFNID + DESCR; optional STATUS filter; returns list of `{awdefnid, descr, status, objectownerid, status_label}`.
+- `get_approval(env, awdefnid)` — fetches PSAWDEFN row; conditionally fetches each sub-table if present. Returns `{definition, stages, paths, steps, counts, warnings}`.
+
+**`connectors/ptmetadata.py`**:
+- `"approval"` entry promoted from planned to full `OBJECT_REGISTRY` entry: `display_title="Approval Framework"`, `icon="check-square"`, `discovery.table="PSAWDEFN"`, search on AWDEFNID + DESCR + OBJECTOWNERID.
+
+**`connectors/uom.py`**:
+- `_AW_STATUS_CHIP` and `_AW_PROCESS_LABELS` label dicts.
+- `approval_object(env, awdefnid)` — fetches raw data, wraps into canonical object dict.
+- `sections_for_approval(obj)` — produces three sections:
+  - "Definition": kv grid (Description, Status label, Owner, Last Updated By, Last Updated, stage/path/step counts).
+  - "Stages": one item per stage with `title="Stage N: {descr}"`, `relationship=process_type_label`, `path_count`, `step_count`.
+  - "Steps": one item per step with `title="SN PN Step N: {descr}"`, `relationship=process_type_label`, `userlist`.
+- `approval_payload(env, awdefnid)` — full UOM payload with `overview` kv grid keyed by `stage_count`, `path_count`, `step_count`, `status`, `owner`.
+- Wired into `canonical_object()`.
+
+**`connectors/graphdb.py`**:
+- `approvals()` provider added to `build()`: queries PSAWDEFN with ROWNUM limit, creates `approval` nodes. `has_table("PSAWDEFN")` guard.
+
+**`routers/peoplesoft.py`**:
+- `GET /api/peoplesoft/approvals?env=&q=&status=&limit=` — search endpoint.
+- `approval` wired into `object_payload()` dispatcher.
+
+**`routers/admin.py`**:
+- Added `("approval", "Approvals", "/admin/approval")` to `_NAV`.
+- `/admin/approval` page: two-panel layout; top bar has text search (`#awSearch`) + Status filter (All/Active/Inactive); sidebar shows approval definitions with status chip (Active=green/chip-ok, Inactive=grey/chip-muted) and description; detail panel shows stat boxes (stage/path/step counts), Stages section with process type chips, Steps section with S/P/Step references and process type chips; "Object Explorer ↗" link for each selected approval.
+
+**`scripts/smoke_admin_shell.py`**:
+- Added `/admin/approval` → marker `#awSearch`, env=True, nav=True. Harness now covers 15 pages.
+
+**Verification:**
+- `python -m py_compile routers/admin.py` → OK (pre-existing `\-` warning unchanged).
+- `python3 -c "import main"` → OK.

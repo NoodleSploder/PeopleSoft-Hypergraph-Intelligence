@@ -19,6 +19,7 @@ _NAV = [
     ("menu",       "Menus",         "/admin/menu"),
     ("pcsearch",   "PC Search",     "/admin/pcsearch"),
     ("msgcat",     "Messages",      "/admin/msgcat"),
+    ("approval",   "Approvals",     "/admin/approval"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -1761,6 +1762,7 @@ def admin_graph():
         <button class="tab-btn active" id="tabList" onclick="showTab('list')">LIST</button>
         <button class="tab-btn" id="tabVisual" onclick="showTab('visual')">VISUAL</button>
         <button class="tab-btn" id="tabImpact" onclick="showTab('impact')">IMPACT</button>
+        <button class="tab-btn" id="tabDrift" onclick="showTab('drift')">DRIFT</button>
     </div>
 
     <div id="listView">
@@ -1837,6 +1839,57 @@ def admin_graph():
                 <p class="muted" style="margin:0 0 8px;font-size:11px">Objects this node depends on — what breaks if they change.</p>
                 <div id="impactSummaryForward" style="margin-bottom:10px"></div>
                 <div id="impactForward"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="driftView" style="display:none">
+        <div class="card">
+            <h2>Configuration Drift</h2>
+            <p class="muted" style="margin:0 0 12px">Compare the current live graph against the most recent snapshot to detect what was added, removed, or changed.</p>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <label style="font-size:12px;color:#aac">Environment:</label>
+                <select id="driftEnv" style="background:#0b1b24;color:#d7faff;border:1px solid #00e5ff;padding:7px;font-size:12px">
+                    <option value="HCM">HCM</option>
+                    <option value="FSCM">FSCM</option>
+                </select>
+                <label style="font-size:12px;color:#aac">Filter type:</label>
+                <input id="driftTypes" type="text" placeholder="record,component,... (blank=all)"
+                    style="background:#0b1b24;color:#d7faff;border:1px solid #00e5ff;padding:7px;font-size:12px;width:220px">
+                <button onclick="runDrift()" style="background:#00e5ff;color:#000;border:none;padding:8px 18px;cursor:pointer;font-size:12px;font-weight:bold">Check Drift</button>
+            </div>
+            <div id="driftStatus" class="muted" style="margin-top:8px"></div>
+        </div>
+
+        <div id="driftResults" style="display:none">
+            <div class="graph">
+                <div class="card">
+                    <h2>Summary</h2>
+                    <div id="driftSummary"></div>
+                </div>
+                <div class="card">
+                    <h2>Baseline</h2>
+                    <div id="driftBaseline" class="muted"></div>
+                </div>
+            </div>
+
+            <div class="graph">
+                <div class="card">
+                    <h2 style="color:#44cc66">New Objects <span id="driftNewCount" style="font-size:10px;color:#44cc66;margin-left:6px"></span></h2>
+                    <p class="muted" style="margin:0 0 8px;font-size:11px">Objects present in the current graph but not in the baseline snapshot.</p>
+                    <div id="driftNew"></div>
+                </div>
+                <div class="card">
+                    <h2 style="color:#ff6666">Removed Objects <span id="driftRemovedCount" style="font-size:10px;color:#ff6666;margin-left:6px"></span></h2>
+                    <p class="muted" style="margin:0 0 8px;font-size:11px">Objects in the baseline snapshot that are no longer in the current graph.</p>
+                    <div id="driftRemoved"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2 style="color:#ffaa00">Changed Objects <span id="driftChangedCount" style="font-size:10px;color:#ffaa00;margin-left:6px"></span></h2>
+                <p class="muted" style="margin:0 0 8px;font-size:11px">Objects present in both but with metadata changes (display name, etc.).</p>
+                <div id="driftChanged"></div>
             </div>
         </div>
     </div>
@@ -2089,13 +2142,110 @@ function kgRenderForce(graph) {
 let _activeTab = 'list';
 function showTab(name) {
   _activeTab = name;
-  document.getElementById('listView').style.display = name==='list' ? '' : 'none';
-  document.getElementById('visualView').style.display = name==='visual' ? '' : 'none';
-  document.getElementById('impactView').style.display = name==='impact' ? '' : 'none';
-  document.getElementById('tabList').classList.toggle('active', name==='list');
+  document.getElementById('listView').style.display    = name==='list'   ? '' : 'none';
+  document.getElementById('visualView').style.display  = name==='visual' ? '' : 'none';
+  document.getElementById('impactView').style.display  = name==='impact' ? '' : 'none';
+  document.getElementById('driftView').style.display   = name==='drift'  ? '' : 'none';
+  document.getElementById('tabList').classList.toggle('active',   name==='list');
   document.getElementById('tabVisual').classList.toggle('active', name==='visual');
   document.getElementById('tabImpact').classList.toggle('active', name==='impact');
+  document.getElementById('tabDrift').classList.toggle('active',  name==='drift');
   if (name==='visual' && _kgNodes.length) kgDrawSvg();
+}
+
+async function runDrift() {
+  const driftEnv   = document.getElementById('driftEnv').value;
+  const driftTypes = document.getElementById('driftTypes').value.trim();
+  const status     = document.getElementById('driftStatus');
+  document.getElementById('driftResults').style.display = 'none';
+  status.textContent = 'Loading drift report…';
+
+  const params = new URLSearchParams({env: driftEnv, limit: 500});
+  if (driftTypes) params.set('node_types', driftTypes);
+
+  let d;
+  try { d = await api(`/api/graph/drift?${params}`); }
+  catch(e) { status.textContent = `Error: ${e.message}`; return; }
+
+  if (d.error) {
+    status.textContent = d.message || d.error;
+    return;
+  }
+
+  const ds = d.drift_summary || {};
+  status.textContent = '';
+
+  // Summary chips
+  const chipHtml = (n, label, color) =>
+    `<span style="display:inline-block;padding:4px 12px;border:1px solid ${color}44;background:#030d14;color:${color};font-size:12px;margin:2px;font-weight:bold">${n} ${label}</span>`;
+  document.getElementById('driftSummary').innerHTML =
+    chipHtml(ds.new_count||0,     'new',     '#44cc66') +
+    chipHtml(ds.removed_count||0, 'removed', '#ff6666') +
+    chipHtml(ds.changed_count||0, 'changed', '#ffaa00');
+
+  // Baseline info
+  const bl = d.baseline_snapshot || {};
+  document.getElementById('driftBaseline').innerHTML =
+    `<span style="font-size:11px;color:#aac">ID:</span> <code style="font-size:11px">${escHtml(bl.id||'?')}</code><br>` +
+    `<span style="font-size:11px;color:#aac">Created:</span> <span style="font-size:11px">${escHtml((bl.created_at||'?').replace('T',' ').slice(0,19))}</span>` +
+    (bl.note ? `<br><span style="font-size:11px;color:#aac">Note:</span> <span style="font-size:11px">${escHtml(bl.note)}</span>` : '');
+
+  // New nodes
+  document.getElementById('driftNewCount').textContent = `(${ds.new_count||0})`;
+  renderDriftNodes(d.only_in_env2_nodes || [], 'driftNew', '#44cc66');
+
+  // Removed nodes
+  document.getElementById('driftRemovedCount').textContent = `(${ds.removed_count||0})`;
+  renderDriftNodes(d.only_in_env1_nodes || [], 'driftRemoved', '#ff6666');
+
+  // Changed nodes
+  document.getElementById('driftChangedCount').textContent = `(${ds.changed_count||0})`;
+  renderDriftChanged(d.changed_nodes || [], 'driftChanged');
+
+  document.getElementById('driftResults').style.display = '';
+}
+
+function renderDriftNodes(nodes, containerId, color) {
+  const el = document.getElementById(containerId);
+  if (!nodes.length) { el.innerHTML = '<span class="muted">None.</span>'; return; }
+  const byType = {};
+  nodes.forEach(n => { const t = n.type||'?'; byType[t] = byType[t]||[]; byType[t].push(n); });
+  el.innerHTML = Object.keys(byType).sort().map(t => {
+    const items = byType[t].map(n => {
+      const href = objectUrl(n.type, n.name || n.id.split(':').slice(1).join(':'));
+      const label = escHtml(n.display_name || n.name || n.id);
+      return href
+        ? `<a href="${href}" target="_blank" style="color:${color};font-size:11px;display:block;padding:1px 0;font-family:monospace">${label}</a>`
+        : `<span style="color:${color};font-size:11px;display:block;padding:1px 0;font-family:monospace">${label}</span>`;
+    }).join('');
+    return `<div style="margin-bottom:10px">
+      <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#556;border-bottom:1px solid #1e3040;padding-bottom:3px;margin-bottom:4px">${escHtml(t)} (${byType[t].length})</div>
+      ${items}
+    </div>`;
+  }).join('');
+}
+
+function renderDriftChanged(nodes, containerId) {
+  const el = document.getElementById(containerId);
+  if (!nodes.length) { el.innerHTML = '<span class="muted">None.</span>'; return; }
+  el.innerHTML = nodes.slice(0, 200).map(item => {
+    const n = item.env2 || item.env1 || {};
+    const href = objectUrl(n.type, n.name || (item.id||'').split(':').slice(1).join(':'));
+    const label = escHtml(n.display_name || n.name || item.id || '');
+    const typeLabel = escHtml(n.type || '?');
+    const diffs = (item.diffs || []).map(d =>
+      `<span style="font-size:10px;color:#aac">${escHtml(d.field)}: </span>` +
+      `<span style="font-size:10px;color:#ff8888;text-decoration:line-through">${escHtml(String(d.env1||''))}</span> → ` +
+      `<span style="font-size:10px;color:#88ff88">${escHtml(String(d.env2||''))}</span>`
+    ).join('<br>');
+    const nameHtml = href
+      ? `<a href="${href}" target="_blank" style="color:#ffaa00;font-family:monospace;font-size:12px">${label}</a>`
+      : `<span style="color:#ffaa00;font-family:monospace;font-size:12px">${label}</span>`;
+    return `<div style="padding:6px 0;border-bottom:1px solid #0d1a22">
+      <span style="font-size:10px;color:#556;margin-right:6px">${typeLabel}</span>${nameHtml}
+      <div style="margin-top:3px;padding-left:8px">${diffs}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderImpactNodes(nodes, containerId) {
@@ -10699,6 +10849,153 @@ async function selectMenu(r,el){
   table+='</tbody></table>';
   d.innerHTML=hdr+table;
 }
+doSearch();
+</script>""")
+
+
+@router.get("/approval", response_class=HTMLResponse)
+def admin_approval():
+    return _shell("Approval Framework Explorer", "approval", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;min-width:220px;border-right:1px solid #00e5ff22;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input,select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:5px 8px;font-size:12px}
+input:focus,select:focus{outline:none;border-color:#00e5ff}
+button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(0,229,255,.07);border-left-color:#00e5ff55}
+.item.sel{background:rgba(0,229,255,.12);border-left-color:#00e5ff}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;margin-right:3px}
+.chip-ok{background:#002800;border:1px solid #00cc66;color:#00cc66}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778}
+.chip-info{background:#001830;border:1px solid #00e5ff44;color:#00e5ff}
+.stat{display:inline-block;padding:4px 12px;border:1px solid #00e5ff33;background:#001830;font-size:11px;margin:2px}
+.stat b{color:#00e5ff;font-size:16px;display:block}
+.stage-row{padding:8px 10px;border-left:3px solid #00e5ff44;margin-bottom:6px;background:#030d14}
+.stage-title{font-family:monospace;font-size:12px;color:#d7faff}
+.stage-meta{font-size:10px;color:#556;margin-top:2px}
+.step-row{padding:5px 10px;border-bottom:1px solid #0d1a22;font-size:11px}
+.step-row:hover{background:#0a1820}
+a{color:#00e5ff;text-decoration:none} a:hover{text-decoration:underline}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="awSearch" type="text" placeholder="Search workflow name or description..." style="width:280px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <select id="awStatus" onchange="doSearch()" style="width:110px">
+    <option value="">All Status</option>
+    <option value="A">Active</option>
+    <option value="I">Inactive</option>
+  </select>
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Approval Definitions</h2>
+    <div id="list" class="muted">Search to load approval definitions.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Workflow</h2>
+    <div id="detail" class="muted">Select an approval workflow from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const STATUS_LABELS = {'A':['chip-ok','Active'], 'I':['chip-muted','Inactive']};
+const PT_LABELS = {'0':'No Approval','1':'User','2':'Role','3':'Query','4':'App Class','5':'Supervisory','6':'Position','7':'Dept Security','8':'Role User'};
+
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function statusChip(s) {
+  const [cls, label] = STATUS_LABELS[String(s||'').trim()] || ['chip-muted', s||'?'];
+  return `<span class="chip ${cls}">${label}</span>`;
+}
+function ptChip(pt) {
+  const label = PT_LABELS[String(pt||'')] || String(pt||'');
+  return label ? `<span class="chip chip-info">${esc(label)}</span>` : '';
+}
+
+async function doSearch() {
+  const q = document.getElementById('awSearch').value.trim();
+  const status = document.getElementById('awStatus').value;
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading...</div>';
+  const params = new URLSearchParams({env: ENV, limit: 200});
+  if (q) params.set('q', q);
+  if (status) params.set('status', status);
+  const d = await api(`/api/peoplesoft/approvals?${params}`);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading approvals.</div>'; return; }
+  const items = d.items || [];
+  document.getElementById('stats').textContent = `${items.length} result${items.length !== 1 ? 's' : ''}`;
+  if (!items.length) { list.innerHTML = '<div class="muted">No approval definitions found.</div>'; return; }
+  list.innerHTML = items.map((a, i) =>
+    `<div class="item" id="item-${i}" onclick="selectApproval('${esc(a.awdefnid)}', ${i})">
+       <div class="item-name">${statusChip(a.status)}${esc(a.awdefnid)}</div>
+       <div class="item-meta">${esc((a.descr||'').slice(0,60))}</div>
+     </div>`
+  ).join('');
+  window._awItems = items;
+}
+
+async function selectApproval(awdefnid, idx) {
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${idx}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api(`/api/peoplesoft/object/approval/${encodeURIComponent(awdefnid)}?env=${ENV}`);
+  if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
+
+  const ov = d.overview || {};
+  const adminUrl = `/admin/object/approval/${esc(awdefnid)}`;
+  let html = `
+    <div style="margin-bottom:12px">
+      ${statusChip(ov.status)}
+      <span style="font-family:monospace;font-size:14px;font-weight:bold">${esc(awdefnid)}</span>
+      &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
+    </div>
+    ${ov.description ? `<div style="color:#aac;font-size:12px;margin-bottom:10px">${esc(ov.description)}</div>` : ''}
+    <div style="margin-bottom:12px">
+      <div class="stat"><b>${ov.stage_count||0}</b>Stages</div>
+      <div class="stat"><b>${ov.path_count||0}</b>Paths</div>
+      <div class="stat"><b>${ov.step_count||0}</b>Steps</div>
+      ${ov.owner ? `<div class="stat"><b>${esc(ov.owner)}</b>Owner</div>` : ''}
+    </div>`;
+
+  const stages = (d.sections||[]).find(s => s.name === 'Stages');
+  if (stages && stages.items && stages.items.length) {
+    html += '<h2>Stages</h2>';
+    html += stages.items.map(s => `
+      <div class="stage-row">
+        <div class="stage-title">${s.relationship ? `<span class="chip chip-info">${esc(s.relationship)}</span>` : ''}${esc(s.title||'')}</div>
+        <div class="stage-meta">${s.path_count||0} path${(s.path_count||0)!==1?'s':''} · ${s.step_count||0} step${(s.step_count||0)!==1?'s':''}</div>
+      </div>`).join('');
+  }
+
+  const steps = (d.sections||[]).find(s => s.name === 'Steps');
+  if (steps && steps.items && steps.items.length) {
+    html += '<h2>Steps</h2><div style="border:1px solid #1e3040">';
+    html += steps.items.map(st => `
+      <div class="step-row">
+        ${st.relationship ? `<span class="chip chip-info" style="font-size:10px">${esc(st.relationship)}</span>` : ''}
+        <span style="font-family:monospace;font-size:11px">${esc(st.title||'')}</span>
+        ${st.userlist ? `<span style="font-size:10px;color:#556;margin-left:8px">List: ${esc(st.userlist)}</span>` : ''}
+      </div>`).join('');
+    html += '</div>';
+  }
+
+  detail.innerHTML = html;
+}
+
 doSearch();
 </script>""")
 

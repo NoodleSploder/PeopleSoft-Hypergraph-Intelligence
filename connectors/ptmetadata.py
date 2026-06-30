@@ -578,13 +578,25 @@ OBJECT_REGISTRY.setdefault("message_catalog", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("approval", {
+    "display_title": "Approval Framework",
+    "icon": "check-square",
+    "graph_node_type": "approval",
+    "object_page": "/admin/object/approval/{name}",
+    "discovery": {"table": "PSAWDEFN", "name_column": "AWDEFNID"},
+    "search": {"table": "PSAWDEFN", "name_column": "AWDEFNID",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["OBJECTOWNERID"]},
+    "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 for object_type in [
     "content_reference",
     "section",
     "step",
     "sql",
     "message",
-    "approval",
     "event_mapping",
     "related_content",
     "drop_zone",

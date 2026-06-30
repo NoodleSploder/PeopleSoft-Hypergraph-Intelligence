@@ -4421,3 +4421,136 @@ def message_set_info(env_name, set_nbr):
     except Exception:
         return None
     return dict(rows[0]) if rows else None
+
+
+# ── Approval Framework ────────────────────────────────────────────────────────
+
+_AW_STATUS = {"A": "Active", "I": "Inactive"}
+_AW_PROCESS_TYPE = {
+    "0": "No Approval",
+    "1": "User",
+    "2": "Role",
+    "3": "Query",
+    "4": "Application Class",
+    "5": "Supervisory",
+    "6": "Position",
+    "7": "Department Security",
+    "8": "Role User",
+}
+
+
+def search_approvals(env_name, q="", status=None, limit=100):
+    """Search PSAWDEFN approval workflow definitions."""
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSAWDEFN"):
+        return {"items": [], "warnings": ["PSAWDEFN not accessible"]}
+
+    clauses = []
+    params = {}
+    if q:
+        clauses.append("(UPPER(AWDEFNID) LIKE UPPER(:q) OR UPPER(DESCR) LIKE UPPER(:q2))")
+        params["q"] = f"%{q}%"
+        params["q2"] = f"%{q}%"
+    if status:
+        clauses.append("STATUS = :status")
+        params["status"] = status.upper()
+
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    sql = f"""
+        SELECT AWDEFNID, DESCR, STATUS, OBJECTOWNERID, LASTUPDOPRID, LASTUPDDTTM
+          FROM SYSADM.PSAWDEFN
+         {where}
+         ORDER BY AWDEFNID
+         FETCH FIRST :lim ROWS ONLY
+    """
+    params["lim"] = limit
+    try:
+        rows = query(env_name, sql, params)
+    except Exception as exc:
+        return {"items": [], "warnings": [f"PSAWDEFN search failed: {exc}"]}
+
+    items = []
+    for row in rows:
+        item = dict(row)
+        item["status_label"] = _AW_STATUS.get(str(item.get("status") or "").strip(), str(item.get("status") or ""))
+        items.append(item)
+    return {"items": items, "count": len(items), "warnings": []}
+
+
+def get_approval(env_name, awdefnid):
+    """Fetch an approval definition with its stages, paths, and step counts."""
+    from connectors import ptmetadata
+    warnings = []
+
+    if not ptmetadata.has_table(env_name, "PSAWDEFN"):
+        return {"definition": None, "stages": [], "warnings": ["PSAWDEFN not accessible"]}
+
+    defn_rows = query(env_name, """
+        SELECT AWDEFNID, DESCR, STATUS, OBJECTOWNERID, LASTUPDOPRID, LASTUPDDTTM
+          FROM SYSADM.PSAWDEFN
+         WHERE AWDEFNID = :id
+    """, {"id": awdefnid.upper()})
+    defn = dict(defn_rows[0]) if defn_rows else None
+    if defn:
+        defn["status_label"] = _AW_STATUS.get(str(defn.get("status") or "").strip(), "")
+
+    stages = []
+    if ptmetadata.has_table(env_name, "PSAWSTAGEDEFN"):
+        try:
+            stage_rows = query(env_name, """
+                SELECT STAGE_NO, DESCR, PROCESS_TYPE
+                  FROM SYSADM.PSAWSTAGEDEFN
+                 WHERE AWDEFNID = :id
+                 ORDER BY STAGE_NO
+            """, {"id": awdefnid.upper()})
+            for sr in stage_rows:
+                stage = dict(sr)
+                stage["process_type_label"] = _AW_PROCESS_TYPE.get(str(stage.get("process_type") or ""), "")
+                stages.append(stage)
+        except Exception as exc:
+            warnings.append(f"PSAWSTAGEDEFN: {exc}")
+
+    paths = []
+    if ptmetadata.has_table(env_name, "PSAWPATHDEFN"):
+        try:
+            path_rows = query(env_name, """
+                SELECT STAGE_NO, PATH_NO, DESCR, PROCESS_TYPE
+                  FROM SYSADM.PSAWPATHDEFN
+                 WHERE AWDEFNID = :id
+                 ORDER BY STAGE_NO, PATH_NO
+            """, {"id": awdefnid.upper()})
+            for pr in path_rows:
+                path = dict(pr)
+                path["process_type_label"] = _AW_PROCESS_TYPE.get(str(path.get("process_type") or ""), "")
+                paths.append(path)
+        except Exception as exc:
+            warnings.append(f"PSAWPATHDEFN: {exc}")
+
+    steps = []
+    if ptmetadata.has_table(env_name, "PSAWSTEPDEFN"):
+        try:
+            step_rows = query(env_name, """
+                SELECT STAGE_NO, PATH_NO, STEP_NO, DESCR, PROCESS_TYPE, AWUSERLISTID
+                  FROM SYSADM.PSAWSTEPDEFN
+                 WHERE AWDEFNID = :id
+                 ORDER BY STAGE_NO, PATH_NO, STEP_NO
+            """, {"id": awdefnid.upper()})
+            for sr2 in step_rows:
+                step = dict(sr2)
+                step["process_type_label"] = _AW_PROCESS_TYPE.get(str(step.get("process_type") or ""), "")
+                steps.append(step)
+        except Exception as exc:
+            warnings.append(f"PSAWSTEPDEFN: {exc}")
+
+    return {
+        "definition": defn,
+        "stages": stages,
+        "paths": paths,
+        "steps": steps,
+        "counts": {
+            "stages": len(stages),
+            "paths": len(paths),
+            "steps": len(steps),
+        },
+        "warnings": warnings,
+    }

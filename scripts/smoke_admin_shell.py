@@ -117,7 +117,7 @@ DEFAULT_PAGES = [
     ]),
     ("/admin/graph", "#objectType", True, False, [
         (
-            "Graph Explorer list/visual/impact tabs switch",
+            "Graph Explorer list/visual/impact/drift tabs switch",
             """
 (() => {
   const failures = [];
@@ -130,6 +130,9 @@ DEFAULT_PAGES = [
     showTab('impact');
     if (display('#impactView') === 'none') failures.push('impact pane hidden');
     if (!document.querySelector('#tabImpact')?.classList.contains('active')) failures.push('impact tab inactive');
+    showTab('drift');
+    if (display('#driftView') === 'none') failures.push('drift pane hidden');
+    if (!document.querySelector('#tabDrift')?.classList.contains('active')) failures.push('drift tab inactive');
     showTab('list');
     if (display('#listView') === 'none') failures.push('list pane hidden');
     if (!document.querySelector('#tabList')?.classList.contains('active')) failures.push('list tab inactive');
@@ -145,8 +148,9 @@ DEFAULT_PAGES = [
     ("/admin/ci",       "#ciSearch",   True, True,  []),
     ("/admin/menu",     "#mSearch",    True, True,  []),
     ("/admin/reports",  "#catalog",    True, True,  []),
-    ("/admin/pcsearch", "#pcq",        True, True,  []),
-    ("/admin/msgcat",   "#mcSearch",   True, True,  []),
+    ("/admin/pcsearch",  "#pcq",        True, True,  []),
+    ("/admin/msgcat",    "#mcSearch",   True, True,  []),
+    ("/admin/approval",  "#awSearch",   True, True,  []),
 ]
 
 

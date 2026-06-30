@@ -747,6 +747,22 @@ def build(env="HCM", limit=50, persist=True):
                 add_edge(graph, "ci", ci_name, "component", comp, "WRAPS", r)
         return len(rows)
 
+    def approvals():
+        if not ptmetadata.has_table(env, "PSAWDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT AWDEFNID, DESCR, STATUS, OBJECTOWNERID
+              FROM SYSADM.PSAWDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY AWDEFNID
+        """) or []
+        for r in rows:
+            aid = r.get("awdefnid")
+            if not aid:
+                continue
+            add_node(graph, "approval", aid, r.get("descr") or aid, r)
+        return len(rows)
+
     def messages():
         if not ptmetadata.has_table(env, "PSMSGCATDEFN"):
             return 0
@@ -781,6 +797,7 @@ def build(env="HCM", limit=50, persist=True):
         ("sql_definitions", sql_definitions),
         ("queries", queries),
         ("component_interfaces", component_interfaces),
+        ("approvals", approvals),
         ("messages", messages),
     ):
         provider(graph, name, loader)
@@ -1170,6 +1187,74 @@ def diff_snapshots(snapshot1, snapshot2, node_types=None, limit=200):
             "env2_path": right["snapshot"].get("path"),
         },
     )
+
+
+def drift(env="HCM", node_types=None, limit=500):
+    """Compare current in-memory graph against the most recent snapshot for the same environment.
+
+    Returns a diff shaped like _diff_graphs(), plus:
+      - baseline_snapshot: the snapshot metadata used as the baseline
+      - drift_summary: counts of new / removed / changed objects with per-type breakdowns
+    """
+    snaps = list_snapshots(env)
+    if not snaps.get("snapshots"):
+        return {
+            "error": "no_baseline",
+            "message": (
+                f"No snapshots found for {env.upper()}. "
+                "Build the graph and create a snapshot first via POST /api/graph/snapshots."
+            ),
+            "env": env.upper(),
+        }
+
+    baseline_entry = snaps["snapshots"][0]   # most-recent first per list_snapshots sort
+    try:
+        baseline_data = load_snapshot(baseline_entry["id"])
+    except FileNotFoundError:
+        return {
+            "error": "snapshot_missing",
+            "message": f"Snapshot file for {baseline_entry['id']} not found.",
+            "env": env.upper(),
+            "baseline_snapshot": baseline_entry,
+        }
+
+    baseline_graph = baseline_data["graph"]
+    live_graph = current(env)
+    baseline_at = baseline_entry.get("created_at", "?")[:16].replace("T", " ")
+
+    result = _diff_graphs(
+        baseline_graph,
+        live_graph,
+        env1=f"{env.upper()} @ {baseline_at}",
+        env2=f"{env.upper()} (current)",
+        node_types=node_types,
+        limit=limit,
+        snapshot_meta={
+            "baseline_id": baseline_entry["id"],
+            "baseline_at": baseline_entry.get("created_at"),
+            "baseline_note": baseline_entry.get("note") or "",
+            "live_built_at": live_graph.get("built_at"),
+        },
+    )
+
+    def _type_counts(nodes):
+        counts = {}
+        for n in nodes:
+            t = n.get("type") or "unknown"
+            counts[t] = counts.get(t, 0) + 1
+        return dict(sorted(counts.items()))
+
+    result["baseline_snapshot"] = baseline_entry
+    result["drift_summary"] = {
+        "new_count": result["summary"]["only_in_env2_nodes"],
+        "removed_count": result["summary"]["only_in_env1_nodes"],
+        "changed_count": result["summary"]["changed_nodes"],
+        "new_by_type": _type_counts(result["only_in_env2_nodes"]),
+        "removed_by_type": _type_counts(result["only_in_env1_nodes"]),
+        "baseline_at": baseline_entry.get("created_at"),
+        "baseline_id": baseline_entry["id"],
+    }
+    return result
 
 
 def search(env="HCM", q="", limit=50):

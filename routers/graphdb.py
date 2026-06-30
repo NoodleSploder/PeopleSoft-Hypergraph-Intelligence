@@ -101,6 +101,12 @@ def graph_impact(node_id: str, env: str = "HCM", depth: int = 3):
     return graphdb.impact(env, node_id, depth=depth)
 
 
+@router.get("/drift")
+def graph_drift(env: str = "HCM", node_types: str = "", limit: int = 500):
+    """Compare the current in-memory graph against the most recent snapshot for an environment."""
+    return graphdb.drift(env, node_types=node_types or None, limit=limit)
+
+
 @router.get("/search")
 def graph_search(env: str = "HCM", q: str = "", limit: int = 50):
     if not q.strip():

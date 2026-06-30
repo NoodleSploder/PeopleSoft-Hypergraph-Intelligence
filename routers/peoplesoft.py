@@ -341,6 +341,9 @@ def object_payload(env, object_type, object_name):
     if object_type == "message_catalog":
         return uom.message_catalog_payload(env, object_name)
 
+    if object_type == "approval":
+        return uom.approval_payload(env, object_name)
+
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
 
@@ -1009,6 +1012,17 @@ def peoplesoft_cis(env: str = "HCM", q: str = "", limit: int = 100):
         if name:
             row.setdefault("_links", {})["admin"] = f"/admin/object/ci/{name}"
     return rows
+
+
+@router.get("/api/peoplesoft/approvals")
+def peoplesoft_approvals(env: str = "HCM", q: str = "", status: str = "", limit: int = 100):
+    """Search Approval Framework workflow definitions (PSAWDEFN)."""
+    result = psdb.search_approvals(env, q=q, status=status or None, limit=limit)
+    for item in result.get("items", []):
+        aid = item.get("awdefnid")
+        if aid:
+            item.setdefault("_links", {})["admin"] = f"/admin/object/approval/{aid}"
+    return result
 
 
 @router.get("/api/peoplesoft/messages")
