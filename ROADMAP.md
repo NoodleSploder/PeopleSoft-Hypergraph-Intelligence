@@ -330,6 +330,7 @@
 ### Completed
 
 -   Services
+-   Service Operations
 -   Nodes
 -   Queues
 -   Routings
@@ -337,11 +338,15 @@
 -   UOM
 -   Graph integration
 -   PeopleCode linkage
+-   Service operation drilldown for versions, handlers, security,
+    messages, queues, and sender/receiver routing nodes
 
 ### Current Limitations
 
 -   Runtime grants unavailable
 -   Payload inspection pending
+-   Some service-operation sections depend on optional PeopleTools views
+    (`PSOPRVERMSGS_VW`, `PSSRVQUEUE_VW`, `PSSERVPERM_VW`)
 
 ------------------------------------------------------------------------
 

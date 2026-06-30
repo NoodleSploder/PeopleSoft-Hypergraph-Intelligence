@@ -46,6 +46,26 @@ def get_service_operations(applname: str, env: str = Query("HCM")):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Service Operations
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.get("/operations")
+def list_operations(
+    env:   str = Query("HCM"),
+    q:     str = Query(""),
+    limit: int = Query(100),
+):
+    """Search Integration Broker service operations."""
+    return ib.operations(env, q=q, limit=limit)
+
+
+@router.get("/operations/{opname}")
+def get_operation(opname: str, env: str = Query("HCM")):
+    """Return one service operation with versions, handlers, security, messages, and routings."""
+    return ib.operation(env, opname)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Routings
 # ──────────────────────────────────────────────────────────────────────────────
 

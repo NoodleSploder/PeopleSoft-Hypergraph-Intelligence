@@ -8,6 +8,22 @@ matters, and how it was verified.
 
 ## 2026-06-29
 
+### Integration Broker Service Operations
+
+- Added first-class read-only Service Operations APIs under `/api/ib/operations`.
+- Expanded the Integration Broker connector to decode operation versions, handlers,
+  service security, messages, queue mappings, runtime queue summaries, and
+  sender/receiver routing nodes using grant-aware PeopleTools metadata views.
+- Redesigned the `/admin/ib` sidebar to include a `Service Ops` tab and moved
+  routing/transaction operation links to the new operation detail view.
+- Normalized Integration Broker service kind labels so REST operations and standard
+  operations are shown separately in the UI where metadata permits.
+
+Verification:
+
+- Compiled `connectors/ib.py`, `routers/ib.py`, and `routers/admin.py`.
+- Smoke-tested HCM operation lookup for `BEN_CHATBOT_SVC_ASF_POST`.
+
 ### UOM Foundation and Object Explorer Unification
 
 - Added canonical Universal Object Model coverage for Field, Record, Operator,

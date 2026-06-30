@@ -31,7 +31,7 @@ The platform serves every persona in a PeopleSoft organization:
 | DBA | Oracle session monitoring, SQL workspace, top-SQL analysis, blocking chains |
 | System Administrator | Runtime monitor, process scheduler, IB status, infrastructure health |
 | Security Administrator | Role/permission traversal, access explanation, user comparison |
-| Middleware Administrator | IB services, nodes, routings, queue depth, transaction tracing |
+| Middleware Administrator | IB services, service operations, handlers, security, messages, nodes, routings, queue depth, transaction tracing |
 | Functional Analyst | Record/field exploration, component navigation, data sampling |
 | Operations / Help Desk | User session lookup, process status, recent activity |
 | Architect | Environment comparison, dependency graph, impact analysis |
@@ -91,6 +91,9 @@ Nothing in DeathStar writes to this layer. Read-only by design.
 
 **Connector Layer** — Grant-aware, version-adaptive SQL queries. Each connector module owns
 SQL for a domain. Returns structured Python dicts. Degrades gracefully when grants are missing.
+For Integration Broker, connector data separates application services, service operations,
+operation versions, handlers, message/queue mappings, security, routing, and node
+relationships rather than flattening them into one routing-centric object.
 
 **Object Model Layer** — The Universal Object Model (UOM) defines a canonical identity and
 shape for every PeopleSoft object type. Providers implement object composition: metadata

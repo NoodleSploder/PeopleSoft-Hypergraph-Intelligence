@@ -75,6 +75,7 @@ APPLTYPE_LABELS = {
     "0": "REST",
     "1": "SOAP",
     "2": "Generic",
+    "M": "REST",
 }
 
 
@@ -91,6 +92,18 @@ def _eff(row):
 
 def _warn(code, msg, severity="warning"):
     return ptmetadata.warning(code, msg, severity=severity)
+
+
+def _service_kind(row: dict) -> str:
+    """Best-effort service family label used by the IB explorer."""
+    if (row.get("ib_restmethod") or row.get("ib_restbase_url")):
+        return "REST"
+    raw = str(row.get("ptibappltype") or row.get("ib_rest_service") or "").strip().upper()
+    if raw in ("0", "2", "M", "Y", "REST"):
+        return "REST"
+    if raw in ("1", "N", "SOAP"):
+        return "Standard"
+    return APPLTYPE_LABELS.get(raw, "Standard" if raw else "Unknown")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -136,6 +149,7 @@ def services(env_name: str, q: str = "", limit: int = 100) -> dict:
             row["status_label"] = _eff(row)
             row["appltype_label"] = APPLTYPE_LABELS.get(
                 str(row.get("ptibappltype") or "").strip(), "Unknown")
+            row["service_kind"] = _service_kind(row)
         return {"items": rows, "warnings": warnings}
     except Exception as exc:
         warnings.append(_warn("PSIBAPPLDEFN_ERR", str(exc), severity="error"))
@@ -174,9 +188,12 @@ def service(env_name: str, applname: str) -> dict:
         row["status_label"] = _eff(row)
         row["appltype_label"] = APPLTYPE_LABELS.get(
             str(row.get("ptibappltype") or "").strip(), "Unknown")
+        row["service_kind"] = _service_kind(row)
 
         # Load operations.
         row["operations"] = service_operations(env_name, applname).get("items", [])
+        row["service_operations"] = _operations_for_service(
+            env_name, applname, row.get("ib_servicename"))
 
         # Load routings that reference this service.
         row["routings"] = _routings_for_service(env_name, applname)
@@ -217,6 +234,421 @@ def service_operations(env_name: str, applname: str) -> dict:
     except Exception as exc:
         warnings.append(_warn("PSIBAPPLOPR_ERR", str(exc), severity="error"))
         return {"items": [], "warnings": warnings}
+
+
+def _operations_for_service(env_name: str, applname: str, service_name: str = None) -> list:
+    """Fetch first-class service operations associated with an application service."""
+    names = [n for n in {str(applname or "").upper(), str(service_name or "").upper()} if n]
+    items = []
+    seen = set()
+    by_op = {}
+
+    if service_name and ptmetadata.has_table(env_name, "PSSERVICEOPR"):
+        try:
+            rows = psdb.query(env_name, """
+                SELECT IB_SERVICENAME, IB_OPERATIONNAME
+                  FROM sysadm.PSSERVICEOPR
+                 WHERE upper(IB_SERVICENAME) = :service_name
+                 ORDER BY IB_OPERATIONNAME
+            """, {"service_name": str(service_name).upper()})
+            for row in rows:
+                op = row.get("ib_operationname")
+                if op and op not in seen:
+                    row["service_kind"] = _service_kind(row)
+                    items.append(row)
+                    seen.add(op)
+                    by_op[op] = row
+        except Exception:
+            pass
+
+    if ptmetadata.has_table(env_name, "PSOPERATION") and names:
+        try:
+            predicates = []
+            params = {}
+            for i, name in enumerate(names):
+                params[f"n{i}"] = name
+                predicates.append(f"upper(PTIBAPPLNAME) = :n{i}")
+                predicates.append(f"upper(IB_SERVICENAME) = :n{i}")
+            rows = psdb.query(env_name, f"""
+                SELECT IB_OPERATIONNAME, IB_SERVICENAME, PTIBAPPLNAME, DEFAULTVER,
+                       IB_RESTMETHOD, IB_REST_SERVICE, IB_ALIASNAME, DESCR
+                  FROM sysadm.PSOPERATION
+                 WHERE {" OR ".join(predicates)}
+                 ORDER BY IB_OPERATIONNAME
+                 FETCH FIRST 200 ROWS ONLY
+            """, params)
+            for row in rows:
+                op = row.get("ib_operationname")
+                if not op:
+                    continue
+                row["service_kind"] = _service_kind(row)
+                if op in by_op:
+                    by_op[op].update({k: v for k, v in row.items() if v not in (None, "")})
+                else:
+                    items.append(row)
+                    seen.add(op)
+                    by_op[op] = row
+        except Exception:
+            pass
+
+    return items
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Service Operations
+# ──────────────────────────────────────────────────────────────────────────────
+
+def operations(env_name: str, q: str = "", limit: int = 100) -> dict:
+    """Search first-class Integration Broker service operations."""
+    warnings = []
+    limit = max(1, min(int(limit), 500))
+    pattern = f"%{q.upper()}%"
+
+    if ptmetadata.has_table(env_name, "PSOPERATION"):
+        columns = psdb.select_existing_columns(
+            env_name, "PSOPERATION",
+            ["VERSION", "DEFAULTVER", "RTNGTYPE", "IB_RESTMETHOD", "IB_REST_SERVICE",
+             "IB_SERVICENAME", "PTIBAPPLNAME", "IB_ALIASNAME", "MSGNAME", "IB_MSGVERSION",
+             "OBJECTOWNERID", "LASTUPDDTTM", "LASTUPDOPRID", "DESCR"],
+            required=["IB_OPERATIONNAME"],
+        )
+        predicates = ["upper(IB_OPERATIONNAME) LIKE :pat"]
+        for col in ("IB_SERVICENAME", "PTIBAPPLNAME", "IB_ALIASNAME", "DESCR"):
+            if col in columns:
+                predicates.append(f"upper({col}) LIKE :pat")
+
+        try:
+            rows = psdb.query(env_name, f"""
+                SELECT {", ".join(columns)}
+                  FROM sysadm.PSOPERATION
+                 WHERE {" OR ".join(predicates)}
+                 ORDER BY IB_OPERATIONNAME
+                 FETCH FIRST {limit} ROWS ONLY
+            """, {"pat": pattern})
+            for row in rows:
+                row["service_kind"] = _service_kind(row)
+                row["rtngtype_label"] = RTNGTYPE_LABELS.get(
+                    str(row.get("rtngtype") or "").strip(), "Unknown")
+                row["version_count"] = _operation_version_count(env_name, row.get("ib_operationname"))
+                row["routing_count"] = _operation_routing_count(env_name, row.get("ib_operationname"))
+            return {"items": rows, "warnings": warnings}
+        except Exception as exc:
+            warnings.append(_warn("PSOPERATION_ERR", str(exc), severity="error"))
+
+    if not ptmetadata.has_table(env_name, "PSIBRTNGDEFN"):
+        warnings.append(_warn("NO_OPERATION_SOURCE",
+            "No accessible service-operation source tables found"))
+        return {"items": [], "warnings": warnings}
+
+    try:
+        rows = psdb.query(env_name, f"""
+            SELECT IB_OPERATIONNAME,
+                   MIN(VERSIONNAME) AS VERSIONNAME,
+                   MIN(IB_RESTMETHOD) AS IB_RESTMETHOD,
+                   MIN(EFF_STATUS) AS EFF_STATUS,
+                   MIN(SENDERNODENAME) AS SAMPLE_SENDER,
+                   MIN(RECEIVERNODENAME) AS SAMPLE_RECEIVER,
+                   COUNT(*) AS ROUTING_COUNT
+              FROM sysadm.PSIBRTNGDEFN
+             WHERE upper(IB_OPERATIONNAME) LIKE :pat
+                OR upper(ROUTINGDEFNNAME) LIKE :pat
+             GROUP BY IB_OPERATIONNAME
+             ORDER BY IB_OPERATIONNAME
+             FETCH FIRST {limit} ROWS ONLY
+        """, {"pat": pattern})
+        for row in rows:
+            row["status_label"] = _eff(row)
+            row["service_kind"] = "REST" if row.get("ib_restmethod") else "Standard"
+        return {"items": rows, "warnings": warnings}
+    except Exception as exc:
+        warnings.append(_warn("PSIBRTNGDEFN_OP_ERR", str(exc), severity="error"))
+        return {"items": [], "warnings": warnings}
+
+
+def operation(env_name: str, opname: str) -> dict:
+    """Return one service operation with versions, handlers, security, messages, and routings."""
+    warnings = []
+    opname = (opname or "").upper()
+    item = _operation_header(env_name, opname, warnings)
+    routings_data = ib_operation(env_name, opname)
+    warnings.extend(routings_data.get("warnings", []))
+
+    if not item and routings_data.get("item"):
+        item = routings_data["item"]
+        item["service_kind"] = "REST" if any(r.get("ib_restmethod") for r in routings_data.get("routings", [])) else "Standard"
+
+    if not item:
+        return {"item": None, "warnings": warnings}
+
+    routings = routings_data.get("routings", [])
+    item["routings"] = routings
+    item["versions"] = _operation_versions(env_name, opname)
+    item["handlers"] = _operation_handlers(env_name, opname, routings)
+    item["security"] = _operation_security(env_name, opname)
+    item["messages"] = _operation_messages(env_name, opname)
+    item["runtime_queues"] = _operation_runtime_queues(env_name, opname)
+    item["services"] = _services_for_operation(env_name, opname, item)
+    item["routing_count"] = len(routings)
+    return {"item": item, "warnings": warnings}
+
+
+def _operation_header(env_name: str, opname: str, warnings: list) -> dict | None:
+    if not ptmetadata.has_table(env_name, "PSOPERATION"):
+        return None
+    try:
+        columns = psdb.select_existing_columns(
+            env_name, "PSOPERATION",
+            ["VERSION", "DEFAULTVER", "RTNGTYPE", "IB_RESTMETHOD", "IB_REST_SERVICE",
+             "IB_RESTBASE_URL", "IB_SERVICENAME", "PTIBAPPLNAME", "IB_ALIASNAME",
+             "MSGNAME", "IB_MSGVERSION", "OBJECTOWNERID", "LASTUPDDTTM",
+             "LASTUPDOPRID", "DESCR", "DESCRLONG"],
+            required=["IB_OPERATIONNAME"],
+        )
+        rows = psdb.query(env_name, f"""
+            SELECT {", ".join(columns)}
+              FROM sysadm.PSOPERATION
+             WHERE upper(IB_OPERATIONNAME) = :name
+        """, {"name": opname})
+        if not rows:
+            return None
+        row = rows[0]
+        row["service_kind"] = _service_kind(row)
+        row["rtngtype_label"] = RTNGTYPE_LABELS.get(
+            str(row.get("rtngtype") or "").strip(), "Unknown")
+        return row
+    except Exception as exc:
+        warnings.append(_warn("PSOPERATION_DETAIL_ERR", str(exc), severity="error"))
+        return None
+
+
+def _operation_version_count(env_name: str, opname: str) -> int | None:
+    if not opname or not ptmetadata.has_table(env_name, "PSOPRVERDFN"):
+        return None
+    try:
+        rows = psdb.query(env_name, """
+            SELECT COUNT(*) AS cnt
+              FROM sysadm.PSOPRVERDFN
+             WHERE upper(IB_OPERATIONNAME) = :name
+        """, {"name": str(opname).upper()})
+        return rows[0]["cnt"] if rows else 0
+    except Exception:
+        return None
+
+
+def _operation_routing_count(env_name: str, opname: str) -> int | None:
+    if not opname or not ptmetadata.has_table(env_name, "PSIBRTNGDEFN"):
+        return None
+    try:
+        rows = psdb.query(env_name, """
+            SELECT COUNT(*) AS cnt
+              FROM sysadm.PSIBRTNGDEFN
+             WHERE upper(IB_OPERATIONNAME) = :name
+        """, {"name": str(opname).upper()})
+        return rows[0]["cnt"] if rows else 0
+    except Exception:
+        return None
+
+
+def _operation_versions(env_name: str, opname: str) -> list:
+    if not ptmetadata.has_table(env_name, "PSOPRVERDFN"):
+        return []
+    try:
+        columns = psdb.select_existing_columns(
+            env_name, "PSOPRVERDFN",
+            ["VERSIONNAME", "VERSION", "ACTIVE_FLAG", "NR_FLAG", "IB_VALIDATION",
+             "IB_VALID_LEVEL", "IB_SYNCHNONBLOCK", "IB_MULTIQUEUE",
+             "CLIENTIMPLEMENT", "IBDOCLAYOUTNAME", "OBJECTOWNERID",
+             "LASTUPDDTTM", "LASTUPDOPRID", "DESCR"],
+            required=["IB_OPERATIONNAME"],
+        )
+        rows = psdb.query(env_name, f"""
+            SELECT {", ".join(columns)}
+              FROM sysadm.PSOPRVERDFN
+             WHERE upper(IB_OPERATIONNAME) = :name
+             ORDER BY VERSIONNAME
+        """, {"name": opname})
+        for row in rows:
+            row["active_label"] = "Active" if str(row.get("active_flag") or "").upper() in ("A", "Y", "1") else "Inactive"
+        return rows
+    except Exception:
+        return []
+
+
+def _operation_handlers(env_name: str, opname: str, routings: list) -> list:
+    handlers = []
+    if ptmetadata.has_table(env_name, "PSOPRHDLR"):
+        try:
+            columns = psdb.select_existing_columns(
+                env_name, "PSOPRHDLR",
+                ["HANDLERNAME", "VERSION", "IB_HANDLERALIAS", "HANDLERID",
+                 "HANDLEROWNER", "HANDLERTYPE", "ACTIVE_FLAG", "SEQNO",
+                 "IB_ROLLBACK", "OBJECTOWNERID", "LASTUPDDTTM", "LASTUPDOPRID", "DESCR"],
+                required=["IB_OPERATIONNAME"],
+            )
+            rows = psdb.query(env_name, f"""
+                SELECT {", ".join(columns)}
+                  FROM sysadm.PSOPRHDLR
+                 WHERE upper(IB_OPERATIONNAME) = :name
+                 ORDER BY VERSION, SEQNO, HANDLERNAME
+            """, {"name": opname})
+            for row in rows:
+                row["source"] = "Handler"
+                row["active_label"] = "Active" if str(row.get("active_flag") or "").upper() in ("A", "Y", "1") else "Inactive"
+            handlers.extend(rows)
+        except Exception:
+            pass
+
+    routing_handler_cols = [
+        ("onsndhdlrname", "On Send"),
+        ("onrcvhdlrname", "On Receive"),
+        ("onprehdlrname", "On Pre"),
+        ("onposthdlrname", "On Post"),
+    ]
+    seen = {(h.get("handlername"), h.get("handlertype"), h.get("version")) for h in handlers}
+    for r in routings or []:
+        for col, label in routing_handler_cols:
+            name = (r.get(col) or "").strip()
+            key = (name, label, r.get("versionname"))
+            if name and key not in seen:
+                seen.add(key)
+                handlers.append({
+                    "handlername": name,
+                    "handlertype": label,
+                    "version": r.get("versionname"),
+                    "routingdefnname": r.get("routingdefnname"),
+                    "source": "Routing",
+                    "active_label": r.get("eff_status_label"),
+                })
+    return handlers
+
+
+def _operation_security(env_name: str, opname: str) -> list:
+    if ptmetadata.has_table(env_name, "PSSERVPERM_VW"):
+        try:
+            columns = psdb.select_existing_columns(
+                env_name, "PSSERVPERM_VW",
+                ["IB_SERVICENAME", "IB_INTGROUPNAME", "IB_INTGROUPSUBNAME",
+                 "IB_NOPERMISSIONS", "IB_SERVICESECURITY", "SELECT_FLAG", "IB_REST_SERVICE"],
+                required=["IB_OPERATIONNAME"],
+            )
+            rows = psdb.query(env_name, f"""
+                SELECT {", ".join(columns)}
+                  FROM sysadm.PSSERVPERM_VW
+                 WHERE upper(IB_OPERATIONNAME) = :name
+                 ORDER BY IB_SERVICENAME, IB_INTGROUPNAME, IB_INTGROUPSUBNAME
+                 FETCH FIRST 200 ROWS ONLY
+            """, {"name": opname})
+            for row in rows:
+                row["service_kind"] = _service_kind(row)
+            return rows
+        except Exception:
+            return []
+    if ptmetadata.has_table(env_name, "PSIBUSERCOMP"):
+        try:
+            columns = psdb.select_existing_columns(
+                env_name, "PSIBUSERCOMP",
+                ["VERSIONNAME", "ACTIVE_FLAG", "MENUNAME", "BARNAME",
+                 "BARITEMNAME", "PNLITEMNAME", "ACTIONS"],
+                required=["IB_OPERATIONNAME"],
+            )
+            rows = psdb.query(env_name, f"""
+                SELECT {", ".join(columns)}
+                  FROM sysadm.PSIBUSERCOMP
+                 WHERE upper(IB_OPERATIONNAME) = :name
+                 ORDER BY VERSIONNAME, MENUNAME, PNLITEMNAME
+            """, {"name": opname})
+            return rows
+        except Exception:
+            return []
+    return []
+
+
+def _operation_messages(env_name: str, opname: str) -> list:
+    messages = []
+    if ptmetadata.has_table(env_name, "PSOPRVERMSGS_VW"):
+        try:
+            rows = psdb.query(env_name, """
+                SELECT IB_OPERATIONNAME, VERSIONNAME, IB_REQMSGNAME, INMSGVERSION,
+                       IB_RESPMSGNAME, OUTMSGVERSION, IB_FLTMSGNAME, FLTMSGVERSION
+                  FROM sysadm.PSOPRVERMSGS_VW
+                 WHERE upper(IB_OPERATIONNAME) = :name
+                 ORDER BY VERSIONNAME
+            """, {"name": opname})
+            for row in rows:
+                messages.append(row)
+        except Exception:
+            pass
+
+    if ptmetadata.has_table(env_name, "PSIBURITRAN"):
+        try:
+            rows = psdb.query(env_name, """
+                SELECT IB_OPERATIONNAME, IBTRANSACTIONID, DESCR, DESCRLONG
+                  FROM sysadm.PSIBURITRAN
+                 WHERE upper(IB_OPERATIONNAME) = :name
+                 ORDER BY IBTRANSACTIONID
+            """, {"name": opname})
+            for row in rows:
+                row["source"] = "URI Transaction"
+                messages.append(row)
+        except Exception:
+            pass
+
+    if ptmetadata.has_table(env_name, "PSSRVQUEUE_VW"):
+        try:
+            rows = psdb.query(env_name, """
+                SELECT QUEUENAME, IB_OPERATIONNAME, VERSIONNAME
+                  FROM sysadm.PSSRVQUEUE_VW
+                 WHERE upper(IB_OPERATIONNAME) = :name
+                 ORDER BY VERSIONNAME, QUEUENAME
+            """, {"name": opname})
+            for row in rows:
+                row["source"] = "Queue"
+                messages.append(row)
+        except Exception:
+            pass
+    return messages
+
+
+def _operation_runtime_queues(env_name: str, opname: str) -> list:
+    if not ptmetadata.has_table(env_name, "PSAPMSGPUBHDR"):
+        return []
+    try:
+        rows = psdb.query(env_name, """
+            SELECT QUEUENAME, PUBSTATUS, COUNT(*) AS CNT, MAX(CREATEDTTM) AS LAST_CREATED
+              FROM sysadm.PSAPMSGPUBHDR
+             WHERE upper(IB_OPERATIONNAME) = :name
+             GROUP BY QUEUENAME, PUBSTATUS
+             ORDER BY QUEUENAME, PUBSTATUS
+             FETCH FIRST 100 ROWS ONLY
+        """, {"name": opname})
+        for row in rows:
+            row["pubstatus_label"] = PUBSTATUS_LABELS.get(
+                str(row.get("pubstatus") or "").strip(), "Unknown")
+        return rows
+    except Exception:
+        return []
+
+
+def _services_for_operation(env_name: str, opname: str, item: dict) -> list:
+    services_out = []
+    if ptmetadata.has_table(env_name, "PSSERVICEOPR"):
+        try:
+            rows = psdb.query(env_name, """
+                SELECT IB_SERVICENAME, IB_OPERATIONNAME
+                  FROM sysadm.PSSERVICEOPR
+                 WHERE upper(IB_OPERATIONNAME) = :name
+                 ORDER BY IB_SERVICENAME
+            """, {"name": opname})
+            services_out.extend(rows)
+        except Exception:
+            pass
+    svc = item.get("ib_servicename")
+    appl = item.get("ptibapplname")
+    if svc or appl:
+        candidate = {"ib_servicename": svc, "ptibapplname": appl, "ib_operationname": opname}
+        if candidate not in services_out:
+            services_out.append(candidate)
+    return services_out
 
 
 def _routings_for_service(env_name: str, applname: str) -> list:
@@ -468,7 +900,7 @@ def ib_operation(env_name: str, opname: str) -> dict:
             env_name, "PSIBRTNGDEFN",
             ["IB_OPERATIONNAME", "ROUTINGDEFNNAME", "EFF_STATUS", "SENDERNODENAME",
              "RECEIVERNODENAME", "RTNGTYPE", "VERSIONNAME", "QUEUENAME",
-             "IB_DELIVERYMODE", "LASTUPDDTTM"],
+             "IB_RESTMETHOD", "IB_DELIVERYMODE", "LASTUPDDTTM"],
             required=["IB_OPERATIONNAME", "ROUTINGDEFNNAME"],
         )
         rows = psdb.query(env_name, f"""
@@ -896,6 +1328,7 @@ def dashboard(env_name: str) -> dict:
     warnings = []
     result = {
         "service_count":  None,
+        "operation_count": None,
         "routing_count":  None,
         "node_count":     None,
         "queue_count":    None,
@@ -915,6 +1348,16 @@ def dashboard(env_name: str) -> dict:
         return None
 
     result["service_count"] = _count("PSIBAPPLDEFN", "PTIBAPPLNAME")
+    result["operation_count"] = _count("PSOPERATION", "IB_OPERATIONNAME")
+    if result["operation_count"] is None and ptmetadata.has_table(env_name, "PSIBRTNGDEFN"):
+        try:
+            rows = psdb.query(env_name, """
+                SELECT COUNT(DISTINCT IB_OPERATIONNAME) AS cnt
+                  FROM sysadm.PSIBRTNGDEFN
+            """)
+            result["operation_count"] = rows[0]["cnt"] if rows else 0
+        except Exception:
+            result["operation_count"] = None
     result["routing_count"] = _count("PSIBRTNGDEFN", "ROUTINGDEFNNAME")
     result["node_count"]    = _count("PSMSGNODEDEFN", "MSGNODENAME")
     result["queue_count"]   = _count("PSQUEUEDEFN", "QUEUENAME")
@@ -1008,6 +1451,7 @@ def search(env_name: str, q: str, limit: int = 10) -> list:
 
     for source, item_type, name_key, desc_key, url_prefix in [
         (services,  "ib_service",  "ptibapplname",   "descr",        "/admin/ib/service/"),
+        (operations, "ib_operation", "ib_operationname", "descr",     "/admin/ib/operation/"),
         (routings,  "ib_routing",  "routingdefnname", "descr",       "/admin/ib/routing/"),
         (nodes,     "ib_node",     "msgnodename",    "descr",        "/admin/ib/node/"),
         (queues,    "ib_queue",    "queuename",      "descr",        "/admin/ib/queue/"),

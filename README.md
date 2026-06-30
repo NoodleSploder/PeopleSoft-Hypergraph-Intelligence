@@ -19,7 +19,8 @@ PeopleSoft Explorer provides:
 
 -   Environment-aware PeopleSoft inspection
 -   Oracle-backed metadata queries
--   Integration Broker discovery
+-   Integration Broker discovery, including services, service operations,
+    routings, nodes, queues, handlers, security, and message relationships
 -   Transaction tracing
 -   Knowledge graph generation
 -   Log exploration
