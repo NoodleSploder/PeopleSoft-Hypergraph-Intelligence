@@ -3502,6 +3502,113 @@ def search_sql_definitions(env_name, q="", sqltype=None, limit=100):
     return result
 
 
+def search_queries(env_name, q="", folder=None, limit=100):
+    """Search public PS Queries (OPRID=' ') by name or description."""
+    limit = max(1, min(int(limit), 500))
+    pattern = f"%{q.upper()}%" if q else "%"
+    params = {"pattern": pattern}
+
+    cols = select_existing_columns(
+        env_name, "PSQRYDEFN",
+        ["QRYNAME", "OPRID", "DESCR", "QRYFOLDER", "QRYTYPE",
+         "QRYDISABLED", "QRYVALID", "SELCOUNT", "BNDCOUNT", "EXPCOUNT",
+         "LASTUPDDTTM", "LASTUPDOPRID"],
+        required=["QRYNAME"],
+    )
+    if not cols:
+        return []
+
+    folder_clause = ""
+    if folder:
+        folder_clause = "AND UPPER(QRYFOLDER) = UPPER(:folder)"
+        params["folder"] = folder
+
+    return query(env_name, f"""
+        SELECT * FROM (
+            SELECT {", ".join(cols)}
+              FROM SYSADM.PSQRYDEFN
+             WHERE OPRID = ' '
+               AND (UPPER(QRYNAME) LIKE :pattern OR UPPER(DESCR) LIKE :pattern)
+               {folder_clause}
+             ORDER BY QRYNAME
+        ) WHERE ROWNUM <= {limit}
+    """, params)
+
+
+def query_folders(env_name):
+    """Return distinct QRYFOLDER values for public queries."""
+    rows = query(env_name, """
+        SELECT DISTINCT QRYFOLDER
+          FROM SYSADM.PSQRYDEFN
+         WHERE OPRID = ' '
+           AND TRIM(QRYFOLDER) IS NOT NULL
+           AND QRYFOLDER != ' '
+         ORDER BY QRYFOLDER
+    """)
+    return [r["qryfolder"] for r in rows if r.get("qryfolder")]
+
+
+def search_trees(env_name, q="", setid=None, limit=100):
+    """Search PSTREEDEFN by name or description (latest effective-dated row per tree)."""
+    limit = max(1, min(int(limit), 500))
+    pattern = f"%{q.upper()}%" if q else "%"
+    params = {"pattern": pattern}
+
+    cols = select_existing_columns(
+        env_name, "PSTREEDEFN",
+        ["TREENAME", "SETID", "SETCNTRLVALUE", "EFFDT", "EFF_STATUS",
+         "TREESTRCTPNM", "TREE_RECNAME", "DESCR", "OBJECTOWNERID"],
+        required=["TREENAME"],
+    )
+    if not cols:
+        return []
+
+    setid_clause = ""
+    if setid:
+        setid_clause = "AND UPPER(t.SETID) = UPPER(:setid)"
+        params["setid"] = setid
+
+    return query(env_name, f"""
+        SELECT * FROM (
+            SELECT {", ".join(f"t.{c}" for c in cols)}
+              FROM SYSADM.PSTREEDEFN t
+             WHERE (UPPER(t.TREENAME) LIKE :pattern OR UPPER(t.DESCR) LIKE :pattern)
+               {setid_clause}
+               AND t.EFFDT = (
+                   SELECT MAX(t2.EFFDT) FROM SYSADM.PSTREEDEFN t2
+                    WHERE t2.TREENAME = t.TREENAME AND t2.SETID = t.SETID
+                      AND t2.SETCNTRLVALUE = t.SETCNTRLVALUE
+               )
+             ORDER BY t.TREENAME
+        ) WHERE ROWNUM <= {limit}
+    """, params)
+
+
+def search_cis(env_name, q="", limit=100):
+    """Search PSBCDEFN component interfaces by name or description."""
+    limit = max(1, min(int(limit), 500))
+    pattern = f"%{q.upper()}%" if q else "%"
+
+    cols = select_existing_columns(
+        env_name, "PSBCDEFN",
+        ["BCNAME", "DESCR", "BCDISPLAYNAME", "BCTYPE", "PNLGRPNAME",
+         "VERSION", "OBJECTOWNERID", "LASTUPDDTTM"],
+        required=["BCNAME"],
+    )
+    if not cols:
+        return []
+
+    return query(env_name, f"""
+        SELECT * FROM (
+            SELECT {", ".join(cols)}
+              FROM SYSADM.PSBCDEFN
+             WHERE UPPER(BCNAME) LIKE :pattern
+                OR UPPER(DESCR) LIKE :pattern
+             ORDER BY BCNAME
+        ) WHERE ROWNUM <= {limit}
+    """, {"pattern": pattern})
+
+
 def search_operators(env_name, q="", limit=100):
     """Search PSOPRDEFN by OPRID, name, or email."""
     limit = max(1, min(int(limit), 500))
@@ -3715,6 +3822,7 @@ def security_report(env_name, report_type, limit=100):
                  FETCH FIRST :limit ROWS ONLY
             """,
             "columns": ["rolename", "descr", "user_count"],
+            "category": "security",
         },
         "unused_permission_lists": {
             "title": "Permission Lists Not Assigned to Any Role",
@@ -3729,6 +3837,7 @@ def security_report(env_name, report_type, limit=100):
                  FETCH FIRST :limit ROWS ONLY
             """,
             "columns": ["classid", "classdefndesc", "role_count"],
+            "category": "security",
         },
         "top_operators_by_roles": {
             "title": "Operators with Most Role Assignments",
@@ -3742,6 +3851,7 @@ def security_report(env_name, report_type, limit=100):
                  FETCH FIRST :limit ROWS ONLY
             """,
             "columns": ["roleuser", "emailid", "role_count"],
+            "category": "security",
         },
         "top_roles_by_users": {
             "title": "Roles with Most User Assignments",
@@ -3754,6 +3864,7 @@ def security_report(env_name, report_type, limit=100):
                  FETCH FIRST :limit ROWS ONLY
             """,
             "columns": ["rolename", "user_count"],
+            "category": "security",
         },
         "locked_operators": {
             "title": "Locked Operator Accounts",
@@ -3766,6 +3877,7 @@ def security_report(env_name, report_type, limit=100):
                  FETCH FIRST :limit ROWS ONLY
             """,
             "columns": ["oprid", "emailid", "acctlock", "lastupddttm", "lastupdoprid"],
+            "category": "security",
         },
         "permission_list_role_coverage": {
             "title": "Permission Lists by Role Coverage",
@@ -3779,6 +3891,147 @@ def security_report(env_name, report_type, limit=100):
                  FETCH FIRST :limit ROWS ONLY
             """,
             "columns": ["classid", "classdefndesc", "role_count"],
+            "category": "security",
+        },
+        "operators_without_roles": {
+            "title": "Operators With No Role Assignments",
+            "note": "PS operators defined in PSOPRDEFN with zero entries in PSROLEUSER — accounts that cannot access anything meaningful.",
+            "sql": """
+                SELECT O.OPRID, O.EMAILID, O.OPERPSWD IS NOT NULL AS HAS_PASSWORD,
+                       O.LASTUPDDTTM, O.LASTUPDOPRID
+                  FROM SYSADM.PSOPRDEFN O
+                  LEFT JOIN SYSADM.PSROLEUSER R ON R.ROLEUSER = O.OPRID
+                 WHERE R.ROLEUSER IS NULL
+                   AND O.OPRID != ' '
+                 ORDER BY O.OPRID
+                 FETCH FIRST :limit ROWS ONLY
+            """,
+            "columns": ["oprid", "emailid", "has_password", "lastupddttm", "lastupdoprid"],
+            "category": "security",
+        },
+        "components_most_permissions": {
+            "title": "Components Secured by Most Permission Lists",
+            "note": "Components granted access by the highest number of distinct permission lists — potential over-exposure.",
+            "sql": """
+                SELECT A.PNLGRPNAME, A.MARKET, COUNT(DISTINCT A.CLASSID) AS PERM_LIST_COUNT
+                  FROM SYSADM.PSAUTHITEM A
+                 WHERE A.PNLGRPNAME != ' '
+                 GROUP BY A.PNLGRPNAME, A.MARKET
+                 ORDER BY COUNT(DISTINCT A.CLASSID) DESC
+                 FETCH FIRST :limit ROWS ONLY
+            """,
+            "columns": ["pnlgrpname", "market", "perm_list_count"],
+            "category": "security",
+        },
+        "large_records": {
+            "title": "Records with Most Fields",
+            "note": "Records by descending field count — wide records may indicate design issues or consolidation candidates.",
+            "sql": """
+                SELECT R.RECNAME, R.RECTYPE, D.DESCR, COUNT(F.FIELDNAME) AS FIELD_COUNT
+                  FROM SYSADM.PSRECDEFN R
+                  LEFT JOIN SYSADM.PSDBFLDLABL D
+                    ON D.RECNAME = R.RECNAME AND D.DEFAULT_LABEL = 1
+                  LEFT JOIN SYSADM.PSRECFIELD F ON F.RECNAME = R.RECNAME
+                 GROUP BY R.RECNAME, R.RECTYPE, D.DESCR
+                 ORDER BY COUNT(F.FIELDNAME) DESC
+                 FETCH FIRST :limit ROWS ONLY
+            """,
+            "columns": ["recname", "rectype", "descr", "field_count"],
+            "category": "objects",
+        },
+        "recently_changed_records": {
+            "title": "Recently Changed Records",
+            "note": "Records with the latest LASTUPDDTTM — useful for auditing recent schema changes.",
+            "sql": """
+                SELECT RECNAME, RECTYPE, DESCR, LASTUPDDTTM, LASTUPDOPRID, OBJECTOWNERID
+                  FROM SYSADM.PSRECDEFN
+                 WHERE LASTUPDDTTM IS NOT NULL
+                 ORDER BY LASTUPDDTTM DESC
+                 FETCH FIRST :limit ROWS ONLY
+            """,
+            "columns": ["recname", "rectype", "descr", "lastupddttm", "lastupdoprid", "objectownerid"],
+            "category": "objects",
+        },
+        "records_by_type": {
+            "title": "Record Count by Type",
+            "note": "Distribution of record types (0=SQL Table, 1=SQL View, 2=Derived/Work, 3=SubRecord, 5=Dynamic View, 6=Query View, 7=Temp Table, 8=AE Work Record).",
+            "sql": """
+                SELECT RECTYPE, COUNT(*) AS COUNT
+                  FROM SYSADM.PSRECDEFN
+                 GROUP BY RECTYPE
+                 ORDER BY RECTYPE
+            """,
+            "columns": ["rectype", "count"],
+            "params": {},
+            "category": "objects",
+        },
+        "largest_peoplecode_programs": {
+            "title": "Largest PeopleCode Programs",
+            "note": "Programs ranked by source length in PSPCMTXT — very large programs may indicate complexity or refactoring candidates.",
+            "sql": """
+                SELECT p.OBJECTVALUE1, p.OBJECTVALUE2, p.OBJECTVALUE3,
+                       p.OBJECTVALUE4, p.OBJECTVALUE5, p.OBJECTVALUE6,
+                       LENGTH(t.PCTEXT) AS SOURCE_LEN,
+                       p.LASTUPDDTTM
+                  FROM SYSADM.PSPCMPROG p
+                  JOIN SYSADM.PSPCMTXT  t ON t.OBJECTID1   = p.OBJECTID1
+                                          AND t.OBJECTVALUE1 = p.OBJECTVALUE1
+                                          AND t.OBJECTVALUE2 = p.OBJECTVALUE2
+                                          AND t.OBJECTVALUE3 = p.OBJECTVALUE3
+                                          AND t.OBJECTVALUE4 = p.OBJECTVALUE4
+                                          AND t.OBJECTVALUE5 = p.OBJECTVALUE5
+                                          AND t.OBJECTVALUE6 = p.OBJECTVALUE6
+                                          AND t.OBJECTVALUE7 = p.OBJECTVALUE7
+                 ORDER BY LENGTH(t.PCTEXT) DESC
+                 FETCH FIRST :limit ROWS ONLY
+            """,
+            "columns": ["objectvalue1", "objectvalue2", "objectvalue3", "objectvalue4", "objectvalue5", "objectvalue6", "source_len", "lastupddttm"],
+            "category": "objects",
+        },
+        "process_errors_7d": {
+            "title": "Process Errors (Last 7 Days)",
+            "note": "Failed process scheduler jobs in the last 7 days (RUNSTATUS=3). Useful for monitoring automation health.",
+            "sql": """
+                SELECT PRCSNAME, PRCSTYPE, OPRID, RUNCNTLID,
+                       RUNDTTM, ENDDTTM, RUNSTATUS
+                  FROM SYSADM.PSPRCSRQST
+                 WHERE RUNSTATUS = 3
+                   AND RUNDTTM >= SYSDATE - 7
+                 ORDER BY RUNDTTM DESC
+                 FETCH FIRST :limit ROWS ONLY
+            """,
+            "columns": ["prcsname", "prcstype", "oprid", "runcntlid", "rundttm", "enddttm", "runstatus"],
+            "category": "system",
+        },
+        "ae_most_state_records": {
+            "title": "Application Engines with Most State Records",
+            "note": "AE programs with the most temporary state record definitions — indicates complex multi-step processing.",
+            "sql": """
+                SELECT A.AE_APPLID, D.DESCR, COUNT(DISTINCT A.RECNAME) AS STATE_REC_COUNT
+                  FROM SYSADM.PSAEAPPLSTATE A
+                  LEFT JOIN SYSADM.PSAEAPPLDEFN D ON D.AE_APPLID = A.AE_APPLID
+                 GROUP BY A.AE_APPLID, D.DESCR
+                 ORDER BY COUNT(DISTINCT A.RECNAME) DESC
+                 FETCH FIRST :limit ROWS ONLY
+            """,
+            "columns": ["ae_applid", "descr", "state_rec_count"],
+            "category": "objects",
+        },
+        "menus_by_component_count": {
+            "title": "Menus by Component Count",
+            "note": "Menus ranked by how many component items they contain.",
+            "sql": """
+                SELECT D.MENUNAME, D.DESCR, D.MENUTYPE,
+                       COUNT(DISTINCT TRIM(I.PNLGRPNAME)) AS COMPONENT_COUNT
+                  FROM SYSADM.PSMENUDEFN D
+                  LEFT JOIN SYSADM.PSMENUITEM I
+                    ON I.MENUNAME = D.MENUNAME AND TRIM(I.PNLGRPNAME) IS NOT NULL
+                 GROUP BY D.MENUNAME, D.DESCR, D.MENUTYPE
+                 ORDER BY COUNT(DISTINCT TRIM(I.PNLGRPNAME)) DESC
+                 FETCH FIRST :limit ROWS ONLY
+            """,
+            "columns": ["menuname", "descr", "menutype", "component_count"],
+            "category": "objects",
         },
     }
 
@@ -3792,14 +4045,26 @@ def security_report(env_name, report_type, limit=100):
             "available_reports": list(REPORTS.keys()),
         }
 
+    sql = spec["sql"]
+    # Use spec-level params if provided, otherwise inject :limit if the SQL uses it
+    if "params" in spec:
+        params = dict(spec["params"])
+    else:
+        params = {"limit": limit} if ":limit" in sql else {}
+
+    category = spec.get("category", "security")
     try:
-        rows = query(env_name, spec["sql"], {"limit": limit})
+        rows = query(env_name, sql, params)
         return {
             "title": spec["title"],
             "columns": spec["columns"],
             "rows": [dict(r) for r in rows],
             "note": spec["note"],
-            "available_reports": list(REPORTS.keys()),
+            "category": category,
+            "available_reports": [
+                {"key": k, "title": v["title"], "category": v.get("category", "security")}
+                for k, v in REPORTS.items()
+            ],
         }
     except Exception as exc:
         return {
@@ -3807,7 +4072,11 @@ def security_report(env_name, report_type, limit=100):
             "columns": spec["columns"],
             "rows": [],
             "note": f"Query failed: {exc}",
-            "available_reports": list(REPORTS.keys()),
+            "category": category,
+            "available_reports": [
+                {"key": k, "title": v["title"], "category": v.get("category", "security")}
+                for k, v in REPORTS.items()
+            ],
         }
 
 

@@ -485,6 +485,14 @@ def peoplesoft_peoplecode_search(q: str = "", env: str = "HCM", limit: int = 100
     return peoplecode.programs(env, q, limit)
 
 
+@router.get("/api/peoplesoft/peoplecode/source-search")
+def peoplesoft_peoplecode_source_search(q: str, env: str = "HCM", limit: int = 100):
+    """Search PeopleCode source text (PSPCMTXT.PCTEXT) for a literal string."""
+    if not q.strip():
+        return {"items": [], "warnings": []}
+    return peoplecode.source_search(env, q.strip(), limit=limit)
+
+
 @router.get("/api/peoplesoft/peoplecode")
 def peoplesoft_peoplecode(env: str = "HCM", q: str = "", limit: int = 100, offset: int = 0):
     return peoplecode.programs(env, q, limit=limit, offset=offset)
@@ -961,10 +969,62 @@ def peoplesoft_sql_definitions(env: str = "HCM", q: str = "", sqltype: str = "",
     return rows
 
 
+@router.get("/api/peoplesoft/queries")
+def peoplesoft_queries(env: str = "HCM", q: str = "", folder: str = "", limit: int = 100):
+    """Search public PS Queries (OPRID=' ') by name or description."""
+    rows = psdb.search_queries(env, q=q, folder=folder or None, limit=limit)
+    for row in rows:
+        name = row.get("qryname")
+        if name:
+            row.setdefault("_links", {})["admin"] = f"/admin/object/query/{name}"
+    return rows
+
+
+@router.get("/api/peoplesoft/query-folders")
+def peoplesoft_query_folders(env: str = "HCM"):
+    """Return distinct query folder names for public queries."""
+    return psdb.query_folders(env)
+
+
+@router.get("/api/peoplesoft/trees")
+def peoplesoft_trees(env: str = "HCM", q: str = "", setid: str = "", limit: int = 100):
+    """Search PSTREEDEFN tree definitions."""
+    rows = psdb.search_trees(env, q=q, setid=setid or None, limit=limit)
+    for row in rows:
+        name = row.get("treename")
+        if name:
+            row.setdefault("_links", {})["admin"] = f"/admin/object/tree/{name}"
+    return rows
+
+
+@router.get("/api/peoplesoft/cis")
+def peoplesoft_cis(env: str = "HCM", q: str = "", limit: int = 100):
+    """Search PSBCDEFN component interfaces."""
+    rows = psdb.search_cis(env, q=q, limit=limit)
+    for row in rows:
+        name = row.get("bcname")
+        if name:
+            row.setdefault("_links", {})["admin"] = f"/admin/object/ci/{name}"
+    return rows
+
+
 @router.get("/api/peoplesoft/security/reports")
 def peoplesoft_security_report(report: str = "empty_roles", env: str = "HCM", limit: int = 100):
     """Run a canned security audit report."""
     return psdb.security_report(env, report, limit=limit)
+
+
+@router.get("/api/peoplesoft/reports")
+def peoplesoft_report(report: str, env: str = "HCM", limit: int = 200):
+    """Run any report from the full catalog by key."""
+    return psdb.security_report(env, report, limit=limit)
+
+
+@router.get("/api/peoplesoft/reports/catalog")
+def peoplesoft_reports_catalog(env: str = "HCM"):
+    """Return list of all available reports with title, category, and key."""
+    result = psdb.security_report(env, "__catalog__", limit=1)
+    return result.get("available_reports", [])
 
 
 @router.get("/api/peoplesoft/roles")

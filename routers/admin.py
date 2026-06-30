@@ -12,6 +12,12 @@ _NAV = [
     ("infra",      "Infra",         "/admin/infra"),
     ("sqlws",      "SQL Workspace", "/admin/sqlws"),
     ("ib",         "IB Explorer",   "/admin/ib"),
+    ("query",      "Queries",       "/admin/query"),
+    ("tree",       "Trees",         "/admin/tree"),
+    ("ci",         "CIs",           "/admin/ci"),
+    ("menu",       "Menus",         "/admin/menu"),
+    ("pcsearch",   "PC Search",     "/admin/pcsearch"),
+    ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
     ("docs",       "Docs",          "/admin/docs"),
@@ -10244,4 +10250,657 @@ async function loadJournal() {
 (async function() {
     await Promise.all([loadHost(), loadServices(), loadContainers(), loadOracleHealth()]);
 })();
+</script>""")
+
+
+@router.get("/query", response_class=HTMLResponse)
+def admin_query():
+    return _shell("PS Query Explorer", "query", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:300px;min-width:220px;border-right:1px solid #00e5ff22;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input,select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:5px 8px;font-size:12px}
+input:focus,select:focus{outline:none;border-color:#00e5ff}
+button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(0,229,255,.07);border-left-color:#00e5ff55}
+.item.sel{background:rgba(0,229,255,.12);border-left-color:#00e5ff}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold}
+.chip-ok{background:#002800;border:1px solid #00cc66;color:#00cc66}
+.chip-warn{background:#2a1800;border:1px solid #ffaa00;color:#ffaa00}
+.chip-info{background:#001830;border:1px solid #00e5ff44;color:#00e5ff}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778}
+.stat{display:inline-block;padding:4px 12px;border:1px solid #00e5ff33;background:#001830;font-size:11px;margin:2px}
+.stat b{color:#00e5ff;font-size:16px;display:block}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="qSearch" type="text" placeholder="Search query name or description..." style="width:280px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <select id="qFolder" style="width:160px"><option value="">All Folders</option></select>
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Queries</h2>
+    <div id="list" class="muted">Search to load queries.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Query</h2>
+    <div id="detail" class="muted">Select a query from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+
+async function api(path) {
+  const res = await fetch(path);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function loadFolders() {
+  const folders = await api(`/api/peoplesoft/query-folders?env=${ENV}`);
+  if (!folders) return;
+  const sel = document.getElementById('qFolder');
+  folders.forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f; opt.textContent = f;
+    sel.appendChild(opt);
+  });
+}
+
+async function doSearch() {
+  const q = document.getElementById('qSearch').value.trim();
+  const folder = document.getElementById('qFolder').value;
+  const list = document.getElementById('list');
+  list.innerHTML = '<span class="muted">Loading...</span>';
+  document.getElementById('detail').innerHTML = '<span class="muted">Select a query.</span>';
+
+  const rows = await api(`/api/peoplesoft/queries?env=${ENV}&q=${encodeURIComponent(q)}&folder=${encodeURIComponent(folder)}&limit=200`);
+  if (!rows) { list.innerHTML = '<span class="muted">Error loading queries.</span>'; return; }
+
+  document.getElementById('stats').textContent = `${rows.length} result${rows.length===1?'':'s'}`;
+  list.innerHTML = '';
+
+  if (!rows.length) { list.innerHTML = '<span class="muted">No queries found.</span>'; return; }
+
+  rows.forEach(r => {
+    const div = document.createElement('div');
+    div.className = 'item';
+    const folder_label = r.qryfolder && r.qryfolder.trim() ? r.qryfolder.trim() : '';
+    const disabled = r.qrydisabled && r.qrydisabled !== '0' && r.qrydisabled !== 0;
+    div.innerHTML = `
+      <div class="item-name">${esc(r.qryname)} ${disabled ? '<span class="chip chip-warn">DISABLED</span>' : ''}</div>
+      <div class="item-meta">${folder_label ? '<span class="chip chip-muted">'+esc(folder_label)+'</span> ' : ''}${r.descr ? esc(r.descr) : ''}</div>
+      <div class="item-meta" style="margin-top:3px">
+        ${r.selcount !== undefined ? '<span class="chip chip-info">'+r.selcount+' cols</span> ' : ''}
+        ${r.bndcount !== undefined ? '<span class="chip chip-muted">'+r.bndcount+' binds</span>' : ''}
+      </div>`;
+    div.onclick = () => { selectQuery(r, div); };
+    list.appendChild(div);
+  });
+}
+
+function selectQuery(r, el) {
+  document.querySelectorAll('.item').forEach(i => i.classList.remove('sel'));
+  if (el) el.classList.add('sel');
+  const d = document.getElementById('detail');
+  const disabled = r.qrydisabled && r.qrydisabled !== '0' && r.qrydisabled !== 0;
+  const folder = r.qryfolder && r.qryfolder.trim() ? r.qryfolder.trim() : '—';
+  d.innerHTML = `
+    <div style="margin-bottom:12px">
+      <span style="font-size:16px;font-family:monospace;color:#d7faff">${esc(r.qryname)}</span>
+      ${disabled ? ' <span class="chip chip-warn">DISABLED</span>' : ' <span class="chip chip-ok">ENABLED</span>'}
+      <a href="/admin/object/query/${encodeURIComponent(r.qryname)}?env=${ENV}" style="margin-left:12px;font-size:11px;color:#00e5ff">Open in Object Explorer &#x2197;</a>
+    </div>
+    ${r.descr ? `<div style="color:#8ab;font-size:12px;margin-bottom:10px">${esc(r.descr)}</div>` : ''}
+    <div style="margin-bottom:10px">
+      <span class="stat"><b>${esc(folder)}</b>Folder</span>
+      ${r.selcount !== undefined ? `<span class="stat"><b>${r.selcount}</b>Output Cols</span>` : ''}
+      ${r.bndcount !== undefined ? `<span class="stat"><b>${r.bndcount}</b>Bind Params</span>` : ''}
+      ${r.expcount !== undefined ? `<span class="stat"><b>${r.expcount}</b>Expressions</span>` : ''}
+    </div>
+    ${r.lastupdoprid ? `<div style="font-size:11px;color:#445">Last updated by ${esc(r.lastupdoprid)}</div>` : ''}`;
+}
+
+(async function() {
+  await loadFolders();
+  await doSearch();
+})();
+</script>""")
+
+
+@router.get("/tree", response_class=HTMLResponse)
+def admin_tree():
+    return _shell("Tree Explorer", "tree", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:300px;min-width:220px;border-right:1px solid #00e5ff22;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input,select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:5px 8px;font-size:12px}
+input:focus,select:focus{outline:none;border-color:#00e5ff}
+button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(0,229,255,.07);border-left-color:#00e5ff55}
+.item.sel{background:rgba(0,229,255,.12);border-left-color:#00e5ff}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold}
+.chip-ok{background:#002800;border:1px solid #00cc66;color:#00cc66}
+.chip-warn{background:#2a1800;border:1px solid #ffaa00;color:#ffaa00}
+.chip-info{background:#001830;border:1px solid #00e5ff44;color:#00e5ff}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778}
+.stat{display:inline-block;padding:4px 12px;border:1px solid #00e5ff33;background:#001830;font-size:11px;margin:2px}
+.stat b{color:#00e5ff;font-size:16px;display:block}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="tSearch" type="text" placeholder="Search tree name or description..." style="width:260px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <input id="tSetid" type="text" placeholder="SETID filter..." style="width:120px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Trees</h2>
+    <div id="list" class="muted">Search to load trees.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Tree</h2>
+    <div id="detail" class="muted">Select a tree from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+
+async function api(path) {
+  const res = await fetch(path);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function doSearch() {
+  const q = document.getElementById('tSearch').value.trim();
+  const setid = document.getElementById('tSetid').value.trim();
+  const list = document.getElementById('list');
+  list.innerHTML = '<span class="muted">Loading...</span>';
+  document.getElementById('detail').innerHTML = '<span class="muted">Select a tree.</span>';
+
+  const rows = await api(`/api/peoplesoft/trees?env=${ENV}&q=${encodeURIComponent(q)}&setid=${encodeURIComponent(setid)}&limit=200`);
+  if (!rows) { list.innerHTML = '<span class="muted">Error loading trees.</span>'; return; }
+
+  document.getElementById('stats').textContent = `${rows.length} result${rows.length===1?'':'s'}`;
+  list.innerHTML = '';
+  if (!rows.length) { list.innerHTML = '<span class="muted">No trees found.</span>'; return; }
+
+  rows.forEach(r => {
+    const div = document.createElement('div');
+    div.className = 'item';
+    const active = (r.eff_status || '').toUpperCase() === 'A';
+    div.innerHTML = `
+      <div class="item-name">${esc(r.treename)} <span class="chip ${active ? 'chip-ok' : 'chip-warn'}">${active ? 'ACTIVE' : 'INACTIVE'}</span></div>
+      <div class="item-meta">${r.setid ? '<span class="chip chip-muted">'+esc(r.setid)+'</span> ' : ''}${r.descr ? esc(r.descr) : ''}</div>
+      <div class="item-meta" style="margin-top:2px">${r.treestrctpnm ? esc(r.treestrctpnm) : ''}</div>`;
+    div.onclick = () => selectTree(r, div);
+    list.appendChild(div);
+  });
+}
+
+function selectTree(r, el) {
+  document.querySelectorAll('.item').forEach(i => i.classList.remove('sel'));
+  if (el) el.classList.add('sel');
+  const d = document.getElementById('detail');
+  const active = (r.eff_status || '').toUpperCase() === 'A';
+  d.innerHTML = `
+    <div style="margin-bottom:12px">
+      <span style="font-size:16px;font-family:monospace;color:#d7faff">${esc(r.treename)}</span>
+      <span class="chip ${active ? 'chip-ok' : 'chip-warn'}" style="margin-left:8px">${active ? 'ACTIVE' : 'INACTIVE'}</span>
+      <a href="/admin/object/tree/${encodeURIComponent(r.treename)}?env=${ENV}" style="margin-left:12px;font-size:11px;color:#00e5ff">Open in Object Explorer &#x2197;</a>
+    </div>
+    ${r.descr ? `<div style="color:#8ab;font-size:12px;margin-bottom:10px">${esc(r.descr)}</div>` : ''}
+    <div style="margin-bottom:10px">
+      <span class="stat"><b>${esc(r.setid || '—')}</b>SETID</span>
+      <span class="stat"><b>${esc(r.setcntrlvalue || '—')}</b>Set Control</span>
+    </div>
+    <div style="font-size:12px">
+      ${r.treestrctpnm && r.treestrctpnm.trim() ? `<div style="margin-bottom:6px">Structure Record: <a href="/admin/object/record/${encodeURIComponent(r.treestrctpnm.trim())}?env=${ENV}" style="color:#00e5ff">${esc(r.treestrctpnm.trim())} &#x2197;</a></div>` : ''}
+      ${r.tree_recname && r.tree_recname.trim() ? `<div>Leaf Record: <a href="/admin/object/record/${encodeURIComponent(r.tree_recname.trim())}?env=${ENV}" style="color:#00e5ff">${esc(r.tree_recname.trim())} &#x2197;</a></div>` : ''}
+    </div>`;
+}
+
+doSearch();
+</script>""")
+
+
+@router.get("/ci", response_class=HTMLResponse)
+def admin_ci():
+    return _shell("Component Interface Explorer", "ci", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:300px;min-width:220px;border-right:1px solid #00e5ff22;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:5px 8px;font-size:12px}
+input:focus{outline:none;border-color:#00e5ff}
+button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(0,229,255,.07);border-left-color:#00e5ff55}
+.item.sel{background:rgba(0,229,255,.12);border-left-color:#00e5ff}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold}
+.chip-info{background:#001830;border:1px solid #00e5ff44;color:#00e5ff}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778}
+.stat{display:inline-block;padding:4px 12px;border:1px solid #00e5ff33;background:#001830;font-size:11px;margin:2px}
+.stat b{color:#00e5ff;font-size:16px;display:block}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="ciSearch" type="text" placeholder="Search component interface name or description..." style="width:300px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Component Interfaces</h2>
+    <div id="list" class="muted">Search to load CIs.</div>
+  </div>
+  <div class="content">
+    <h2>Selected CI</h2>
+    <div id="detail" class="muted">Select a component interface from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+
+async function api(path) {
+  const res = await fetch(path);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+const CI_TYPE = {'0':'Standard', '1':'Find-only', '2':'Read-only'};
+
+async function doSearch() {
+  const q = document.getElementById('ciSearch').value.trim();
+  const list = document.getElementById('list');
+  list.innerHTML = '<span class="muted">Loading...</span>';
+  document.getElementById('detail').innerHTML = '<span class="muted">Select a CI.</span>';
+
+  const rows = await api(`/api/peoplesoft/cis?env=${ENV}&q=${encodeURIComponent(q)}&limit=200`);
+  if (!rows) { list.innerHTML = '<span class="muted">Error loading CIs.</span>'; return; }
+
+  document.getElementById('stats').textContent = `${rows.length} result${rows.length===1?'':'s'}`;
+  list.innerHTML = '';
+  if (!rows.length) { list.innerHTML = '<span class="muted">No CIs found.</span>'; return; }
+
+  rows.forEach(r => {
+    const div = document.createElement('div');
+    div.className = 'item';
+    const typeLabel = CI_TYPE[String(r.bctype)] || ('Type '+r.bctype);
+    div.innerHTML = `
+      <div class="item-name">${esc(r.bcname)}</div>
+      <div class="item-meta"><span class="chip chip-muted">${esc(typeLabel)}</span>${r.descr ? ' '+esc(r.descr) : ''}</div>
+      <div class="item-meta" style="margin-top:2px">${r.pnlgrpname && r.pnlgrpname.trim() ? '&#x2192; '+esc(r.pnlgrpname.trim()) : ''}</div>`;
+    div.onclick = () => selectCi(r, div);
+    list.appendChild(div);
+  });
+}
+
+function selectCi(r, el) {
+  document.querySelectorAll('.item').forEach(i => i.classList.remove('sel'));
+  if (el) el.classList.add('sel');
+  const d = document.getElementById('detail');
+  const typeLabel = CI_TYPE[String(r.bctype)] || ('Type '+r.bctype);
+  d.innerHTML = `
+    <div style="margin-bottom:12px">
+      <span style="font-size:16px;font-family:monospace;color:#d7faff">${esc(r.bcname)}</span>
+      <span class="chip chip-info" style="margin-left:8px">${esc(typeLabel)}</span>
+      <a href="/admin/object/ci/${encodeURIComponent(r.bcname)}?env=${ENV}" style="margin-left:12px;font-size:11px;color:#00e5ff">Open in Object Explorer &#x2197;</a>
+    </div>
+    ${r.bcdisplayname && r.bcdisplayname.trim() ? `<div style="color:#8ab;font-size:13px;margin-bottom:4px">${esc(r.bcdisplayname.trim())}</div>` : ''}
+    ${r.descr ? `<div style="color:#667;font-size:12px;margin-bottom:10px">${esc(r.descr)}</div>` : ''}
+    <div style="font-size:12px;margin-top:8px">
+      ${r.pnlgrpname && r.pnlgrpname.trim()
+        ? `<div style="margin-bottom:6px">Wrapped Component: <a href="/admin/object/component/${encodeURIComponent(r.pnlgrpname.trim())}?env=${ENV}" style="color:#00e5ff">${esc(r.pnlgrpname.trim())} &#x2197;</a></div>`
+        : ''}
+      ${r.objectownerid && r.objectownerid.trim() ? `<div style="color:#445;margin-bottom:4px">Owner: ${esc(r.objectownerid.trim())}</div>` : ''}
+      ${r.lastupddttm ? `<div style="color:#445;font-size:11px">Last updated: ${esc(String(r.lastupddttm))}</div>` : ''}
+    </div>`;
+}
+
+doSearch();
+</script>""")
+
+
+@router.get("/menu", response_class=HTMLResponse)
+def admin_menu():
+    return _shell("Menu Explorer", "menu", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:300px;min-width:220px;border-right:1px solid #00e5ff22;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:5px 8px;font-size:12px}
+input:focus{outline:none;border-color:#00e5ff}
+button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(0,229,255,.07);border-left-color:#00e5ff55}
+.item.sel{background:rgba(0,229,255,.12);border-left-color:#00e5ff}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold}
+.chip-info{background:#001830;border:1px solid #00e5ff44;color:#00e5ff}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778}
+.item-row{padding:5px 6px;font-size:11px;border-bottom:1px solid #0d1a22}
+.item-row:hover{background:#0a1820}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="mSearch" type="text" placeholder="Search menu name or description..." style="width:280px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Menus</h2>
+    <div id="list" class="muted">Search to load menus.</div>
+  </div>
+  <div class="content">
+    <h2>Menu Items</h2>
+    <div id="detail" class="muted">Select a menu to see its items.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const MENU_TYPE = {'0':'Standard','1':'Pop-up'};
+async function api(path) { const r=await fetch(path); return r.ok?r.json():null; }
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+async function doSearch() {
+  const q=document.getElementById('mSearch').value.trim();
+  const list=document.getElementById('list');
+  list.innerHTML='<span class="muted">Loading...</span>';
+  document.getElementById('detail').innerHTML='<span class="muted">Select a menu.</span>';
+  const rows=await api('/api/peoplesoft/menus?env='+ENV+'&q='+encodeURIComponent(q));
+  if(!rows){list.innerHTML='<span class="muted">Error.</span>';return;}
+  document.getElementById('stats').textContent=rows.length+' result'+(rows.length===1?'':'s');
+  list.innerHTML='';
+  if(!rows.length){list.innerHTML='<span class="muted">No menus found.</span>';return;}
+  rows.forEach(r=>{
+    const div=document.createElement('div');div.className='item';
+    const tl=MENU_TYPE[String(r.menutype)]||('Type '+r.menutype);
+    div.innerHTML='<div class="item-name">'+esc(r.menuname)+' <span class="chip chip-muted">'+esc(tl)+'</span></div>'
+      +'<div class="item-meta">'+(r.descr?esc(r.descr):'')+'</div>';
+    div.onclick=()=>selectMenu(r,div);list.appendChild(div);});
+}
+async function selectMenu(r,el){
+  document.querySelectorAll('.item').forEach(i=>i.classList.remove('sel'));
+  if(el)el.classList.add('sel');
+  const d=document.getElementById('detail');
+  d.innerHTML='<span class="muted">Loading items...</span>';
+  const items=await api('/api/peoplesoft/menus/'+encodeURIComponent(r.menuname)+'/items?env='+ENV);
+  const tl=MENU_TYPE[String(r.menutype)]||('Type '+r.menutype);
+  const hdr='<div style="margin-bottom:12px"><span style="font-size:16px;font-family:monospace;color:#d7faff">'+esc(r.menuname)+'</span>'
+    +' <span class="chip chip-info">'+esc(tl)+'</span>'
+    +' <a href="/admin/object/menu/'+encodeURIComponent(r.menuname)+'?env='+ENV+'" style="margin-left:12px;font-size:11px;color:#00e5ff">Open in Object Explorer &#x2197;</a></div>'
+    +(r.descr?'<div style="color:#8ab;font-size:12px;margin-bottom:10px">'+esc(r.descr)+'</div>':'');
+  if(!items||!items.length){d.innerHTML=hdr+'<span class="muted">No items found.</span>';return;}
+  let table='<table style="width:100%;border-collapse:collapse;font-size:11px">'
+    +'<thead><tr style="color:#00e5ff;border-bottom:1px solid #1e3040">'
+    +'<th style="text-align:left;padding:4px 6px">Bar</th><th style="text-align:left;padding:4px 6px">Item</th>'
+    +'<th style="text-align:left;padding:4px 6px">Label</th><th style="text-align:left;padding:4px 6px">Component</th>'
+    +'</tr></thead><tbody>';
+  items.forEach(i=>{
+    const comp=(i.pnlgrpname||'').trim();
+    table+='<tr class="item-row">'
+      +'<td style="padding:4px 6px;color:#445">'+esc(i.barname||'')+'</td>'
+      +'<td style="padding:4px 6px;font-family:monospace">'+esc(i.itemname||'')+'</td>'
+      +'<td style="padding:4px 6px;color:#8ab">'+esc(i.itemlabel||i.barlabel||'')+'</td>'
+      +'<td style="padding:4px 6px">'+(comp?'<a href="/admin/object/component/'+encodeURIComponent(comp)+'?env='+ENV+'" style="color:#00e5ff">'+esc(comp)+'</a>':'')+'</td>'
+      +'</tr>';});
+  table+='</tbody></table>';
+  d.innerHTML=hdr+table;
+}
+doSearch();
+</script>""")
+
+
+@router.get("/reports", response_class=HTMLResponse)
+def admin_reports():
+    return _shell("Reports", "reports", content="""\
+<style>
+*{box-sizing:border-box}
+.card{border:1px solid #00e5ff;box-shadow:0 0 12px rgba(0,229,255,.2);padding:16px;margin-bottom:16px;background:rgba(0,20,30,.75)}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:5px;margin:0 0 12px}
+.report-btn{background:#0a1820;border:1px solid #00e5ff33;padding:10px 14px;cursor:pointer;text-align:left;color:#d7faff;font-size:12px;width:100%;margin-bottom:4px;transition:border-color .15s}
+.report-btn:hover,.report-btn.active{border-color:#00e5ff;background:#0d2030}
+.report-btn-title{color:#00e5ff;font-weight:bold;font-size:11px}
+.cat-label{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#445;margin:14px 0 6px;border-top:1px solid #1e3040;padding-top:10px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{color:#00e5ff;text-align:left;padding:6px 8px;border-bottom:1px solid #1e3040;white-space:nowrap;font-size:11px}
+td{padding:5px 8px;border-bottom:1px solid #0d1a22;vertical-align:top;font-size:11px}
+tr:hover td{background:#0a1820}
+a{color:#00e5ff;text-decoration:none} a:hover{text-decoration:underline}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold}
+input[type=text]{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:5px 8px;font-size:12px}
+button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;padding:5px 12px;cursor:pointer;font-size:11px}
+.muted{color:#556;font-style:italic}
+</style>
+<div style="display:flex;gap:20px;align-items:flex-start">
+  <div style="width:260px;flex-shrink:0">
+    <div class="card">
+      <h2>Report Catalog</h2>
+      <div id="catalog" class="muted">Loading...</div>
+    </div>
+  </div>
+  <div style="flex:1;min-width:0">
+    <div id="reportPanel" class="card" style="display:none">
+      <h2 id="reportTitle">Report</h2>
+      <div id="reportNote" style="font-size:11px;color:#445;margin-bottom:10px"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+        <input id="rowFilter" type="text" placeholder="Filter results..." style="width:220px" oninput="filterRows()">
+        <span id="rowCount" style="font-size:11px;color:#445"></span>
+        <button class="sec" onclick="exportCsv()" style="margin-left:auto">Export CSV</button>
+      </div>
+      <div id="reportTable"></div>
+    </div>
+    <div id="emptyState" class="card" style="color:#445;text-align:center;padding:40px">
+      Select a report from the catalog.
+    </div>
+  </div>
+</div>
+<script>
+const ENV=localStorage.getItem('dsEnv')||'HCM';
+let _key=null,_allRows=[],_cols=[];
+async function api(p){const r=await fetch(p);return r.ok?r.json():null;}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+const LINKS={rolename:n=>'/admin/object/role/'+n,roleuser:n=>'/admin/object/operator/'+n,
+  oprid:n=>'/admin/object/operator/'+n,classid:n=>'/admin/object/permissionlist/'+n,
+  pnlgrpname:n=>'/admin/object/component/'+n,recname:n=>'/admin/object/record/'+n,
+  ae_applid:n=>'/admin/object/application_engine/'+n,menuname:n=>'/admin/object/menu/'+n};
+async function loadCatalog(){
+  const cat=await api('/api/peoplesoft/reports/catalog?env='+ENV);
+  if(!cat){document.getElementById('catalog').textContent='Failed.';return;}
+  const by={};cat.forEach(r=>{by[r.category]=by[r.category]||[];by[r.category].push(r);});
+  let h='';['security','objects','system'].forEach(c=>{
+    if(!by[c]||!by[c].length)return;
+    h+='<div class="cat-label">'+c+'</div>';
+    by[c].forEach(r=>{h+='<button class="report-btn" id="rb_'+esc(r.key)+'" onclick="runReport(\''+esc(r.key)+'\',\''+esc(r.title)+'\')" title="'+esc(r.title)+'"><div class="report-btn-title">'+esc(r.title)+'</div></button>';});
+  });
+  document.getElementById('catalog').innerHTML=h;
+}
+async function runReport(key,title){
+  document.querySelectorAll('.report-btn').forEach(b=>b.classList.remove('active'));
+  const btn=document.getElementById('rb_'+key);if(btn)btn.classList.add('active');
+  document.getElementById('reportPanel').style.display='';
+  document.getElementById('emptyState').style.display='none';
+  document.getElementById('reportTitle').textContent=title+' — '+ENV;
+  document.getElementById('reportTable').innerHTML='<span class="muted">Running...</span>';
+  document.getElementById('rowFilter').value='';_key=key;
+  const data=await api('/api/peoplesoft/reports?report='+encodeURIComponent(key)+'&env='+ENV+'&limit=500');
+  if(!data){document.getElementById('reportTable').innerHTML='<span class="muted">Error.</span>';return;}
+  document.getElementById('reportNote').textContent=data.note||'';
+  _allRows=data.rows||[];_cols=data.columns||[];
+  document.getElementById('rowCount').textContent=_allRows.length+' rows';
+  renderTable(_allRows);
+}
+function renderTable(rows){
+  if(!rows.length){document.getElementById('reportTable').innerHTML='<span class="muted">No rows returned.</span>';return;}
+  let h='<table><thead><tr>'+_cols.map(c=>'<th>'+esc(c.toUpperCase().replace(/_/g,' '))+'</th>').join('')+'</tr></thead><tbody>';
+  rows.forEach(r=>{h+='<tr>'+_cols.map(c=>{const v=r[c],s=v===null||v===undefined?'':String(v);const lf=LINKS[c];return'<td>'+(lf&&s.trim()?'<a href="'+esc(lf(s.trim()))+'?env='+ENV+'">'+esc(s)+'</a>':esc(s))+'</td>';}).join('')+'</tr>';});
+  h+='</tbody></table>';document.getElementById('reportTable').innerHTML=h;
+}
+function filterRows(){const q=document.getElementById('rowFilter').value.toLowerCase();const f=q?_allRows.filter(r=>_cols.some(c=>String(r[c]||'').toLowerCase().includes(q))):_allRows;document.getElementById('rowCount').textContent=f.length+'/'+_allRows.length+' rows';renderTable(f);}
+function exportCsv(){if(!_allRows.length)return;const q=document.getElementById('rowFilter').value.toLowerCase();const rows=q?_allRows.filter(r=>_cols.some(c=>String(r[c]||'').toLowerCase().includes(q))):_allRows;const lines=[_cols.join(',')].concat(rows.map(r=>_cols.map(c=>JSON.stringify(r[c]??'')).join(',')));const blob=new Blob([lines.join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(_key||'report')+'_'+ENV+'.csv';a.click();}
+loadCatalog();
+</script>""")
+
+
+@router.get("/pcsearch", response_class=HTMLResponse)
+def admin_pcsearch():
+    return _shell("PeopleCode Source Search", "pcsearch", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00e5ff33;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;min-width:240px;border-right:1px solid #00e5ff22;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:5px 8px;font-size:12px}
+input:focus{outline:none;border-color:#00e5ff}
+button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff}
+select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:5px 8px;font-size:12px}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(0,229,255,.07);border-left-color:#00e5ff55}
+.item.sel{background:rgba(0,229,255,.12);border-left-color:#00e5ff}
+.item-ref{font-family:monospace;font-size:11px;color:#d7faff}
+.item-parent{font-size:10px;color:#556;margin-top:2px}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold}
+.chip-type{background:#001830;border:1px solid #00e5ff44;color:#00e5ff}
+.chip-event{background:#0d1a00;border:1px solid #44aa4444;color:#66cc66}
+pre{background:#030d14;border:1px solid #1e3040;padding:12px;font-family:monospace;font-size:11px;white-space:pre-wrap;word-break:break-word;line-height:1.5;overflow-x:auto;max-height:500px}
+.hit{background:#2a1c00;color:#ffcc44}
+.kw{color:#569cd6}.str{color:#ce9178}.cmt{color:#6a9955}.builtin{color:#dcdcaa}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="pcq" type="text" placeholder="Search in PeopleCode source... (e.g. EMPLMT_SRCH_ALL, CreateSQL, %UpdateStats)" style="width:320px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <select id="limitSel">
+    <option value="50">50 results</option>
+    <option value="100" selected>100 results</option>
+    <option value="200">200 results</option>
+    <option value="500">500 results</option>
+  </select>
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#445;margin-left:6px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Matching Programs</h2>
+    <div id="list" class="muted">Enter a search term and press Search.</div>
+  </div>
+  <div class="content">
+    <h2>Source Preview</h2>
+    <div id="detail" class="muted">Select a program to view source with matches highlighted.</div>
+  </div>
+</div>
+<script>
+const ENV=localStorage.getItem('dsEnv')||'HCM';
+const PC_KW=['If','Then','Else','End-If','For','End-For','While','End-While','Repeat','Until','Return','Break','Continue','Local','Global','Component','Function','End-Function','Method','End-Method','class','Extends','Implements','import','Array','String','Integer','Number','Date','DateTime','Boolean','Object','Any','Exception','Try','Catch','End-Try','Throw','CreateObject','GetLevel0','GetRecord','GetField','GetPage','GetGrid','GetRow','GetComponent','Step','DoWhile','DoUntil'];
+const PC_BUILTIN=['MessageBox','SQLExec','CreateSQL','Close','Fetch','Insert','Update','Delete','IsNull','None','Null','True','False','All','And','Or','Not','As','Of','Property','Get','Set','Value','Name','Type','CreateRecord','CreateMessage','CreateRowset','CreateArray','GetRowset','GetMessage','%This','%Super','%CurrentTimeIn','%Date','%DateTime','%Time','%EmployeeId','%OperatorId','%MenuName','%Component','%Page','%Action','%Mode','%Panel','%PanelGroup','%UpdateStats','%SelectAll','%Insert','%Update','%Delete','%SelectByKey','%SelectByKeyEffdt','%DateAdd','%DateTimeAdd','%DateTimeDiff','%DateDiff','%Substring','%NumToChar','%CharToNum','%DateOut','%TimeOut','%Round','%Truncate','%Abs','%Sign','%Mod','%Upper','%Lower','%Rtrim','%Ltrim','%Replace','%Len','%Value','%like','%contains','%starts'];
+
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+async function api(p){const r=await fetch(p);return r.ok?r.json():null;}
+
+function highlightPC(src,q){
+  // tokenize and highlight PeopleCode source with match highlighting
+  let h='',i=0;const s=src;
+  while(i<s.length){
+    if(s[i]==='/' && s[i+1]==='*'){const e=s.indexOf('*/',i+2);const end=e<0?s.length:e+2;h+='<span class="cmt">'+esc(s.slice(i,end))+'</span>';i=end;continue;}
+    if(s[i]==='"'){let j=i+1;while(j<s.length&&s[j]!=='"')j++;h+='<span class="str">'+esc(s.slice(i,j+1))+'</span>';i=j+1;continue;}
+    // word
+    if(/[A-Za-z%_]/.test(s[i])){let j=i;while(j<s.length&&/[A-Za-z0-9_.%\-]/.test(s[j]))j++;const w=s.slice(i,j);
+      if(PC_KW.includes(w))h+='<span class="kw">'+esc(w)+'</span>';
+      else if(PC_BUILTIN.includes(w))h+='<span class="builtin">'+esc(w)+'</span>';
+      else if(q&&w.toUpperCase()===q.toUpperCase())h+='<span class="hit">'+esc(w)+'</span>';
+      else h+=esc(w);i=j;continue;}
+    // check for match at any position (non-word chars)
+    if(q&&s.slice(i).toUpperCase().startsWith(q.toUpperCase())){h+='<span class="hit">'+esc(s.slice(i,i+q.length))+'</span>';i+=q.length;continue;}
+    h+=esc(s[i]);i++;}
+  return h;
+}
+
+let _results=[];
+async function doSearch(){
+  const q=document.getElementById('pcq').value.trim();
+  const lim=document.getElementById('limitSel').value;
+  if(!q){return;}
+  const list=document.getElementById('list');
+  list.innerHTML='<span class="muted">Searching...</span>';
+  document.getElementById('detail').innerHTML='<span class="muted">Select a result.</span>';
+  document.getElementById('stats').textContent='';
+  const data=await api('/api/peoplesoft/peoplecode/source-search?q='+encodeURIComponent(q)+'&env='+ENV+'&limit='+lim);
+  if(!data){list.innerHTML='<span class="muted">Error.</span>';return;}
+  _results=data.items||[];
+  document.getElementById('stats').textContent=_results.length+(data.warnings&&data.warnings.length?' ('+data.warnings[0].message+')':' programs matched');
+  list.innerHTML='';
+  if(!_results.length){list.innerHTML='<span class="muted">No PeopleCode programs match "'+esc(q)+'".</span>';return;}
+  _results.forEach((r,idx)=>{
+    const div=document.createElement('div');div.className='item';
+    const ptype=r.parent_type||'';const pname=r.parent_name||'';
+    div.innerHTML='<div class="item-ref">'+esc(r.reference||r.encoded_reference||'')+'</div>'
+      +'<div class="item-parent">'+(ptype?'<span class="chip chip-type">'+esc(ptype.toUpperCase())+'</span> ':'')+(pname?esc(pname):'')+' <span class="chip chip-event">'+esc(r.event_name||r.objectvalue7||'')+'</span></div>';
+    div.onclick=()=>showSource(r,q,div);
+    list.appendChild(div);
+  });
+}
+
+function showSource(r,q,el){
+  document.querySelectorAll('.item').forEach(i=>i.classList.remove('sel'));
+  if(el)el.classList.add('sel');
+  const src=r.source||'(source not loaded)';
+  const d=document.getElementById('detail');
+  const ref=r.reference||r.encoded_reference||'';
+  const ptype=r.parent_type||'';const pname=r.parent_name||'';
+  d.innerHTML='<div style="margin-bottom:10px">'
+    +'<span style="font-family:monospace;font-size:13px;color:#d7faff">'+esc(ref)+'</span>'
+    +' <a href="/admin/object/peoplecode/'+encodeURIComponent(r.encoded_reference||ref)+'?env='+ENV+'" style="font-size:11px;color:#00e5ff;margin-left:10px">Open in PC Explorer &#x2197;</a>'
+    +(ptype&&pname?' <a href="/admin/object/'+encodeURIComponent(ptype)+'/'+encodeURIComponent(pname)+'?env='+ENV+'" style="font-size:11px;color:#00e5ff;margin-left:10px">&#x2192; '+esc(pname)+' &#x2197;</a>':'')
+    +'</div>'
+    +'<pre>'+highlightPC(src,q)+'</pre>';
+  // scroll first match into view
+  setTimeout(()=>{const hit=d.querySelector('.hit');if(hit)hit.scrollIntoView({block:'center',behavior:'smooth'});},50);
+}
 </script>""")
