@@ -13,6 +13,29 @@ class SqlwsTimeoutTests(unittest.TestCase):
         self.assertEqual(sqlws._normalize_timeout_secs("abc"), 0)
         self.assertEqual(sqlws._normalize_timeout_secs(sqlws.MAX_TIMEOUT_SECS + 10), sqlws.MAX_TIMEOUT_SECS)
 
+    def test_prepare_user_binds_rewrites_reserved_names(self):
+        safe_sql, safe_binds = sqlws._prepare_user_binds(
+            "SELECT * FROM sysadm.psoprdefn WHERE rownum <= :rownum AND oprid = :oprid",
+            {"rownum": "3", "oprid": "PS"},
+        )
+
+        self.assertNotIn(":rownum", safe_sql)
+        self.assertNotIn(":oprid", safe_sql)
+        self.assertIn(":sqlws_b_1", safe_sql)
+        self.assertIn(":sqlws_b_2", safe_sql)
+        self.assertEqual(safe_binds, {"sqlws_b_1": "3", "sqlws_b_2": "PS"})
+
+    def test_prepare_user_binds_skips_strings_and_comments(self):
+        safe_sql, safe_binds = sqlws._prepare_user_binds(
+            "SELECT ':rownum' AS txt FROM dual -- :rownum\nWHERE dummy = :rownum",
+            {"rownum": "X"},
+        )
+
+        self.assertIn("':rownum'", safe_sql)
+        self.assertIn("-- :rownum", safe_sql)
+        self.assertIn("dummy = :sqlws_b_1", safe_sql)
+        self.assertEqual(safe_binds, {"sqlws_b_1": "X"})
+
     def test_execute_query_returns_cancelled_when_cancel_check_is_true(self):
         class FakeCursor:
             def __init__(self):

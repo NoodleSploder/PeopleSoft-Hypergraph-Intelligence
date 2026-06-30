@@ -332,6 +332,79 @@ Verification:
 - `/api/peoplesoft/object/component/JOB_DATA?env=HCM` returned `200` with the
   expected component payload.
 
+### SQL Workspace Sidebar and Schema Search Fix
+
+- Fixed `/admin/sqlws` JavaScript initialization by making the SQL Workspace
+  HTML template a raw Python string. This preserves JavaScript escapes such as
+  `\\n`, `\\w`, and `\\s` in regex/string literals; before this, the Explain
+  Plan renderer emitted a literal newline inside a JavaScript string and caused
+  a parse-time failure.
+- Restored sidebar tab behavior for Schema, History, and Pinned by allowing the
+  page script to initialize successfully.
+- Fixed History/Pinned Load actions by replacing inline JSON-stringified SQL in
+  `onclick` attributes with index-based row loading from in-memory history
+  arrays. This avoids broken HTML attributes when SQL text contains quotes.
+- Improved schema browser search ordering and matching:
+  - PeopleSoft `PSRECDEFN` results are collected first.
+  - `JOB`, `PS_JOB`, and `SYSADM.PS_JOB` all resolve toward `SYSADM.PS_JOB`.
+  - SYSADM Oracle catalog objects are preferred ahead of generic SYS objects.
+  - Duplicate PeopleSoft/Oracle rows are collapsed in the combined result.
+
+Verification:
+
+- `python -m py_compile routers/admin.py routers/sqlws.py connectors/sqlws.py`
+  completed successfully.
+- Extracted SQL Workspace JavaScript from `admin_sqlws()` and verified it
+  parses/initializes with QuickJS DOM stubs.
+- Verified rendered history rows produce valid `loadHistoryItem('historyList',
+  index)` handlers and that loading a row updates the SQL textarea.
+- `schema_search('HCM', 'JOB', 10)`, `schema_search('HCM', 'PS_JOB', 10)`,
+  and `schema_search('HCM', 'SYSADM.PS_JOB', 10)` now return
+  `peoplesoft SYSADM PS_JOB RECORD JOB` as the first result.
+
+### SQL Workspace Execute Thread Fix
+
+- Fixed `/api/sqlws/execute` returning plain-text `500 Internal Server Error`
+  when executing from the SQL Workspace UI.
+- Removed an unsafe cancellation callback that called
+  `asyncio.get_running_loop()` from inside the worker thread used by
+  `asyncio.to_thread()`. That raised `RuntimeError: no running event loop`
+  before the connector could return its normal JSON result.
+- Added a JSON error envelope around unexpected execute-router exceptions.
+- Updated the SQL Workspace Execute button to check `res.ok` before parsing
+  JSON, so any future non-OK response displays a readable request error instead
+  of `Unexpected token 'I'`.
+
+Verification:
+
+- `python -m py_compile routers/sqlws.py routers/admin.py connectors/sqlws.py`
+  completed successfully.
+- Connector execution of the pinned `PSOPRDEFN` query returned 3 rows.
+- Live `/api/sqlws/execute` for the same query returned `200 OK` with 3 rows
+  and columns `OPRID`, `OPRDEFNDESC`, `EMPLID`, `EMAILID`, `ACCTLOCK`,
+  `OPRTYPE`, `LASTSIGNONDTTM`, and `FAILEDLOGINS`.
+
+### SQL Workspace Bind Name Normalization
+
+- Fixed Oracle bind execution for user-friendly bind names that collide with
+  Oracle reserved words or pseudocolumns, such as `:rownum`.
+- SQL Workspace now rewrites user bind placeholders outside strings/comments to
+  safe internal names like `:sqlws_b_1` before sending SQL to Oracle, while
+  preserving the original SQL and bind names in history/audit records.
+- Added validation for malformed bind names and kept SQL Workspace paging binds
+  (`sqlws_rn_s`, `sqlws_rn_e`) reserved.
+
+Verification:
+
+- `python -m unittest tests.test_sqlws_timeout` passed.
+- `python -m py_compile connectors/sqlws.py routers/sqlws.py routers/admin.py`
+  completed successfully.
+- Connector execution of
+  `SELECT OPRID, OPRDEFNDESC FROM SYSADM.PSOPRDEFN WHERE ROWNUM <= :rownum`
+  with bind `rownum=3` returned 3 rows.
+- Live `/api/sqlws/execute` for the same `:rownum` query returned `200 OK`,
+  3 rows, and no warnings.
+
 ------------------------------------------------------------------------
 
 ## 2026-06-29 (continued)

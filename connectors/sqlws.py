@@ -198,6 +198,86 @@ def extract_bind_names(sql: str) -> list:
     return result
 
 
+def _replace_bind_placeholders(sql: str, replacements: dict) -> str:
+    """Replace bind placeholders outside strings/comments using uppercase keys."""
+    if not replacements:
+        return sql
+
+    out = []
+    i = 0
+    n = len(sql)
+    while i < n:
+        if sql.startswith("--", i):
+            j = sql.find("\n", i + 2)
+            if j == -1:
+                out.append(sql[i:])
+                break
+            out.append(sql[i:j])
+            i = j
+            continue
+
+        if sql.startswith("/*", i):
+            j = sql.find("*/", i + 2)
+            if j == -1:
+                out.append(sql[i:])
+                break
+            out.append(sql[i:j + 2])
+            i = j + 2
+            continue
+
+        if sql[i] == "'":
+            j = i + 1
+            while j < n:
+                if sql[j] == "'" and j + 1 < n and sql[j + 1] == "'":
+                    j += 2
+                    continue
+                if sql[j] == "'":
+                    j += 1
+                    break
+                j += 1
+            out.append(sql[i:j])
+            i = j
+            continue
+
+        if sql[i] == ":" and i + 1 < n:
+            m = re.match(r":([A-Za-z_][A-Za-z0-9_$#]*)", sql[i:])
+            if m:
+                name = m.group(1)
+                replacement = replacements.get(name.upper())
+                out.append(f":{replacement}" if replacement else m.group(0))
+                i += len(m.group(0))
+                continue
+
+        out.append(sql[i])
+        i += 1
+
+    return "".join(out)
+
+
+def _prepare_user_binds(sql: str, binds: dict) -> tuple[str, dict]:
+    """Rewrite user bind placeholders to SQL Workspace-safe internal names."""
+    normalized_binds = {}
+    for raw_name, value in (binds or {}).items():
+        name = str(raw_name).strip().lstrip(":")
+        if not name:
+            continue
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_$#]*$", name):
+            raise ValueError(f"Invalid bind variable name: {raw_name}")
+        normalized_binds[name.upper()] = value
+
+    replacements = {}
+    exec_binds = {}
+    for idx, name in enumerate(extract_bind_names(sql), start=1):
+        key = name.upper()
+        if key not in normalized_binds:
+            continue
+        safe_name = f"sqlws_b_{idx}"
+        replacements[key] = safe_name
+        exec_binds[safe_name] = normalized_binds[key]
+
+    return _replace_bind_placeholders(sql, replacements), exec_binds
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Database connection
 # ──────────────────────────────────────────────────────────────────────────────
@@ -354,7 +434,7 @@ def execute_query(
 
     # Reserved paging bind names — reject if user accidentally uses them.
     reserved = {"sqlws_rn_s", "sqlws_rn_e"}
-    conflict = reserved & set(binds.keys())
+    conflict = reserved & {str(k).strip().lstrip(":").lower() for k in binds.keys()}
     if conflict:
         return {
             "env": env_name.upper(),
@@ -369,6 +449,25 @@ def execute_query(
             "warnings": [],
             "blocked": True,
             "blocked_reason": f"Bind variable names are reserved by SQL Workspace: {sorted(conflict)}",
+            "query_id": str(uuid.uuid4()),
+        }
+
+    try:
+        safe_sql, safe_binds = _prepare_user_binds(sql, binds)
+    except ValueError as exc:
+        return {
+            "env": env_name.upper(),
+            "statement_type": None,
+            "elapsed_ms": 0,
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "page": page,
+            "page_size": page_size,
+            "truncated": False,
+            "warnings": [],
+            "blocked": True,
+            "blocked_reason": str(exc),
             "query_id": str(uuid.uuid4()),
         }
 
@@ -416,8 +515,8 @@ def execute_query(
     start_row = (page - 1) * page_size + 1
     end_row   = start_row + page_size - 1
 
-    paged_sql = _build_paged_sql(sql, start_row, end_row)
-    exec_binds = dict(binds)
+    paged_sql = _build_paged_sql(safe_sql, start_row, end_row)
+    exec_binds = dict(safe_binds)
     exec_binds["sqlws_rn_s"] = start_row
     exec_binds["sqlws_rn_e"] = end_row
 
@@ -661,36 +760,31 @@ def schema_search(env_name: str, q: str, limit: int = 50) -> dict:
     Returns combined results with object type and owner.
     """
     limit = max(1, min(int(limit), 200))
-    results = []
+    q_clean = (q or "").strip().upper()
+    owner_filter = None
+    object_q = q_clean
+    if "." in q_clean:
+        owner_filter, object_q = q_clean.split(".", 1)
+        owner_filter = owner_filter or None
+        object_q = object_q or q_clean
+
+    if owner_filter in ("PS", "PS_"):
+        owner_filter = "SYSADM"
+        if not object_q.startswith("PS_"):
+            object_q = f"PS_{object_q}"
+
+    ps_rec_q = object_q[3:] if object_q.startswith("PS_") else object_q
+    pattern = f"%{object_q}%"
+    ps_pattern = f"%{ps_rec_q}%"
+
+    ps_results = []
+    oracle_results = []
     warnings = []
-    pattern = f"%{q.upper()}%"
 
     try:
         conn = _connect(env_name)
         try:
             cur = conn.cursor()
-
-            # Oracle catalog: tables and views visible to this user.
-            cur.execute(
-                """
-                SELECT owner, object_name, object_type
-                  FROM all_objects
-                 WHERE object_type IN ('TABLE', 'VIEW')
-                   AND upper(object_name) LIKE :pattern
-                 ORDER BY object_type, owner, object_name
-                 FETCH FIRST :limit ROWS ONLY
-                """,
-                {"pattern": pattern, "limit": limit},
-            )
-            for row in cur.fetchall():
-                results.append({
-                    "source": "oracle",
-                    "owner": row[0],
-                    "object_name": row[1],
-                    "object_type": row[2],
-                    "description": None,
-                    "ps_recname": None,
-                })
 
             # PeopleSoft record catalog.
             try:
@@ -698,18 +792,35 @@ def schema_search(env_name: str, q: str, limit: int = 50) -> dict:
                     """
                     SELECT recname, recdescr, sqltablename, rectype
                       FROM sysadm.psrecdefn
-                     WHERE upper(recname) LIKE :pattern
-                        OR upper(recdescr) LIKE :pattern
-                     ORDER BY recname
+                     WHERE upper(recname) LIKE :ps_pattern
+                        OR upper(recdescr) LIKE :ps_pattern
+                        OR upper(NVL(sqltablename, 'PS_' || recname)) LIKE :pattern
+                     ORDER BY
+                       CASE
+                         WHEN upper(recname) = :ps_exact THEN 0
+                         WHEN upper(NVL(sqltablename, 'PS_' || recname)) = :obj_exact THEN 1
+                         WHEN upper(recname) LIKE :ps_prefix THEN 2
+                         WHEN upper(NVL(sqltablename, 'PS_' || recname)) LIKE :obj_prefix THEN 3
+                         ELSE 4
+                       END,
+                       recname
                      FETCH FIRST :limit ROWS ONLY
                     """,
-                    {"pattern": pattern, "limit": limit},
+                    {
+                        "pattern": pattern,
+                        "ps_pattern": ps_pattern,
+                        "obj_exact": object_q,
+                        "ps_exact": ps_rec_q,
+                        "obj_prefix": f"{object_q}%",
+                        "ps_prefix": f"{ps_rec_q}%",
+                        "limit": limit,
+                    },
                 )
                 for row in cur.fetchall():
                     recname    = row[0]
                     recdescr   = row[1]
                     sqltable   = (row[2] or "").strip() or f"PS_{recname}"
-                    results.append({
+                    ps_results.append({
                         "source": "peoplesoft",
                         "owner": "SYSADM",
                         "object_name": sqltable,
@@ -719,12 +830,59 @@ def schema_search(env_name: str, q: str, limit: int = 50) -> dict:
                     })
             except oracledb.DatabaseError:
                 warnings.append("PeopleSoft record catalog (PSRECDEFN) not accessible")
+
+            # Oracle catalog: tables and views visible to this user.
+            cur.execute(
+                """
+                SELECT owner, object_name, object_type
+                  FROM all_objects
+                 WHERE object_type IN ('TABLE', 'VIEW')
+                   AND upper(object_name) LIKE :pattern
+                   AND (:owner_filter IS NULL OR upper(owner) = :owner_filter)
+                 ORDER BY
+                   CASE WHEN upper(owner) = 'SYSADM' THEN 0 ELSE 1 END,
+                   CASE
+                     WHEN upper(object_name) = :obj_exact THEN 0
+                     WHEN upper(object_name) LIKE :obj_prefix THEN 1
+                     ELSE 2
+                   END,
+                   object_type, owner, object_name
+                 FETCH FIRST :limit ROWS ONLY
+                """,
+                {
+                    "pattern": pattern,
+                    "owner_filter": owner_filter,
+                    "obj_exact": object_q,
+                    "obj_prefix": f"{object_q}%",
+                    "limit": limit,
+                },
+            )
+            for row in cur.fetchall():
+                oracle_results.append({
+                    "source": "oracle",
+                    "owner": row[0],
+                    "object_name": row[1],
+                    "object_type": row[2],
+                    "description": None,
+                    "ps_recname": None,
+                })
         finally:
             conn.close()
     except Exception as exc:
         warnings.append(f"Schema search error: {exc}")
 
     audit_write("schema_search", {"env": env_name.upper(), "q": q})
+
+    results = []
+    seen = set()
+    for row in ps_results + oracle_results:
+        key = (row["owner"], row["object_name"], row["object_type"])
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(row)
+        if len(results) >= limit:
+            break
 
     return {"results": results, "warnings": warnings}
 

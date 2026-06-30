@@ -4207,7 +4207,7 @@ async function loadRtGraph() {
 
 @router.get("/sqlws", response_class=HTMLResponse)
 def admin_sqlws():
-    return """<!DOCTYPE html>
+    return r"""<!DOCTYPE html>
 <html>
 <head>
 <title>DeathStar SQL Workspace</title>
@@ -4584,6 +4584,15 @@ async function executeSQL(page) {
       body: JSON.stringify({env:env(), sql, binds, page, page_size:pageSize, timeout_secs:timeoutSecs}),
       signal: currentAbortController.signal,
     });
+    if (!res.ok) {
+      const text = await res.text();
+      let msg = text;
+      try {
+        const errData = JSON.parse(text);
+        msg = errData.error || (errData.warnings || []).join('; ') || text;
+      } catch(e) {}
+      throw new Error(msg || `HTTP ${res.status}`);
+    }
     data = await res.json();
   } catch (e) {
     _setExecRunning(false);
@@ -4987,6 +4996,7 @@ function _acTrigger() {
 // ── history ─────────────────────────────────────────────────────────────
 let _historyItems = [];
 let _pinnedItems  = [];
+const _renderedHistoryItems = {};
 
 async function loadHistory() {
   const res  = await api('/api/sqlws/history?limit=50');
@@ -5015,25 +5025,28 @@ async function loadPinned() {
 function renderHistoryList(items, targetId, pinnedView) {
   const box = $(targetId);
   if (!items.length) { box.innerHTML = '<span class="empty">None.</span>'; return; }
-  box.innerHTML = items.map(item => {
+  _renderedHistoryItems[targetId] = items;
+  box.innerHTML = items.map((item, idx) => {
     const ts    = (item.timestamp || '').replace('T',' ').slice(0,19);
     const status = item.status === 'success' ? '&#10003;'
                  : item.status === 'blocked' ? '&#9940;' : '&#10007;';
     const statusColor = item.status === 'success' ? '#00cc66'
                       : item.status === 'blocked' ? '#ff6600' : '#ff4444';
     const pinLabel = item.pinned ? '&#9733; Unpin' : '&#9734; Pin';
+    const idArg = esc(item.id || '');
+    const targetArg = esc(targetId);
     return `
       <div style="border-bottom:1px solid #0e2030;padding:5px 0;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <span class="ts">${esc(ts)}</span>
           <span style="color:${statusColor};font-size:10px;">${status} ${esc(item.env)}</span>
         </div>
-        <div class="sql-preview" onclick="loadQueryFromHistory(${JSON.stringify(JSON.stringify(item.sql))},${JSON.stringify(JSON.stringify(item.binds||{}))})"
+        <div class="sql-preview" onclick="loadHistoryItem('${targetArg}',${idx})"
              title="${esc(item.sql)}" style="cursor:pointer;">${esc(item.sql)}</div>
         <div style="display:flex;gap:4px;margin-top:3px;flex-wrap:wrap;">
-          <button class="sec pin-btn" onclick="togglePin('${esc(item.id)}',${!item.pinned})">${pinLabel}</button>
-          <button class="sec pin-btn" onclick="deleteHistory('${esc(item.id)}')">Delete</button>
-          <button class="sec pin-btn" onclick="loadQueryFromHistory(${JSON.stringify(JSON.stringify(item.sql))},${JSON.stringify(JSON.stringify(item.binds||{}))})">Load</button>
+          <button class="sec pin-btn" onclick="togglePin('${idArg}',${!item.pinned})">${pinLabel}</button>
+          <button class="sec pin-btn" onclick="deleteHistory('${idArg}')">Delete</button>
+          <button class="sec pin-btn" onclick="loadHistoryItem('${targetArg}',${idx})">Load</button>
           ${item.elapsed_ms ? `<span class="ts">${item.elapsed_ms}ms</span>` : ''}
           ${item.row_count  ? `<span class="ts">${item.row_count}r</span>`   : ''}
         </div>
@@ -5041,14 +5054,17 @@ function renderHistoryList(items, targetId, pinnedView) {
   }).join('');
 }
 
-function loadQueryFromHistory(sqlJsonStr, bindsJsonStr) {
-  const sql = JSON.parse(sqlJsonStr);
-  $('sqlInput').value = sql;
-  if (bindsJsonStr) {
-    try { setBinds(JSON.parse(bindsJsonStr)); } catch(e) {}
-  } else {
-    _detectBinds(sql);
-  }
+function loadHistoryItem(targetId, idx) {
+  const item = (_renderedHistoryItems[targetId] || [])[idx];
+  if (!item) return;
+  loadQueryFromHistory(item.sql || '', item.binds || {});
+}
+
+function loadQueryFromHistory(sql, binds) {
+  $('sqlInput').value = sql || '';
+  setBinds(binds || {});
+  _detectBinds(sql || '');
+  $('sqlInput').focus();
 }
 
 function _detectBinds(sql) {

@@ -92,17 +92,40 @@ async def execute_sql(req: ExecuteRequest, request: Request):
             "query_id": None,
         }
 
-    result = await asyncio.to_thread(
-        sqlws.execute_query,
-        req.env,
-        req.sql,
-        req.binds,
-        req.page,
-        req.page_size,
-        req.max_rows,
-        req.timeout_secs,
-        lambda: asyncio.get_running_loop().is_closed(),
-    )
+    try:
+        result = await asyncio.to_thread(
+            sqlws.execute_query,
+            req.env,
+            req.sql,
+            req.binds,
+            req.page,
+            req.page_size,
+            req.max_rows,
+            req.timeout_secs,
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "env": req.env.upper(),
+                "statement_type": None,
+                "elapsed_ms": 0,
+                "columns": [],
+                "rows": [],
+                "row_count": 0,
+                "page": req.page,
+                "page_size": req.page_size,
+                "truncated": False,
+                "warnings": [f"Execution failed: {exc}"],
+                "blocked": False,
+                "blocked_reason": None,
+                "timed_out": False,
+                "cancelled": False,
+                "status": "error",
+                "error": str(exc),
+                "query_id": None,
+            },
+        )
 
     if await request.is_disconnected() and not result.get("cancelled"):
         result["cancelled"] = True
