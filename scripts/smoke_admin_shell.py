@@ -155,6 +155,7 @@ DEFAULT_PAGES = [
     ("/admin/navcoll",    "#ncSearch",   True, True,  []),
     ("/admin/efmapping",  "#efSearch",   True, True,  []),
     ("/admin/relcontent", "#rcSearch",   True, True,  []),
+    ("/admin/srchdef",    "#sdSearch",   True, True,  []),
 ]
 
 

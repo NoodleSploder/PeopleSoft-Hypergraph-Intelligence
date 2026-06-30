@@ -4914,3 +4914,96 @@ def get_related_content(env_name, relconid):
     defn = dict(rows[0])
     defn["servicetype_label"] = _RC_SERVICE_TYPE.get(str(defn.get("servicetype") or ""), defn.get("servicetype") or "")
     return {"definition": defn, "warnings": []}
+
+
+# ---------------------------------------------------------------------------
+# Search Definitions (PeopleSoft Search Framework, PTSF)
+# ---------------------------------------------------------------------------
+
+_SRCH_STATUS = {
+    "A": "Active",
+    "I": "Inactive",
+}
+
+
+def search_search_definitions(env_name, q="", status=None, limit=100):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PTSF_SRCDEFN"):
+        return {"items": [], "warnings": ["PTSF_SRCDEFN not accessible"]}
+    clauses = []
+    params = {"lim": limit}
+    if q:
+        clauses.append("(UPPER(SRCDEFNID) LIKE UPPER(:q) OR UPPER(DESCR) LIKE UPPER(:q2))")
+        params["q"] = f"%{q}%"
+        params["q2"] = f"%{q}%"
+    if status:
+        clauses.append("STATUS = :status")
+        params["status"] = status.upper()
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    try:
+        rows = query(env_name, f"""
+            SELECT SRCDEFNID, DESCR, STATUS, OBJECTOWNERID, LASTUPDDTTM
+              FROM SYSADM.PTSF_SRCDEFN
+             {where}
+             ORDER BY SRCDEFNID
+             FETCH FIRST :lim ROWS ONLY
+        """, params)
+        results = []
+        for r in (rows or []):
+            row = dict(r)
+            row["status_label"] = _SRCH_STATUS.get(str(row.get("status") or ""), row.get("status") or "")
+            results.append(row)
+        return {"items": results, "warnings": []}
+    except Exception as exc:
+        return {"items": [], "warnings": [str(exc)]}
+
+
+def get_search_definition(env_name, srcdefnid):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PTSF_SRCDEFN"):
+        return {"error": "not_accessible", "warnings": ["PTSF_SRCDEFN not accessible"]}
+    warnings = []
+    srcdefnid = srcdefnid.upper()
+    rows = query(env_name, """
+        SELECT SRCDEFNID, DESCR, STATUS, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PTSF_SRCDEFN
+         WHERE SRCDEFNID = :id
+    """, {"id": srcdefnid})
+    if not rows:
+        return {"error": "not_found", "warnings": [f"Search Definition {srcdefnid!r} not found"]}
+    defn = dict(rows[0])
+    defn["status_label"] = _SRCH_STATUS.get(str(defn.get("status") or ""), defn.get("status") or "")
+
+    fields = []
+    if ptmetadata.has_table(env_name, "PTSF_SRCMAP"):
+        try:
+            fld_rows = query(env_name, """
+                SELECT FIELDNAME, SRCKINDID, SEQNO
+                  FROM SYSADM.PTSF_SRCMAP
+                 WHERE SRCDEFNID = :id
+                 ORDER BY SEQNO
+            """, {"id": srcdefnid})
+            fields = [dict(r) for r in (fld_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PTSF_SRCMAP: {exc}")
+
+    categories = []
+    if ptmetadata.has_table(env_name, "PTSF_SRCAT"):
+        try:
+            cat_rows = query(env_name, """
+                SELECT SRCCATID, DESCR
+                  FROM SYSADM.PTSF_SRCAT
+                 WHERE SRCDEFNID = :id
+                 ORDER BY SRCCATID
+            """, {"id": srcdefnid})
+            categories = [dict(r) for r in (cat_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PTSF_SRCAT: {exc}")
+
+    return {
+        "definition": defn,
+        "fields": fields,
+        "categories": categories,
+        "counts": {"fields": len(fields), "categories": len(categories)},
+        "warnings": warnings,
+    }

@@ -4742,6 +4742,95 @@ def related_content_payload(env, relconid):
     }
 
 
+_SRCH_STATUS_CHIP = {
+    "Active":   "chip-success",
+    "Inactive": "chip-muted",
+}
+
+
+def search_definition_object(env, srcdefnid):
+    data = psdb.get_search_definition(env, srcdefnid.upper())
+    if "error" in data:
+        return None
+    defn = data.get("definition", {})
+    status_label = defn.get("status_label") or defn.get("status") or ""
+    return {
+        "type": "search_definition",
+        "name": defn.get("srcdefnid", srcdefnid),
+        "title": defn.get("descr") or srcdefnid,
+        "status": status_label,
+        "owner": defn.get("objectownerid"),
+        "_raw": data,
+        "_links": {"admin": object_url("search_definition", srcdefnid.upper())},
+        "warnings": data.get("warnings", []),
+    }
+
+
+def sections_for_search_definition(obj):
+    raw = obj.get("_raw", {})
+    defn = raw.get("definition", {})
+    fields = raw.get("fields", [])
+    categories = raw.get("categories", [])
+    counts = raw.get("counts", {})
+    sections = []
+
+    overview_rows = [
+        ("ID", defn.get("srcdefnid")),
+        ("Description", defn.get("descr")),
+        ("Status", defn.get("status_label")),
+        ("Owner", defn.get("objectownerid")),
+        ("Last Updated", defn.get("lastupddttm")),
+        ("Last Updated By", defn.get("lastupdoprid")),
+    ]
+    sections.append({"id": "overview", "title": "Overview",
+                     "rows": [{"label": k, "value": v} for k, v in overview_rows if v is not None]})
+
+    if fields:
+        field_items = []
+        for f in fields:
+            field_items.append({
+                "name": f.get("fieldname", ""),
+                "label": f.get("fieldname", ""),
+                "chips": [{"label": f.get("srckindid") or "", "cls": "chip-info"}] if f.get("srckindid") else [],
+                "meta": f"seq {f.get('seqno', '')}" if f.get("seqno") is not None else "",
+            })
+        sections.append({"id": "fields", "title": f"Fields ({counts.get('fields', len(fields))})",
+                         "items": field_items})
+
+    if categories:
+        cat_items = []
+        for c in categories:
+            cat_items.append({
+                "name": c.get("srccatid", ""),
+                "label": c.get("srccatid", ""),
+                "chips": [],
+                "meta": c.get("descr", ""),
+            })
+        sections.append({"id": "categories", "title": f"Categories ({counts.get('categories', len(categories))})",
+                         "items": cat_items})
+
+    return sections
+
+
+def search_definition_payload(env, srcdefnid):
+    obj = search_definition_object(env, srcdefnid)
+    if obj is None:
+        return None
+    return {
+        "type": "search_definition",
+        "name": obj["name"],
+        "title": obj["title"],
+        "overview": {
+            "status": obj.get("status"),
+            "owner": obj.get("owner"),
+        },
+        "sections": sections_for_search_definition(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
 def canonical_object(env, object_type, name):
     object_type = object_type.lower()
     if object_type == "component_interface":
@@ -4803,6 +4892,8 @@ def canonical_object(env, object_type, name):
         return event_mapping_object(env, name)
     if object_type == "related_content":
         return related_content_object(env, name)
+    if object_type == "search_definition":
+        return search_definition_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])

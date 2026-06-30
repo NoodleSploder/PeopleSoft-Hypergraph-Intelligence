@@ -2275,3 +2275,25 @@ Service type codes: U=URL, C=Component, S=Script, A=App Class, P=PS Page, I=iScr
 **`scripts/smoke_admin_shell.py`**: Added `/admin/relcontent` → `#rcSearch`. Harness now 19 pages.
 
 **Verification:** `python -m py_compile` → ALL OK. `python3 -c "import main"` → OK.
+
+---
+
+## Search Definitions (PTSF_SRCDEFN)
+
+Implemented the Search Definitions vertical slice — the PeopleSoft Search Framework definition object.
+
+**`connectors/psdb.py`**: `_SRCH_STATUS` dict; `search_search_definitions(env, q, status, limit)` querying `PTSF_SRCDEFN` with has_table() guard; `get_search_definition(env, srcdefnid)` fetching definition row plus optional sub-tables `PTSF_SRCMAP` (mapped fields) and `PTSF_SRCAT` (categories) each guarded by has_table() + try/except.
+
+**`connectors/ptmetadata.py`**: `OBJECT_REGISTRY.setdefault("search_definition", {...})` entry with `PTSF_SRCDEFN` discovery/search tables, versions 8.54–8.62.
+
+**`connectors/uom.py`**: `_SRCH_STATUS_CHIP`; `search_definition_object()`, `sections_for_search_definition()`, `search_definition_payload()`; added `search_definition` dispatch in `canonical_object()`.
+
+**`connectors/graphdb.py`**: `search_definitions()` provider querying `PTSF_SRCDEFN` with `has_table()` guard; added to provider loop as `("search_definitions", search_definitions)`.
+
+**`routers/peoplesoft.py`**: `GET /api/peoplesoft/search-definitions` endpoint; `search_definition` dispatch in `object_payload()`.
+
+**`routers/admin.py`**: `("srchdef", "Search Defs", "/admin/srchdef")` in `_NAV`; `search_definition` chip (blue palette `#2299ee`); `/admin/srchdef` two-panel page with status filter dropdown, fields section, categories section.
+
+**`scripts/smoke_admin_shell.py`**: Added `/admin/srchdef` → `#sdSearch`. Harness now 20 pages.
+
+**`ROADMAP.md`**: Search Definitions promoted to Completed Providers; platform status updated to 20 smoke test pages; "Next Slice" section added at bottom.

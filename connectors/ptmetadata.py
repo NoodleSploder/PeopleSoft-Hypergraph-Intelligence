@@ -655,6 +655,19 @@ OBJECT_REGISTRY.setdefault("related_content", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("search_definition", {
+    "display_title": "Search Definition",
+    "icon": "search",
+    "graph_node_type": "search_definition",
+    "object_page": "/admin/object/search_definition/{name}",
+    "discovery": {"table": "PTSF_SRCDEFN", "name_column": "SRCDEFNID"},
+    "search": {"table": "PTSF_SRCDEFN", "name_column": "SRCDEFNID",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["OBJECTOWNERID"]},
+    "supported_versions": ["8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 for object_type in [
     "content_reference",
     "section",

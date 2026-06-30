@@ -846,6 +846,22 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "xml_publisher_report", rid, r.get("descr") or rid, r)
         return len(rows)
 
+    def search_definitions():
+        if not ptmetadata.has_table(env, "PTSF_SRCDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT SRCDEFNID, DESCR, STATUS, OBJECTOWNERID
+              FROM SYSADM.PTSF_SRCDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY SRCDEFNID
+        """) or []
+        for r in rows:
+            sid = r.get("srcdefnid")
+            if not sid:
+                continue
+            add_node(graph, "search_definition", sid, r.get("descr") or sid, r)
+        return len(rows)
+
     for name, loader in (
         ("operators", operators),
         ("roles", roles),
@@ -867,6 +883,7 @@ def build(env="HCM", limit=50, persist=True):
         ("nav_collections", nav_collections),
         ("event_mappings", event_mappings),
         ("related_content", related_content_defs),
+        ("search_definitions", search_definitions),
     ):
         provider(graph, name, loader)
 

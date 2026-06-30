@@ -356,6 +356,9 @@ def object_payload(env, object_type, object_name):
     if object_type == "related_content":
         return uom.related_content_payload(env, object_name)
 
+    if object_type == "search_definition":
+        return uom.search_definition_payload(env, object_name)
+
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
 
@@ -1080,6 +1083,11 @@ def peoplesoft_event_mappings(env: str = "HCM", q: str = "", status: str = "", l
 @router.get("/api/peoplesoft/related-content")
 def peoplesoft_related_content(env: str = "HCM", q: str = "", limit: int = 100):
     return psdb.search_related_content(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/search-definitions")
+def peoplesoft_search_definitions(env: str = "HCM", q: str = "", status: str = "", limit: int = 100):
+    return psdb.search_search_definitions(env, q=q, status=status or None, limit=limit)
 
 
 @router.get("/api/peoplesoft/security/reports")

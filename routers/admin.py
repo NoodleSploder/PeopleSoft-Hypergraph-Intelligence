@@ -24,6 +24,7 @@ _NAV = [
     ("navcoll",    "Nav Collections", "/admin/navcoll"),
     ("efmapping",  "Event Mapping",   "/admin/efmapping"),
     ("relcontent", "Related Content", "/admin/relcontent"),
+    ("srchdef",    "Search Defs",   "/admin/srchdef"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -3043,6 +3044,7 @@ const TYPE_CHIP_CFG = {
     nav_collection:         {label:'Nav Coll',      bg:'#001a10',border:'#00bb6644',color:'#00bb66'},
     event_mapping:          {label:'Event Map',     bg:'#1a1400',border:'#ddcc0044',color:'#ddcc00'},
     related_content:        {label:'Related Cont',  bg:'#0a001a',border:'#9944ff44',color:'#9944ff'},
+    search_definition:      {label:'Search Def',    bg:'#001820',border:'#2299ee44',color:'#2299ee'},
 };
 
 function typeChipHtml(type) {
@@ -11933,4 +11935,162 @@ function showSource(r,q,el){
   // scroll first match into view
   setTimeout(()=>{const hit=d.querySelector('.hit');if(hit)hit.scrollIntoView({block:'center',behavior:'smooth'});},50);
 }
+</script>""")
+
+
+@router.get("/srchdef", response_class=HTMLResponse)
+def admin_srchdef():
+    return _shell("Search Definition Explorer", "srchdef", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#2299ee;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #2299ee33;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #2299ee22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;min-width:220px;border-right:1px solid #2299ee22;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input,select{background:#0b1b24;color:#d7faff;border:1px solid #2299ee44;padding:5px 8px;font-size:12px}
+input:focus,select:focus{outline:none;border-color:#2299ee}
+button{background:#2299ee;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(34,153,238,.07);border-left-color:#2299ee55}
+.item.sel{background:rgba(34,153,238,.12);border-left-color:#2299ee}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;margin-right:3px}
+.chip-ok{background:#002800;border:1px solid #00cc66;color:#00cc66}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778}
+.chip-info{background:#001020;border:1px solid #2299ee44;color:#2299ee}
+.stat{display:inline-block;padding:4px 12px;border:1px solid #2299ee33;background:#001020;font-size:11px;margin:2px}
+.stat b{color:#2299ee;font-size:16px;display:block}
+.kv-grid{display:grid;grid-template-columns:140px 1fr;gap:3px 12px;font-size:12px;margin-bottom:10px}
+.kv-key{color:#556;text-align:right;padding-top:2px}
+.kv-val{color:#d7faff;font-family:monospace}
+.field-row{padding:5px 10px;border-bottom:1px solid #001020;font-size:11px;display:flex;gap:8px;align-items:baseline}
+.field-row:hover{background:#020c14}
+a{color:#2299ee;text-decoration:none} a:hover{text-decoration:underline}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="sdSearch" type="text" placeholder="Search definition ID or description..." style="width:280px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <select id="sdStatus" onchange="doSearch()">
+    <option value="">All Statuses</option>
+    <option value="A">Active</option>
+    <option value="I">Inactive</option>
+  </select>
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Search Definitions</h2>
+    <div id="list" class="muted">Search to load search definitions.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Definition</h2>
+    <div id="detail" class="muted">Select a definition from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function statusChip(s) {
+  if (s==='A'||s==='Active') return '<span class="chip chip-ok">Active</span>';
+  if (s==='I'||s==='Inactive') return '<span class="chip chip-muted">Inactive</span>';
+  return '';
+}
+
+async function doSearch() {
+  const q = document.getElementById('sdSearch').value.trim();
+  const status = document.getElementById('sdStatus').value;
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading...</div>';
+  const params = new URLSearchParams({env: ENV, limit: 200});
+  if (q) params.set('q', q);
+  if (status) params.set('status', status);
+  const d = await api(`/api/peoplesoft/search-definitions?${params}`);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
+  const items = d.items || [];
+  document.getElementById('stats').textContent = `${items.length} result${items.length !== 1 ? 's' : ''}`;
+  if (!items.length) { list.innerHTML = '<div class="muted">No search definitions found.</div>'; return; }
+  list.innerHTML = items.map((r, i) =>
+    `<div class="item" id="item-${i}" onclick="selectDef('${esc(r.srcdefnid)}', ${i})">
+       <div class="item-name">${statusChip(r.status)}${esc(r.srcdefnid)}</div>
+       <div class="item-meta">${esc((r.descr||'').slice(0,60))}</div>
+     </div>`
+  ).join('');
+}
+
+async function selectDef(srcdefnid, idx) {
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${idx}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api(`/api/peoplesoft/object/search_definition/${encodeURIComponent(srcdefnid)}?env=${ENV}`);
+  if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
+
+  const ov = d.overview || {};
+  const adminUrl = `/admin/object/search_definition/${esc(srcdefnid)}`;
+  const sections = d.sections || [];
+  const overviewSec = sections.find(s => s.id === 'overview') || {};
+  const rows = overviewSec.rows || [];
+  const fieldsSec = sections.find(s => s.id === 'fields');
+  const catsSec = sections.find(s => s.id === 'categories');
+
+  let html = `
+    <div style="margin-bottom:12px">
+      ${statusChip(ov.status)}
+      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#2299ee">${esc(srcdefnid)}</span>
+      &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
+    </div>`;
+
+  if (rows.length) {
+    html += `<div class="kv-grid">`;
+    for (const row of rows) {
+      if (row.label !== 'Status') {
+        html += `<div class="kv-key">${esc(row.label)}</div><div class="kv-val">${esc(String(row.value||''))}</div>`;
+      }
+    }
+    html += `</div>`;
+  }
+
+  const counts = d._uom?._raw?.counts || {};
+  html += `<div style="margin:10px 0">`
+    + `<span class="stat"><b>${counts.fields||0}</b>Fields</span>`
+    + `<span class="stat"><b>${counts.categories||0}</b>Categories</span>`
+    + `</div>`;
+
+  if (fieldsSec && (fieldsSec.items||[]).length) {
+    html += `<h2>${esc(fieldsSec.title)}</h2>`;
+    html += fieldsSec.items.map(f =>
+      `<div class="field-row">
+         <span style="font-family:monospace;color:#d7faff">${esc(f.name)}</span>
+         ${(f.chips||[]).map(c=>`<span class="chip chip-info">${esc(c.label)}</span>`).join('')}
+         ${f.meta ? `<span style="color:#556;font-size:10px">${esc(f.meta)}</span>` : ''}
+       </div>`
+    ).join('');
+  }
+
+  if (catsSec && (catsSec.items||[]).length) {
+    html += `<h2>${esc(catsSec.title)}</h2>`;
+    html += catsSec.items.map(c =>
+      `<div class="field-row">
+         <span style="font-family:monospace;color:#d7faff">${esc(c.name)}</span>
+         ${c.meta ? `<span style="color:#aac;font-size:11px">${esc(c.meta)}</span>` : ''}
+       </div>`
+    ).join('');
+  }
+
+  if (!rows.length && !fieldsSec && !catsSec) {
+    html += `<div class="muted">No detail available.</div>`;
+  }
+
+  detail.innerHTML = html;
+}
+
+doSearch();
 </script>""")
