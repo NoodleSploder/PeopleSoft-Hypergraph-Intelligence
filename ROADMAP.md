@@ -135,6 +135,7 @@ Continue enriching graph relationships.
 Current work:
 
 - Shared UOM relationship graph helper introduced for Tree, Component Interface, and Page providers.
+- Page graph API route now delegates to the UOM Page graph so Object Explorer and Graph Explorer use the same relationship model.
 - Continue migrating mature UOM providers from ad hoc graph loops to declarative relationship specs where behavior can be preserved.
 - Align UOM `_relationships`, UOM `_graph`, and Knowledge Graph ingestion around one relationship vocabulary.
 

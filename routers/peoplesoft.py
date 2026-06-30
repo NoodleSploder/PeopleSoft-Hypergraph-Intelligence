@@ -1361,6 +1361,14 @@ def peoplesoft_graph(object_type: str, object_name: str, env: str = "HCM"):
     if object_type == "field":
         return uom.field_object(env, object_name)["_graph"]
 
+    if object_type == "page":
+        page_graph = uom.page_object(env, object_name).get("_graph", {})
+        return {
+            "root": f"page:{object_name.upper()}",
+            "nodes": page_graph.get("nodes", []),
+            "edges": page_graph.get("edges", []),
+        }
+
     if object_type == "tree":
         tree_graph = uom.tree_object(env, object_name).get("_graph", {})
         return {
@@ -1440,49 +1448,6 @@ def peoplesoft_graph(object_type: str, object_name: str, env: str = "HCM"):
             if record:
                 add_node(nodes, node("record", record, data={"source": key}))
                 edges.append(edge("component", object_name, "record", record, relationship))
-
-    elif object_type == "page":
-        for row in safe_rows(lambda: psdb.page_components(env, object_name)):
-            component = row["pnlgrpname"]
-            add_node(nodes, node("component", component, data=row))
-            edges.append(edge("component", component, "page", object_name, "contains_page"))
-
-        for row in safe_rows(lambda: psdb.page_records(env, object_name)):
-            record = row["recname"]
-            add_node(nodes, node("record", record, data=row))
-            edges.append(edge("page", object_name, "record", record, "uses_record"))
-
-        for row in safe_rows(lambda: psdb.page_fields(env, object_name)):
-            record = row.get("recname")
-            field = row.get("fieldname")
-
-            if record and field:
-                field_name = f"{record}.{field}"
-                add_node(nodes, node("field", field_name, data=row))
-                edges.append(edge("page", object_name, "field", field_name, "contains_field"))
-
-        for row in safe_rows(lambda: psdb.page_subpages(env, object_name)):
-            page = row.get("pnlname")
-
-            if page:
-                add_node(nodes, node("page", page, data=row))
-                edges.append(edge("page", object_name, "page", page, "contains_subpage"))
-
-        permissionlists = set()
-
-        for row in safe_rows(lambda: psdb.page_components(env, object_name)):
-            component = row.get("pnlgrpname")
-
-            if not component:
-                continue
-
-            for access_row in safe_rows(lambda component=component: psdb.component_permissionlists(env, component)):
-                classid = access_row.get("classid")
-
-                if classid and classid not in permissionlists:
-                    permissionlists.add(classid)
-                    add_node(nodes, node("permissionlist", classid, data=access_row))
-                    edges.append(edge("permissionlist", classid, "component", component, "grants_component"))
 
     elif object_type in {"portal", "portal_registry", "content_reference"}:
         portal_graph = uom.portal_registry_object(env, object_name).get("_graph", {})

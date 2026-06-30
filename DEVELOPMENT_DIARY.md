@@ -6,6 +6,61 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-06-30 — Page Graph API Uses UOM Provider
+
+Date/time: 2026-06-30 11:47 CDT
+
+Features implemented:
+- Reconciled the older `/api/peoplesoft/graph/page/{name}` route with the
+  Page UOM provider.
+- Removed the duplicate router-local Page graph construction loop from
+  `routers/peoplesoft.py`.
+- Graph Explorer Page requests now receive the same Page relationship model as
+  Object Explorer Graph Preview.
+
+Files modified:
+- `routers/peoplesoft.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Kept the endpoint URL and response shape unchanged: `{root, nodes, edges}`.
+- Accepted the intentional content alignment: the route now returns the capped,
+  cleaner UOM Page preview graph rather than the older router graph. For
+  `JOB_DATA1`, this means 112 nodes / 111 edges and no blank record node.
+- Left Field, Tree, CI, and Portal graph route delegation patterns unchanged.
+
+Bugs fixed:
+- Removed one source of duplicated Page relationship logic.
+- Removed the older Page graph route behavior that could include a blank
+  `record: ` node from untrimmed metadata rows.
+
+Technical debt:
+- Reduced router-owned graph construction; routers remain thinner.
+- Component, Record, Operator, Role, and Permission List graph routes still
+  contain router-local graph construction and should be migrated cautiously.
+
+Verification:
+- `python -m py_compile routers/peoplesoft.py connectors/uom.py` — OK.
+- Direct `routers.peoplesoft.peoplesoft_graph('page', 'JOB_DATA1', env='HCM')`
+  check returned `page:JOB_DATA1`, 112 nodes, and 111 edges.
+- `python -m py_compile routers/peoplesoft.py routers/admin.py connectors/uom.py connectors/psdb.py connectors/ptmetadata.py`
+  — OK; existing unrelated `routers/admin.py` invalid escape SyntaxWarning remains.
+- `python -c "import main; print('main import ok')"` — OK.
+- Reloaded `deathstar-api.service` by terminating the current unit PID and
+  allowing systemd to restart it; service came back active on port 8088.
+- `GET /api/peoplesoft/graph/page/JOB_DATA1?env=HCM` — OK, returned
+  `page:JOB_DATA1`, 112 nodes, and 111 edges.
+- `GET /api/peoplesoft/object/page/JOB_DATA1?env=HCM` — OK, Graph Preview
+  returned matching `node_count=112` and `edge_count=111`.
+- `GET /api/sqlws/config` — OK baseline.
+
+Next recommended work:
+- Continue reducing router-local graph construction, likely Component next
+  because it overlaps heavily with the existing UOM Component graph.
+
+------------------------------------------------------------------------
+
 ## 2026-06-30 — Page UOM Relationship Graph Extraction
 
 Date/time: 2026-06-30 11:38 CDT
