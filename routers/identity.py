@@ -1,6 +1,8 @@
+import secrets
+import string
 from pathlib import Path
 import yaml
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from passlib.hash import argon2
 from datetime import datetime, timezone
@@ -13,9 +15,25 @@ router = APIRouter(prefix="/api/identity", tags=["Identity"])
 
 ROLE_MAP_FILE    = Path("/opt/deathstar-api/config/role_mapping.yml")
 AUDIT_FILE       = Path("/opt/deathstar-api/logs/identity_audit.jsonl")
+REQUESTS_FILE    = Path("/opt/deathstar-api/logs/provision_requests.json")
 
 class ProvisionRequest(BaseModel):
     password: str
+
+
+class BulkProvisionRequest(BaseModel):
+    oprids: list[str]
+    password: str | None = None  # if None, auto-generate per user
+
+
+class ProvisionRequestCreate(BaseModel):
+    oprid: str
+    reason: str = ""
+    requested_by: str = "admin"
+
+
+class ProvisionRequestReject(BaseModel):
+    reason: str = ""
 
 
 def load_role_map():
@@ -156,6 +174,195 @@ def provision_identity(oprid: str, req: ProvisionRequest, env: str = "HCM"):
 
     audit("provision_identity", oprid, result)
     return result
+
+def _gen_password(length: int = 16) -> str:
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+@router.post("/bulk-provision")
+def bulk_provision(req: BulkProvisionRequest, env: str = "HCM"):
+    """Provision multiple PeopleSoft operators into Authelia in one call.
+
+    Returns a result per OPRID: provisioned, skipped (already exists), or error.
+    If req.password is None, generates a unique random password per user.
+    """
+    data = authelia_admin.load_db()
+    results = []
+
+    for oprid in req.oprids:
+        oprid = oprid.strip().upper()
+        if not oprid:
+            continue
+        try:
+            comparison = compare_identity(oprid, env)
+            if not comparison["peoplesoft"]:
+                results.append({"oprid": oprid, "status": "not_found_in_peoplesoft"})
+                continue
+            if comparison["authelia_exists"]:
+                results.append({"oprid": oprid, "status": "already_exists"})
+                continue
+            password = req.password or _gen_password()
+            data["users"][oprid] = {
+                "disabled": comparison["peoplesoft"].get("acctlock") != 0,
+                "displayname": comparison["peoplesoft"].get("oprdefndesc") or oprid,
+                "password": argon2.hash(password),
+                "email": f"{oprid.lower()}@deathstar.chickenkiller.com",
+                "groups": comparison["mapped_groups"],
+            }
+            results.append({
+                "oprid": oprid,
+                "status": "provisioned",
+                "groups": comparison["mapped_groups"],
+                "temp_password": password if not req.password else "(shared)",
+            })
+        except Exception as exc:
+            results.append({"oprid": oprid, "status": "error", "error": str(exc)})
+
+    if any(r["status"] == "provisioned" for r in results):
+        authelia_admin.save_db(data)
+
+    provisioned_count = sum(1 for r in results if r["status"] == "provisioned")
+    result = {
+        "status": "complete",
+        "provisioned": provisioned_count,
+        "skipped": sum(1 for r in results if r["status"] == "already_exists"),
+        "errors": sum(1 for r in results if r["status"] == "error"),
+        "results": results,
+    }
+    audit("bulk_provision", f"{len(req.oprids)} oprids", result)
+    return result
+
+
+def _load_requests() -> dict:
+    if not REQUESTS_FILE.exists():
+        return {}
+    try:
+        return json.loads(REQUESTS_FILE.read_text()) or {}
+    except Exception:
+        return {}
+
+
+def _save_requests(data: dict) -> None:
+    REQUESTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    REQUESTS_FILE.write_text(json.dumps(data, indent=2))
+
+
+@router.get("/requests")
+def list_provision_requests(status: str = ""):
+    data = _load_requests()
+    items = list(data.values())
+    if status:
+        items = [r for r in items if r.get("status") == status]
+    return sorted(items, key=lambda r: r.get("created_at", ""), reverse=True)
+
+
+@router.post("/requests")
+def create_provision_request(req: ProvisionRequestCreate, env: str = "HCM"):
+    oprid = req.oprid.strip().upper()
+
+    ps_user = psdb.oprid(oprid, env)
+    if not ps_user:
+        return {"status": "error", "message": f"OPRID {oprid} not found in PeopleSoft"}
+
+    auth = authelia_admin.load_db()
+    if oprid in auth["users"]:
+        return {"status": "error", "message": f"{oprid} is already provisioned in Authelia"}
+
+    data = _load_requests()
+    for existing in data.values():
+        if existing.get("oprid") == oprid and existing.get("status") == "pending":
+            return {"status": "error", "message": f"Pending request already exists for {oprid}"}
+
+    req_id = secrets.token_hex(8)
+    now = datetime.now(timezone.utc).isoformat()
+    data[req_id] = {
+        "id": req_id,
+        "oprid": oprid,
+        "reason": req.reason,
+        "requested_by": req.requested_by,
+        "status": "pending",
+        "created_at": now,
+        "reviewed_at": None,
+        "reviewed_by": None,
+        "reject_reason": None,
+        "ps_displayname": ps_user.get("oprdefndesc") or oprid,
+    }
+    _save_requests(data)
+    audit("request_provision", oprid, {"request_id": req_id, "reason": req.reason})
+    return {"status": "created", "id": req_id}
+
+
+@router.post("/requests/{req_id}/approve")
+def approve_provision_request(req_id: str, env: str = "HCM"):
+    data = _load_requests()
+    if req_id not in data:
+        raise HTTPException(status_code=404, detail="Request not found")
+    entry = data[req_id]
+    if entry["status"] != "pending":
+        raise HTTPException(status_code=409, detail=f"Request is already {entry['status']}")
+
+    oprid = entry["oprid"]
+    comparison = compare_identity(oprid, env)
+    if not comparison["peoplesoft"]:
+        raise HTTPException(status_code=422, detail="PeopleSoft OPRID no longer found")
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    if comparison["authelia_exists"]:
+        entry.update({"status": "approved", "reviewed_at": now, "reviewed_by": "admin", "note": "Already existed"})
+        _save_requests(data)
+        return {"status": "approved", "oprid": oprid, "note": "User already existed in Authelia"}
+
+    password = _gen_password()
+    auth = authelia_admin.load_db()
+    auth["users"][oprid] = {
+        "disabled": comparison["peoplesoft"].get("acctlock") != 0,
+        "displayname": comparison["peoplesoft"].get("oprdefndesc") or oprid,
+        "password": argon2.hash(password),
+        "email": f"{oprid.lower()}@deathstar.chickenkiller.com",
+        "groups": comparison["mapped_groups"],
+    }
+    authelia_admin.save_db(auth)
+
+    entry.update({"status": "approved", "reviewed_at": now, "reviewed_by": "admin", "temp_password": password})
+    _save_requests(data)
+
+    result = {"status": "approved", "oprid": oprid, "temp_password": password, "groups": comparison["mapped_groups"]}
+    audit("approve_provision_request", oprid, {"request_id": req_id, **result})
+    return result
+
+
+@router.post("/requests/{req_id}/reject")
+def reject_provision_request(req_id: str, req: ProvisionRequestReject):
+    data = _load_requests()
+    if req_id not in data:
+        raise HTTPException(status_code=404, detail="Request not found")
+    entry = data[req_id]
+    if entry["status"] != "pending":
+        raise HTTPException(status_code=409, detail=f"Request is already {entry['status']}")
+
+    now = datetime.now(timezone.utc).isoformat()
+    entry.update({"status": "rejected", "reviewed_at": now, "reviewed_by": "admin", "reject_reason": req.reason})
+    _save_requests(data)
+
+    audit("reject_provision_request", entry["oprid"], {"request_id": req_id, "reason": req.reason})
+    return {"status": "rejected", "id": req_id}
+
+
+@router.delete("/requests/{req_id}")
+def cancel_provision_request(req_id: str):
+    data = _load_requests()
+    if req_id not in data:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if data[req_id]["status"] != "pending":
+        raise HTTPException(status_code=409, detail="Only pending requests can be cancelled")
+    oprid = data[req_id]["oprid"]
+    del data[req_id]
+    _save_requests(data)
+    audit("cancel_provision_request", oprid, {"request_id": req_id})
+    return {"status": "cancelled", "id": req_id}
+
 
 @router.get("/status")
 def identity_status(env: str = "HCM"):

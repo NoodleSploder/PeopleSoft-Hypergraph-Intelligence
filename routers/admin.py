@@ -221,11 +221,40 @@ def admin_users():
                     <th>Email</th>
                     <th>Groups</th>
                     <th>Disabled</th>
-		    <th>Identity Status</th>
+                    <th>Identity Status</th>
+                    <th>MFA</th>
+                    <th>Last Seen</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="users"></tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Provision Requests</h2>
+        <button onclick="loadProvisionRequests()">Refresh</button>
+        <label style="margin-left:12px;font-size:12px">
+            <select id="reqStatusFilter" onchange="loadProvisionRequests()" style="font-size:12px;background:#1e1e2e;color:#cdd6f4;border:1px solid #313244;padding:2px 4px;">
+                <option value="">All</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+            </select>
+        </label>
+        <table style="margin-top:8px">
+            <thead>
+                <tr>
+                    <th>OPRID</th>
+                    <th>Display Name</th>
+                    <th>Reason</th>
+                    <th>Requested By</th>
+                    <th>Created</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="provisionRequestRows"></tbody>
         </table>
     </div>
 
@@ -243,6 +272,22 @@ def admin_users():
                 </tr>
             </thead>
             <tbody id="auditRows"></tbody>
+        </table>
+
+        <h2 style="margin-top:24px">Authelia Authentication Log</h2>
+        <button onclick="loadAuthLogs()">Refresh</button>
+        <label style="margin-left:12px;font-size:12px"><input type="checkbox" id="failedOnly" onchange="loadAuthLogs()"> Failed only</label>
+        <table style="margin-top:8px">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Username</th>
+                    <th>Result</th>
+                    <th>Factor</th>
+                    <th>IP</th>
+                </tr>
+            </thead>
+            <tbody id="authLogRows"></tbody>
         </table>
     </div>
 
@@ -286,17 +331,23 @@ function selectedGroups() {
 }
 
 async function loadUsers() {
-    const users = await api('/authelia/users');
-    const statuses = await api('/api/identity/status?env=HCM');
+    const [users, statuses, mfaStatuses] = await Promise.all([
+        api('/authelia/users'),
+        api('/api/identity/status?env=HCM'),
+        api('/authelia/mfa/status').catch(() => []),
+    ]);
 
     const statusMap = {};
     statuses.forEach(s => statusMap[s.username] = s);
+    const mfaMap = {};
+    mfaStatuses.forEach(m => mfaMap[m.username] = m);
 
     const tbody = document.getElementById('users');
     tbody.innerHTML = '';
 
     users.forEach(u => {
         const s = statusMap[u.username] || {};
+        const m = mfaMap[u.username] || {};
         let statusText = 'Unknown';
 
         if (s.error) {
@@ -309,6 +360,15 @@ async function loadUsers() {
             statusText = 'Out of Sync';
         }
 
+        // MFA chips
+        const mfaChips = [];
+        if (m.totp_configured) mfaChips.push(`<span style="background:#00332211;border:1px solid #00cc66;color:#00cc66;padding:1px 6px;font-size:10px;border-radius:2px">TOTP</span>`);
+        if (m.webauthn_count > 0) mfaChips.push(`<span style="background:#00112211;border:1px solid #00aaff;color:#00aaff;padding:1px 6px;font-size:10px;border-radius:2px">WebAuthn×${m.webauthn_count}</span>`);
+        if (!mfaChips.length) mfaChips.push(`<span style="color:#445;font-size:10px">none</span>`);
+        const mfaHtml = mfaChips.join(' ');
+
+        const lastSeen = m.last_seen ? m.last_seen.replace('T', ' ').substring(0, 16) : '—';
+
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>${u.username}</td>
@@ -317,6 +377,8 @@ async function loadUsers() {
             <td>${(u.groups || []).join(', ')}</td>
             <td>${u.disabled}</td>
             <td>${statusText}</td>
+            <td>${mfaHtml}</td>
+            <td style="font-size:10px;color:#8ab">${lastSeen}</td>
             <td>
                 <button onclick="compareIdentity('${u.username}')">Compare</button>
                 <button onclick="syncIdentity('${u.username}')">Sync</button>
@@ -324,9 +386,33 @@ async function loadUsers() {
                     ${u.disabled ? 'Enable' : 'Disable'}
                 </button>
                 <button onclick="resetPassword('${u.username}')">Reset Password</button>
+                ${m.totp_configured || m.webauthn_count > 0 ? `<button onclick="revokeMFA('${u.username}')" style="background:#ff4400">Revoke MFA</button>` : ''}
                 <button onclick="deleteUser('${u.username}')">Delete</button>
             </td>
         `;
+        tbody.appendChild(tr);
+    });
+}
+
+async function revokeMFA(username) {
+    if (!confirm(`Revoke ALL MFA (TOTP + WebAuthn) for ${username}? They will need to re-register on next login.`)) return;
+    await api(`/authelia/mfa/${username}`, {method: 'DELETE'});
+    alert(`MFA revoked for ${username}.`);
+    await loadUsers();
+}
+
+async function loadAuthLogs() {
+    const failedOnly = document.getElementById('failedOnly') && document.getElementById('failedOnly').checked;
+    const url = `/authelia/logs?limit=50${failedOnly ? '&failed_only=true' : ''}`;
+    const data = await api(url).catch(() => ({logs: []}));
+    const tbody = document.getElementById('authLogRows');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    (data.logs || []).forEach(r => {
+        const tr = document.createElement('tr');
+        const status = r.successful ? `<span style="color:#00cc66">✓</span>` : `<span style="color:#ff4400">✗</span>`;
+        const mfaBadge = r.auth_type === '2FA' ? `<span style="color:#00aaff;font-size:10px">2FA</span>` : `<span style="color:#445;font-size:10px">1FA</span>`;
+        tr.innerHTML = `<td>${r.time ? r.time.substring(0, 16) : ''}</td><td>${r.username}</td><td>${status}</td><td>${mfaBadge}</td><td style="font-size:10px;color:#8ab">${r.remote_ip || ''}</td>`;
         tbody.appendChild(tr);
     });
 }
@@ -383,7 +469,7 @@ async function deleteUser(username) {
 async function init() {
     await loadGroups();
     await loadUsers();
-    await loadAudit();
+    await Promise.all([loadAudit(), loadAuthLogs(), loadProvisionRequests()]);
 }
 
 function selectOprid(r) {
@@ -441,8 +527,56 @@ async function searchOprids() {
     const div = document.getElementById('opridResults');
     div.innerHTML = '';
 
+    if (!rows || rows.length === 0) {
+        div.textContent = 'No results.';
+        return;
+    }
+
+    // Bulk action bar
+    const bar = document.createElement('div');
+    bar.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:6px;background:#1e1e2e;border-radius:4px;';
+
+    const selAllCb = document.createElement('input');
+    selAllCb.type = 'checkbox';
+    selAllCb.title = 'Select All';
+
+    const selAllLabel = document.createElement('label');
+    selAllLabel.textContent = `Select All (${rows.length})`;
+    selAllLabel.style.cursor = 'pointer';
+    selAllLabel.onclick = () => selAllCb.click();
+
+    const countSpan = document.createElement('span');
+    countSpan.id = 'opridSelCount';
+    countSpan.textContent = '0 selected';
+
+    const bulkBtn = document.createElement('button');
+    bulkBtn.textContent = 'Provision Selected';
+    bulkBtn.disabled = true;
+    bulkBtn.onclick = bulkProvisionSelected;
+
+    selAllCb.onchange = () => {
+        div.querySelectorAll('.oprid-checkbox').forEach(cb => { cb.checked = selAllCb.checked; });
+        updateBulkBar(bulkBtn, countSpan);
+    };
+
+    bar.appendChild(selAllCb);
+    bar.appendChild(selAllLabel);
+    bar.appendChild(countSpan);
+    bar.appendChild(bulkBtn);
+    div.appendChild(bar);
+
     rows.forEach(r => {
         const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:2px 0;';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'oprid-checkbox';
+        cb.dataset.oprid = r.oprid;
+        cb.onchange = () => {
+            if (!cb.checked) selAllCb.checked = false;
+            updateBulkBar(bulkBtn, countSpan);
+        };
 
         const select = document.createElement('button');
         select.textContent = 'Select';
@@ -452,15 +586,152 @@ async function searchOprids() {
         provision.textContent = 'Provision';
         provision.onclick = () => provisionIdentity(r.oprid);
 
+        const request = document.createElement('button');
+        request.textContent = 'Request';
+        request.style.cssText = 'background:#555;';
+        request.onclick = () => requestProvision(r.oprid);
+
         const label = document.createElement('span');
         label.textContent = `${r.oprid} - ${r.oprdefndesc || ''} - locked=${r.acctlock}`;
 
+        row.appendChild(cb);
         row.appendChild(select);
         row.appendChild(provision);
+        row.appendChild(request);
         row.appendChild(label);
 
         div.appendChild(row);
     });
+}
+
+function updateBulkBar(btn, countSpan) {
+    const checked = document.querySelectorAll('#opridResults .oprid-checkbox:checked');
+    countSpan.textContent = `${checked.length} selected`;
+    btn.disabled = checked.length === 0;
+}
+
+async function bulkProvisionSelected() {
+    const checked = [...document.querySelectorAll('#opridResults .oprid-checkbox:checked')];
+    const oprids = checked.map(cb => cb.dataset.oprid);
+    if (oprids.length === 0) return;
+
+    if (!confirm(`Provision ${oprids.length} PeopleSoft user(s) into Authelia?\n\n${oprids.join(', ')}`)) return;
+
+    const data = await api('/api/identity/bulk-provision?env=HCM', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oprids })
+    });
+
+    const lines = (data.results || []).map(r => {
+        if (r.status === 'provisioned') return `OK ${r.oprid}: provisioned (pw: ${r.temp_password})`;
+        if (r.status === 'already_exists') return `-- ${r.oprid}: already exists`;
+        return `ERR ${r.oprid}: ${r.status} ${r.error || ''}`;
+    });
+
+    alert(
+        `Bulk Provision: ${data.provisioned} provisioned, ${data.skipped} skipped, ${data.errors} errors\n\n` +
+        lines.join('\n')
+    );
+
+    await loadUsers();
+}
+
+async function requestProvision(oprid) {
+    const reason = prompt(`Request provisioning for ${oprid}?\n\nReason (optional):`);
+    if (reason === null) return;  // cancelled
+
+    const data = await api('/api/identity/requests?env=HCM', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oprid, reason, requested_by: 'admin' })
+    });
+
+    if (data.status === 'error') {
+        alert(`Error: ${data.message}`);
+        return;
+    }
+
+    alert(`Provision request created for ${oprid} (ID: ${data.id})`);
+    await loadProvisionRequests();
+}
+
+async function loadProvisionRequests() {
+    const filter = document.getElementById('reqStatusFilter')?.value || '';
+    const url = `/api/identity/requests${filter ? `?status=${filter}` : ''}`;
+    const rows = await api(url);
+    const tbody = document.getElementById('provisionRequestRows');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (!rows || rows.length === 0) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td colspan="7" style="color:#6c7086;font-style:italic">No requests</td>';
+        tbody.appendChild(tr);
+        return;
+    }
+
+    rows.forEach(r => {
+        const tr = document.createElement('tr');
+
+        const statusChip = {
+            pending: '<span class="chip" style="background:#fab387;color:#1e1e2e">Pending</span>',
+            approved: '<span class="chip" style="background:#a6e3a1;color:#1e1e2e">Approved</span>',
+            rejected: '<span class="chip" style="background:#f38ba8;color:#1e1e2e">Rejected</span>',
+        }[r.status] || r.status;
+
+        const created = r.created_at ? new Date(r.created_at).toLocaleString() : '';
+
+        let actions = '';
+        if (r.status === 'pending') {
+            actions = `<button onclick="approveRequest('${r.id}')">Approve</button>
+                       <button onclick="rejectRequest('${r.id}')" style="background:#555;margin-left:4px">Reject</button>
+                       <button onclick="cancelRequest('${r.id}')" style="background:#333;margin-left:4px">Cancel</button>`;
+        } else if (r.status === 'approved' && r.temp_password) {
+            actions = `<span style="font-size:11px;color:#89b4fa">pw: ${r.temp_password}</span>`;
+        } else if (r.status === 'rejected' && r.reject_reason) {
+            actions = `<span style="font-size:11px;color:#f38ba8">${r.reject_reason}</span>`;
+        }
+
+        tr.innerHTML = `
+            <td>${r.oprid}</td>
+            <td>${r.ps_displayname || ''}</td>
+            <td>${r.reason || ''}</td>
+            <td>${r.requested_by || ''}</td>
+            <td style="font-size:11px">${created}</td>
+            <td>${statusChip}</td>
+            <td>${actions}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+async function approveRequest(reqId) {
+    if (!confirm('Approve this provision request? The user will be provisioned into Authelia.')) return;
+    const data = await api(`/api/identity/requests/${reqId}/approve?env=HCM`, { method: 'POST' });
+    if (data.temp_password) {
+        alert(`Approved and provisioned.\nOPRID: ${data.oprid}\nTemp password: ${data.temp_password}\nGroups: ${(data.groups || []).join(', ')}`);
+    } else {
+        alert(`Approved: ${data.note || JSON.stringify(data)}`);
+    }
+    await Promise.all([loadProvisionRequests(), loadUsers()]);
+}
+
+async function rejectRequest(reqId) {
+    const reason = prompt('Reason for rejection (optional):');
+    if (reason === null) return;
+    await api(`/api/identity/requests/${reqId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+    });
+    await loadProvisionRequests();
+}
+
+async function cancelRequest(reqId) {
+    if (!confirm('Cancel this provision request?')) return;
+    await api(`/api/identity/requests/${reqId}`, { method: 'DELETE' });
+    await loadProvisionRequests();
 }
 
 async function syncAllIdentities() {
@@ -878,7 +1149,7 @@ async function analyzeComponentAccess() {
 
     renderList('components', [data.component], 'No component found.', row => {
         const componentName = label(row, ['pnlgrpname']);
-        const subtitle = detail(row, ['descr', 'searchrecname', 'addsearchrecname']);
+        const subtitle = detail(row, ['descr', 'searchrecname', 'addsrchrecname']);
         return rowButton(componentName, subtitle, () => selectComponent(componentName), false);
     });
 
@@ -918,7 +1189,7 @@ async function explainAccess() {
 
     renderList('components', [data.component_row], 'No component found.', row => {
         const componentName = label(row, ['pnlgrpname']);
-        const subtitle = detail(row, ['descr', 'searchrecname', 'addsearchrecname']);
+        const subtitle = detail(row, ['descr', 'searchrecname', 'addsrchrecname']);
         return rowButton(componentName, subtitle, () => selectComponent(componentName), false);
     });
 
@@ -1081,9 +1352,10 @@ async function selectPermissionList(classid) {
     setStatus(`Loading menus and components for ${classid}...`);
     clearPanel('pages', 'Select a component.');
 
-    const [menus, components] = await Promise.all([
+    const [menus, components, pageGrants] = await Promise.all([
         api(`/api/peoplesoft/permissionlists/${encodeURIComponent(classid)}/menus?env=${ENV}`),
-        api(`/api/peoplesoft/permissionlists/${encodeURIComponent(classid)}/components?env=${ENV}`)
+        api(`/api/peoplesoft/permissionlists/${encodeURIComponent(classid)}/components?env=${ENV}`),
+        api(`/api/peoplesoft/permissionlists/${encodeURIComponent(classid)}/page-grants?env=${ENV}`),
     ]);
 
     renderList('menus', menus, 'No menus found.', row => {
@@ -1098,21 +1370,123 @@ async function selectPermissionList(classid) {
         return rowButton(component, subtitle, () => selectComponent(component), state.component === component);
     });
 
-    setStatus(`Permission list ${classid}: ${menus.length} menus, ${components.length} components.`);
+    renderPageGrantsForPL(pageGrants, classid);
+
+    setStatus(`Permission list ${classid}: ${menus.length} menus, ${components.length} components, ${pageGrants.length} page grants.`);
+}
+
+function _actionChips(actions) {
+    const COLOR = {Add:'#00cc66','Update/Display':'#00aaff','Update All':'#ffaa00','Correction':'#ff8800'};
+    return (actions || []).map(a => {
+        const c = COLOR[a] || '#8ab';
+        return `<span style="background:${c}22;border:1px solid ${c};color:${c};border-radius:3px;padding:1px 5px;font-size:10px;margin-right:3px">${a}</span>`;
+    }).join('');
+}
+
+function renderPageGrantsForPL(pageGrants, classid) {
+    const el = document.getElementById('pages');
+    el.className = '';
+    if (!pageGrants || !pageGrants.length) {
+        el.className = 'muted';
+        el.textContent = 'No page-level grants found. Select a component for structural pages.';
+        return;
+    }
+
+    // Group by baritemname (component)
+    const groups = {};
+    const order = [];
+    for (const row of pageGrants) {
+        const comp = row.baritemname || '';
+        if (!groups[comp]) { groups[comp] = []; order.push(comp); }
+        groups[comp].push(row);
+    }
+
+    let html = `<div style="font-size:10px;color:#8ab;margin-bottom:6px">${pageGrants.length} page grants across ${order.length} components for <b style="color:#ff8800">${classid}</b> — <a href="#" onclick="event.preventDefault();clearPageGrants()" style="color:#8ab">clear</a></div>`;
+    for (const comp of order) {
+        const pages = groups[comp];
+        html += `<div style="margin-bottom:8px">
+            <div style="font-size:11px;color:#00e5ff;font-weight:600;cursor:pointer" onclick="selectComponent('${comp.replace(/'/g,"\\'")}')">&#x25B8; ${comp} <span style="color:#8ab;font-weight:normal">(${pages.length})</span></div>
+            <div style="padding-left:12px">`;
+        for (const p of pages) {
+            const chips = _actionChips(p.decoded_actions);
+            const disp = p.displayonly ? `<span style="color:#ffaa00;font-size:10px">Display Only</span>` : '';
+            html += `<div style="font-size:11px;padding:1px 0">${p.pnlitemname} ${chips}${disp}</div>`;
+        }
+        html += `</div></div>`;
+    }
+    el.innerHTML = html;
+}
+
+function clearPageGrants() {
+    clearPanel('pages', 'Select a component.');
 }
 
 async function selectComponent(component) {
     state.component = component;
-    setStatus(`Loading pages for ${component}...`);
+    setStatus(`Loading pages and page grants for ${component}...`);
 
-    const pages = await api(`/api/peoplesoft/components/${encodeURIComponent(component)}/pages?env=${ENV}`);
-    renderList('pages', pages, 'No pages found.', row => {
-        const page = label(row, ['pnlname']);
-        const subtitle = detail(row, ['itemnum', 'market', 'page_descr', 'page_pnltype', 'pnlgrpitemtype']);
-        return rowButton(page, subtitle, () => {}, false);
-    });
+    const [pages, pgGrants] = await Promise.all([
+        api(`/api/peoplesoft/components/${encodeURIComponent(component)}/pages?env=${ENV}`),
+        api(`/api/peoplesoft/components/${encodeURIComponent(component)}/page-grants?env=${ENV}`),
+    ]);
 
-    setStatus(`Component ${component} has ${pages.length} pages.`);
+    // Build permission-list map by pnlitemname for annotation
+    const plByPage = {};
+    for (const g of (pgGrants || [])) {
+        const pg = g.pnlitemname || '';
+        if (!plByPage[pg]) plByPage[pg] = [];
+        plByPage[pg].push({classid: g.classid, decoded_actions: g.decoded_actions, displayonly: g.displayonly});
+    }
+
+    const el = document.getElementById('pages');
+    el.className = '';
+    el.innerHTML = '';
+
+    if (!pages.length && !pgGrants.length) {
+        el.className = 'muted';
+        el.textContent = 'No pages found.';
+        return;
+    }
+
+    if (pages.length) {
+        const hdr = document.createElement('div');
+        hdr.style.cssText = 'font-size:10px;color:#8ab;margin-bottom:6px';
+        hdr.textContent = `${pages.length} structural pages`;
+        el.appendChild(hdr);
+
+        pages.forEach(row => {
+            const page = row.pnlname || '';
+            const grants = plByPage[page] || [];
+            const subtitle = [row.itemnum, row.market, row.page_descr].filter(Boolean).join(' | ');
+            const btn = rowButton(page, subtitle, () => {}, false);
+            if (grants.length) {
+                const gDiv = document.createElement('div');
+                gDiv.style.cssText = 'font-size:10px;color:#8ab;padding:2px 8px 4px';
+                gDiv.innerHTML = grants.slice(0, 5).map(g => {
+                    const chips = _actionChips(g.decoded_actions);
+                    return `<span style="color:#ff8800">${g.classid}</span> ${chips}`;
+                }).join('  ') + (grants.length > 5 ? ` <span>+${grants.length - 5} more</span>` : '');
+                btn.appendChild(gDiv);
+            }
+            el.appendChild(btn);
+        });
+    }
+
+    if (pgGrants.length) {
+        const pgsWithoutStruct = pgGrants.filter(g => !pages.some(p => p.pnlname === g.pnlitemname));
+        if (pgsWithoutStruct.length) {
+            const hdr = document.createElement('div');
+            hdr.style.cssText = 'font-size:10px;color:#8ab;margin:8px 0 4px';
+            hdr.textContent = `${pgsWithoutStruct.length} additional page grants (not in structural page list)`;
+            el.appendChild(hdr);
+            pgsWithoutStruct.forEach(g => {
+                const btn = rowButton(g.pnlitemname, `${g.classid} | ${(g.decoded_actions||[]).join(', ')}`, () => {}, false);
+                el.appendChild(btn);
+            });
+        }
+    }
+
+    setStatus(`Component ${component}: ${pages.length} pages, ${pgGrants.length} page grants.`);
 }
 
 document.getElementById('roleSearch').addEventListener('keydown', event => {
@@ -1959,7 +2333,7 @@ function inferObject(row) {
     if (row.pnlname) return objectUrl('page', row.pnlname);
     if (row.recname) return objectUrl('record', row.recname);
     if (row.searchrecname) return objectUrl('record', row.searchrecname);
-    if (row.addsearchrecname) return objectUrl('record', row.addsearchrecname);
+    if (row.addsrchrecname) return objectUrl('record', row.addsrchrecname);
     if (row.ptibapplname) return objectUrl('service_operation', row.ptibapplname);
     if (row.ib_operationname) return objectUrl('service_operation', row.ib_operationname);
     if (row.routingdefnname) return objectUrl('routing', row.routingdefnname);
@@ -1994,6 +2368,7 @@ const _DETAIL_SKIP = new Set([
     'authorizedactions','displayonly','raw_authorizedactions','raw_displayonly',
     'pnlitemname','target_portal_objname','portal_iscascade',
     'runstatus','runstatus_label','prcstype','prcsname','runlocation','outdesttype','outdestformat',
+    'nav_path','nav_parent_label','nav_grandparent_label','nav_gpar_objname',
 ]);
 
 function detailFor(row) {
@@ -3342,6 +3717,7 @@ def admin_graphdb():
     <div class="card">
         <button onclick="buildGraph()">Rebuild Graph</button>
         <button onclick="clearGraph()">Clear Graph</button>
+        <button onclick="compactGraph()">Compact</button>
         <button onclick="loadStats()">Refresh</button>
         <select id="exportFormat">
             <option value="json">JSON</option>
@@ -3497,6 +3873,16 @@ async function clearGraph() {
     const data = await api(`/api/graph/clear?env=${ENV}`, {method: 'POST'});
     renderStats(data);
     setStatus('Graph cleared.');
+}
+
+async function compactGraph() {
+    setStatus('Compacting graph...');
+    const data = await api(`/api/graph/compact?env=${ENV}`, {method: 'POST'});
+    const msg = data.status === 'already_clean'
+        ? `Graph already clean (${data.edges_after} edges, ${data.node_count} nodes).`
+        : `Compacted: removed ${data.edges_removed} duplicate edges. ${data.edges_after} edges remaining.`;
+    setStatus(msg);
+    renderStats(await api(`/api/graph/stats?env=${ENV}`));
 }
 
 async function createSnapshot() {
@@ -4385,9 +4771,64 @@ ${d.jobinstance > 0 ? `<div class="p-field"><span class="p-label">Job Instance</
 ${d.jobname ? `<div class="p-field"><span class="p-label">Job Name</span><span class="p-value">${esc(d.jobname)}</span></div>` : ''}
 ${d.sessionidnum ? `<div class="p-field"><span class="p-label">Session ID</span><span class="p-value">${esc(String(d.sessionidnum))}</span></div>` : ''}
 ${d.prcsservername ? `<div class="p-field"><span class="p-label">Process Server</span><span class="p-value">${esc(d.prcsservername)}</span></div>` : ''}
+<div id="procAshSection"><div style="color:#334;font-size:11px;margin-top:16px">Loading Oracle activity…</div></div>
 `;
+    // Async ASH enrichment — only for processes with a start time
+    if (d.begindttm) {
+      const db = $('dbSel').value;
+      if (db) {
+        loadProcAsh(instance, db, env, d.prcstype || '');
+      } else {
+        $('procAshSection').innerHTML = '<div style="color:#334;font-size:11px;margin-top:16px">Select Oracle DB above to see session activity.</div>';
+      }
+    } else {
+      $('procAshSection').innerHTML = '';
+    }
   } catch(e) {
     $('procPanelBody').innerHTML = `<div class="warn-msg">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+async function loadProcAsh(instance, db, env, prcstype) {
+  try {
+    const r = await api(`/api/runtime/ash/process?db=${encodeURIComponent(db)}&env=${encodeURIComponent(env)}&instance=${instance}`);
+    const total = r.total_samples || 0;
+    if (!total) {
+      $('procAshSection').innerHTML = `<h2>Oracle Activity (ASH)</h2><div style="color:#334;font-size:11px">No ASH samples found for this process run.<br><span style="color:#223">Source: ${esc(r.source||'V$ACTIVE_SESSION_HISTORY + DBA_HIST')}</span></div>`;
+      return;
+    }
+    let html = `<h2>Oracle Activity (ASH) <span style="color:#9ab;font-size:10px;font-weight:normal">${total} samples · ${esc(r.source||'')}</span></h2>`;
+
+    // Wait events
+    html += `<div style="margin:4px 0 8px"><div style="font-size:10px;color:#445;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Wait Events</div>`;
+    (r.events||[]).forEach(ev => {
+      const col = _WC_COLOR[ev.wait_class] || '#778';
+      const barW = Math.min(ev.pct, 100).toFixed(0);
+      html += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0;font-size:11px">
+        <div class="pct-bar" style="width:60px"><div class="pct-fill" style="width:${barW}%;background:${col}"></div></div>
+        <span style="color:${col};font-size:10px;min-width:28px">${ev.pct}%</span>
+        <span style="color:#9ab">${esc(ev.event)}</span>
+      </div>`;
+    });
+    html += '</div>';
+
+    // Top SQL
+    const sqls = (r.top_sql||[]).filter(s => s.sql_id);
+    if (sqls.length) {
+      html += `<div style="font-size:10px;color:#445;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Top SQL</div>`;
+      sqls.slice(0,5).forEach(s => {
+        const txt = s.sql_text ? s.sql_text.substring(0,80) : '(not in V$SQL)';
+        html += `<div style="margin:3px 0;font-size:10px">
+          <span class="mono" style="color:#00e5ff">${esc(s.sql_id)}</span>
+          <span style="color:#556;margin:0 4px">${s.samples} samples</span>
+          <span style="color:#667">${esc(txt)}</span>
+        </div>`;
+      });
+    }
+
+    $('procAshSection').innerHTML = html;
+  } catch(e) {
+    $('procAshSection').innerHTML = `<div style="color:#334;font-size:11px;margin-top:8px">Oracle Activity unavailable: ${esc(e.message)}</div>`;
   }
 }
 
@@ -6662,11 +7103,20 @@ a.obj-link:hover{text-decoration:underline;}
   <div id="pane-peoplecode" class="pane" style="display:none;">
     <div class="ctrl">
       <input id="pcQ" type="text" placeholder="Filter by parent object (e.g. JOB, GDP_SELECT_PRCS)…" style="width:300px;" onkeydown="if(event.key==='Enter')runCompare('peoplecode')">
-      <button onclick="runCompare('peoplecode')">Compare</button>
+      <button onclick="runCompare('peoplecode')">Compare Catalog</button>
       <span class="spinner" id="spin-peoplecode">&#9679;&#9679;&#9679;</span>
     </div>
     <div class="warn-msg" style="margin-bottom:6px;">Key = objectid1|ov1|ov2|ov3|ov4|ov5 &nbsp;&middot;&nbsp; Compare col = lastupddttm &nbsp;&middot;&nbsp; Capped at 500 programs — use the filter to scope by record/component name.</div>
     <div id="res-peoplecode"></div>
+    <hr style="border-color:#1a2a3a;margin:18px 0">
+    <div style="font-size:11px;color:#8ab;margin-bottom:8px;font-weight:bold;letter-spacing:.05em;">DEEP SOURCE DIFF</div>
+    <div class="ctrl">
+      <input id="pcRefInput" type="text" placeholder="Reference (e.g. JOB.EMPLID.FieldEdit.0 or JOB.FieldFormula.0)…" style="width:420px;" onkeydown="if(event.key==='Enter')runPcSourceDiff()">
+      <button onclick="runPcSourceDiff()">Diff Source</button>
+      <span class="spinner" id="spin-pc-diff">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div style="font-size:10px;color:#445;margin-bottom:6px;">Format: OV1.OV2.OV3.Event.PROGSEQ — e.g. <code>JOB.FieldFormula.0</code> or <code>GBL_JOB_DATA.W.JOB.FieldEdit.0</code></div>
+    <div id="res-pc-diff"></div>
   </div>
 
   <!-- SQL Definitions tab -->
@@ -6905,6 +7355,69 @@ function renderPortalObjectDiff(d) {
     h += `<div style="color:#00aa66;padding:12px;font-size:12px;">&#10003; Identical in both environments.</div>`;
   }
   $('res-portal-obj').innerHTML = h;
+}
+
+// ─── PeopleCode Deep Source Diff ──────────────────────────────────────────────
+async function runPcSourceDiff() {
+  const ref = ($('pcRefInput').value || '').trim();
+  if (!ref) return;
+  $('spin-pc-diff').classList.add('on');
+  $('res-pc-diff').innerHTML = '';
+  try {
+    const d = await api(`/api/envcompare/peoplecode-source?env1=${env1()}&env2=${env2()}&ref=${encodeURIComponent(ref)}`);
+    $('spin-pc-diff').classList.remove('on');
+    renderPcSourceDiff(d);
+  } catch(e) {
+    $('spin-pc-diff').classList.remove('on');
+    $('res-pc-diff').innerHTML = `<div class="err-msg">${esc(String(e))}</div>`;
+  }
+}
+
+function renderPcSourceDiff(d) {
+  let h = '';
+  // stat boxes
+  const ex1 = d.exists_in_env1, ex2 = d.exists_in_env2;
+  h += `<div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0">`;
+  h += `<div class="stat-box"><div class="stat-n">${d.line_count_env1}</div><div class="stat-l">${esc(d.env1)} lines</div></div>`;
+  h += `<div class="stat-box"><div class="stat-n">${d.line_count_env2}</div><div class="stat-l">${esc(d.env2)} lines</div></div>`;
+  if (d.identical) {
+    h += `<div class="stat-box" style="border-color:#00cc6644"><div class="stat-n" style="color:#00cc66">&#x2714;</div><div class="stat-l">Identical</div></div>`;
+  } else {
+    h += `<div class="stat-box" style="border-color:#00aaff44"><div class="stat-n" style="color:#00aaff">+${d.added_lines}</div><div class="stat-l">Added</div></div>`;
+    h += `<div class="stat-box" style="border-color:#ff444444"><div class="stat-n" style="color:#ff4444">-${d.removed_lines}</div><div class="stat-l">Removed</div></div>`;
+  }
+  if (!ex1) h += `<div class="stat-box" style="border-color:#ff440044"><div class="stat-n" style="color:#ff4444">&#x2715;</div><div class="stat-l">Not in ${esc(d.env1)}</div></div>`;
+  if (!ex2) h += `<div class="stat-box" style="border-color:#ff440044"><div class="stat-n" style="color:#ff4444">&#x2715;</div><div class="stat-l">Not in ${esc(d.env2)}</div></div>`;
+  h += `</div>`;
+
+  // warnings
+  (d.warnings||[]).forEach(w => { h += `<div class="warn-msg">&#9888; ${esc(w.message||String(w))}</div>`; });
+
+  if (d.identical) {
+    h += `<div style="color:#00cc66;font-size:12px;margin:10px 0">Source is identical in both environments.</div>`;
+    $('res-pc-diff').innerHTML = h;
+    return;
+  }
+
+  if (!d.diff) {
+    $('res-pc-diff').innerHTML = h;
+    return;
+  }
+
+  // Unified diff rendered with line-level coloring
+  h += `<div style="font-size:10px;font-family:monospace;background:#050e16;border:1px solid #1a2a3a;padding:10px;margin-top:8px;overflow-x:auto;max-height:600px;overflow-y:auto;white-space:pre;">`;
+  d.diff.split('\n').forEach(line => {
+    let col = '#9ab', bg = 'transparent';
+    if (line.startsWith('+++') || line.startsWith('---')) { col = '#668'; bg = '#0a1520'; }
+    else if (line.startsWith('@@'))  { col = '#00aaff'; bg = '#001828'; }
+    else if (line.startsWith('+'))   { col = '#00cc66'; bg = '#002210'; }
+    else if (line.startsWith('-'))   { col = '#ff4444'; bg = '#200808'; }
+    else { col = '#566'; }
+    h += `<div style="color:${col};background:${bg};padding:0 4px;min-height:14px">${esc(line) || '&nbsp;'}</div>`;
+  });
+  h += `</div>`;
+  h += `<div style="font-size:10px;color:#334;margin-top:6px">Reference: ${esc(d.reference)} &nbsp;·&nbsp; Source: SYSADM.PSPCMTXT</div>`;
+  $('res-pc-diff').innerHTML = h;
 }
 
 // ─── Diff renderer ────────────────────────────────────────────────────────────
@@ -7968,7 +8481,7 @@ function renderComponents(items) {
   </tr></thead><tbody>` + items.map(c => `<tr>
     <td class="mono"><a class="obj-link" href="/admin/object/component/${esc(c.pnlgrpname)}">${esc(c.pnlgrpname)}</a></td>
     <td class="mono">${esc(c.searchrecname || '')}</td>
-    <td class="mono">${esc(c.addsearchrecname || '')}</td>
+    <td class="mono">${esc(c.addsrchrecname || '')}</td>
     <td>${esc(c.descr || '')}</td>
     <td>${esc(c.market || '')}</td>
   </tr>`).join('') + '</tbody></table>';
@@ -9062,6 +9575,9 @@ let _activeTypes = new Set();
 let _searchTimer = null;
 let _items = [];
 let _selectedRef = null;
+let _pcOffset = 0;
+let _pcHasMore = false;
+const _PC_LIMIT = 500;
 
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function api(url) { return fetch(url).then(r => r.json()); }
@@ -9099,14 +9615,16 @@ function renderResults() {
     ? _items.filter(i => _activeTypes.has(i.object_type_label))
     : _items;
 
+  const moreNote = _pcHasMore ? ` (+more)` : '';
   document.getElementById('resultCount').textContent =
-    `${filtered.length} / ${_items.length} programs`;
+    `${filtered.length} / ${_items.length} programs${moreNote}`;
 
   if (!filtered.length) {
     results.innerHTML = '<div class="muted">No results.</div>';
     return;
   }
-  results.innerHTML = filtered.map(item => {
+
+  let html = filtered.map(item => {
     const cfg = TYPE_COLORS[item.object_type_label] || {bg:'#111', border:'#555', color:'#aaa'};
     const isSelected = item.encoded_reference === _selectedRef;
     return `<div class="result-item${isSelected ? ' selected' : ''}" onclick="loadPC(${JSON.stringify(item.encoded_reference)})">
@@ -9118,6 +9636,14 @@ function renderResults() {
       </div>
     </div>`;
   }).join('');
+
+  if (_pcHasMore && _activeTypes.size === 0) {
+    html += `<div style="padding:8px;text-align:center">
+      <button onclick="loadMorePC()" style="font-size:11px;padding:4px 12px">Load more (offset ${_pcOffset})…</button>
+    </div>`;
+  }
+
+  results.innerHTML = html;
 }
 
 async function doSearch() {
@@ -9125,17 +9651,31 @@ async function doSearch() {
   if (!q) {
     document.getElementById('results').innerHTML = '<div class="muted">Enter a search term.</div>';
     document.getElementById('resultCount').textContent = '';
+    _items = []; _pcOffset = 0; _pcHasMore = false;
     return;
   }
   document.getElementById('results').innerHTML = '<div class="muted">Searching...</div>';
+  _pcOffset = 0;
 
-  const data = await api(`/api/peoplesoft/peoplecode?env=${env()}&q=${encodeURIComponent(q)}&limit=200`).catch(() => ({items:[]}));
+  const data = await api(`/api/peoplesoft/peoplecode?env=${env()}&q=${encodeURIComponent(q)}&limit=${_PC_LIMIT}&offset=0`).catch(() => ({items:[], has_more: false}));
   _items = data.items || [];
+  _pcHasMore = data.has_more || false;
+  _pcOffset = _items.length;
 
-  // Collect types
   _allTypes = new Set(_items.map(i => i.object_type_label).filter(Boolean));
-  // Reset active types to all
   _activeTypes = new Set();
+  buildTypeChips();
+  renderResults();
+}
+
+async function loadMorePC() {
+  const q = document.getElementById('searchQ').value.trim();
+  const data = await api(`/api/peoplesoft/peoplecode?env=${env()}&q=${encodeURIComponent(q)}&limit=${_PC_LIMIT}&offset=${_pcOffset}`).catch(() => ({items:[], has_more: false}));
+  const newItems = data.items || [];
+  _pcHasMore = data.has_more || false;
+  _pcOffset += newItems.length;
+  _items = [..._items, ...newItems];
+  newItems.forEach(i => { if (i.object_type_label) _allTypes.add(i.object_type_label); });
   buildTypeChips();
   renderResults();
 }

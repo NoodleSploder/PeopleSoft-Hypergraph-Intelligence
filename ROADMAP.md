@@ -148,10 +148,15 @@
 
 -   Security traversal: operator → role → permission list → component edges in graph build; graph API already supports multi-hop traversal via `/api/graph/neighbors/{node}?depth=N` and shortest path via `/api/graph/path`
 
-### Remaining
+### Completed
 
--   Graph compaction
--   Large-environment indexing
+-   Graph compaction: `compact(env)` function in graphdb.py deduplicates edges in-place and persists the result; `POST /api/graph/compact` endpoint; "Compact" button in Graph Explorer UI; O(1) edge dedup: `_edge_ids` set added to graph dict (not persisted), rebuilt on load from `current()`, used in `add_edge()` instead of O(N) `any()` scan; `save()` excludes `_edge_ids` from JSON serialization.
+
+### Completed
+
+-   Large-environment indexing: `_batch_in_query()` helper in psdb.py chunks IN-clause queries at 500 items (Oracle 1000-item limit); `batch_operator_roles()`, `batch_role_permissionlists()`, `batch_permissionlist_components()`, `batch_component_pages()` replace N+1 per-item queries in the graph build; build limit raised from 250 to 2000; graph build auto-selects batch mode when limit>250 — operators/roles/permissionlists/components all use batch queries; `peoplecode_programs()` and `application_engines()` providers still use per-item queries (source-loading is inherently sequential).
+
+### Remaining
 
 ------------------------------------------------------------------------
 
@@ -170,9 +175,9 @@
 -   PSDBFIELD support
 -   Field label resolution (longname/shortname from PSDBFLDLABL, DEFAULT_LABEL=1, batch-enriched on record objects)
 
-### Remaining
+-   Rich PeopleCode decoding: `field_peoplecode_metadata()` rebuilt to query PSPCMPROG with correct objectid1=2 (record/field) and objectid1=10 (component record/field) predicates; results normalized via `peoplecode.normalize_program()`; `attach_object_links()` extended to add `_links.admin` for rows with `encoded_reference`. Field Explorer now shows 80+ clickable PC programs for fields like DERIVED_GL.GL_DEL_COMBO_PB.
 
--   Rich PeopleCode decoding
+### Remaining
 
 ------------------------------------------------------------------------
 
@@ -200,9 +205,11 @@
     from "IB Handler" to "App Package Class" across PEOPLECODE_OBJECT_TYPES,
     \_OID1_PARENT_TYPES, and decode_semantic_path()
 
-### Remaining
+-   PCTEXT column fix: `source_for_reference()` and `source_search()` were looking for `PROGTXT`/`TXT`/`TEXT` columns but PSPCMTXT uses `PCTEXT` in PeopleTools 8.5+. Fixed candidate list and priority order in both functions; also expanded objectvalue key range from 4 to 7 for correct matching. PeopleCode source now loads in all Object Explorer views.
 
--   Larger source pagination
+-   Larger source pagination: `programs()` now supports `offset` parameter with `OFFSET n ROWS FETCH NEXT n+1 ROWS ONLY` (Oracle row-skip pagination); returns `{has_more, offset, limit}` metadata; limit raised to 2000; search predicate fixed to only match OBJECTVALUE columns (not numeric ID columns); PeopleCode Explorer UI gains "Load more" button when `has_more=true`, appends to existing results.
+
+### Remaining
 
 ------------------------------------------------------------------------
 
@@ -238,9 +245,9 @@
 -   `_DETAIL_SKIP` noise fields removed (authorizedactions, displayonly, raw_*)
 -   `labelFor()` now checks `row.title`/`row.label` before field fallbacks
 
-### Remaining
+-   Page-level action grants: `permissionlist_page_grants()` and `component_page_grants()` from PSAUTHITEM; Page Grants section in permission-list UOM (grouped by component, decoded actions); Security Explorer `selectPermissionList` renders grouped page grants inline with action chips; `selectComponent` annotates each structural page with the permission lists that grant it and their decoded actions
 
--   Deeper permission-decoding (page-level action grants, menu grants)
+### Remaining
 
 ------------------------------------------------------------------------
 
@@ -259,12 +266,13 @@
 -   Storage
 -   Relationships
 -   Rich dependency traversal: child records (PSRECDEFN.PARENTRECNAME), subrecord derivations (PSRECFIELD.DEFRECNAME), AE state records (PSAEAPPLSTATE)
+-   record_components() fix: SQL used `addsearchrecname` in WHERE clause but actual PSPNLGRPDEFN column is `ADDSRCHRECNAME` — caused ORA-00904 crash, silently swallowed by safe_relationship(), returning 0. Fixed to use ADDSRCHRECNAME and conditionalize its inclusion. Components section now correctly shows 8 results for EMPLMT_SRCH_ALL.
 
 ------------------------------------------------------------------------
 
 ## Component Explorer
 
-**Status:** UOM Integrated
+**Status:** Feature Complete
 
 ### Completed
 
@@ -277,10 +285,11 @@
 -   Graph preview
 -   Component PeopleCode (objectid1=9 event-level, 10 record/field-level)
 
-### Remaining
+-   Rich visualization: `component_page_hierarchy()` in psdb.py batch-fetches PSPNLFIELD structural elements (FIELDTYPE 11/18=Subpage, 21=Grid) for all component pages in one query; Pages section now shows flat leveled items (level 0=page with type chip Standard/Subpage/Popup, level 1=subpage/grid inclusion with kind chip); `renderRows()` indents level 1 items and makes all rows clickable via `_links.admin`; JOB_DATA shows 12 pages / 65 structural elements, WEB_PROFILE shows 11 pages / 117 grids.
 
--   Rich visualization
--   Better portal reconstruction
+-   Better portal reconstruction: `component_portal_refs()` rewritten to use exact `PORTAL_URI_SEG2 = component` match (content refs) instead of broad LIKE search (eliminated false positives — JOB_DATA dropped from 36 misleading results to 5 accurate ones); LEFT JOINs to parent and grandparent PSPRSMDEFN rows reconstruct full navigation breadcrumb (e.g., "Workforce Administration › Job Information › Job Data"); `nav_path` rendered as relationship chip in Portal Registry section.
+
+### Remaining
 
 ------------------------------------------------------------------------
 
@@ -300,10 +309,10 @@
 -   Related Content
 -   PeopleCode (normalized from parent components, with explorer links)
 
-### Remaining
+-   Scroll Structure / Subpages / Grids fixed: `page_scroll_structure()` was classifying ALL PSPNLFIELD rows as "Subpage" because `row.get("subpnlname")` returns `' '` (space) which is truthy in Python. Rewritten with proper numeric FIELDTYPE checks (11=Subpage, 18=Scroll Area, 21=Grid) and blank-space stripping — Scroll Structure for EMPLOYMENT_DTA1 now shows 4 correct subpages instead of 56 false positives.
+-   PeopleCode source: PeopleCode source now loads in the Object Explorer thanks to the PCTEXT column fix (see PeopleCode Explorer entry).
 
--   Rich hierarchy
--   PeopleCode source
+### Remaining
 
 ------------------------------------------------------------------------
 
@@ -458,9 +467,12 @@
 -   Object count summary expanded: PeopleCode programs, SQL definitions, Portal entries
 -   PS Query comparison: `compare_queries()` against PSQRYDEFN (public queries, OPRID=\' \'); PS Queries tab in `/admin/envcompare`; count in summary
 
-### Remaining
-
--   Deep PeopleCode source diff (requires binary BLOB decode)
+-   Deep PeopleCode source diff: `compare_peoplecode_source()` in envcompare.py queries
+    PSPCMTXT.PCTEXT directly (plain text — no binary decode needed; prior "blocked" note
+    was incorrect); accepts OV1.OV2.EVENT reference without PROGSEQ suffix, concatenates
+    all PROGSEQ chunks for full-program comparison; unified diff via difflib.unified_diff;
+    `/api/envcompare/peoplecode-source`; "Deep Source Diff" panel in PeopleCode tab of
+    `/admin/envcompare` with syntax-highlighted diff view (+green, -red, @@ blue)
 
 ------------------------------------------------------------------------
 
@@ -513,6 +525,12 @@
     ASH high-wait (single wait class >70%), domain no-listener; `/api/runtime/alerts`;
     "Active Alerts" card at top of `/admin/runtime` with severity chips (error/warn),
     card border color shift (red/amber/cyan), and deep-links to affected resources
+-   Process-level Oracle Activity (ASH): `oracle_ash_for_process(db, env, instance)` in
+    execution.py looks up PSPRCSRQST time window and correlates by module/action
+    (Application Engine → module='PSAE', action=prcsname); `/api/runtime/ash/process`;
+    Process Detail panel auto-loads Oracle Activity section (wait events + top SQL) after
+    basic fields render; falls back to DBA_HIST_ACTIVE_SESS_HISTORY if V$ASH empty;
+    ORA-00918 avoided by aliasing both table refs as `a` and qualifying all WHERE cols
 
 ------------------------------------------------------------------------
 
@@ -527,11 +545,17 @@
 -   Provisioning
 -   Audit
 
-### Remaining
+### Completed
 
--   MFA
--   Bulk operations
--   Approval workflow
+-   MFA: `_sqlite_query()` in authelia_admin.py reads/writes Authelia SQLite at `/opt/authelia/config/db.sqlite3`; `GET /authelia/mfa/status` returns MFA status for all users (totp_configured, webauthn_count, preferred_method, last_seen, login counts); `GET /authelia/mfa/status/{username}` returns full detail + recent auth log; `DELETE /authelia/mfa/{username}/totp` revokes TOTP; `DELETE /authelia/mfa/{username}/webauthn` revokes WebAuthn (single or all devices); `DELETE /authelia/mfa/{username}` revokes all MFA; `GET /authelia/logs` returns auth log with optional username filter + failed_only; Users page shows MFA chips (TOTP/WebAuthn×N), Last Seen column, Revoke MFA button, and Authentication Log table.
+
+### Completed
+
+-   Bulk operations: `POST /api/identity/bulk-provision` accepts `{oprids, password?}`; auto-generates per-user passwords when no shared password provided; returns per-oprid status (provisioned/already_exists/not_found/error); Users page OPRID search adds checkboxes per row, "Select All" toggle, "0 selected" counter, and "Provision Selected" button that calls bulk-provision and shows a result summary.
+
+-   Approval workflow: `POST /api/identity/requests` creates a pending request (validates PS OPRID, blocks duplicates); `GET /api/identity/requests?status=` lists all requests; `POST /api/identity/requests/{id}/approve` provisions the user and records temp password; `POST /api/identity/requests/{id}/reject` records rejection reason; `DELETE /api/identity/requests/{id}` cancels a pending request; all actions audit-logged; Provision Requests card in Users page shows filterable table with Approve/Reject/Cancel buttons per pending row; "Request" button added to each OPRID search result alongside "Provision".
+
+### Remaining
 
 ------------------------------------------------------------------------
 

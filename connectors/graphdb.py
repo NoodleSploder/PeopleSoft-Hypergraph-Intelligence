@@ -38,6 +38,7 @@ def empty_graph(env="HCM"):
         "environment": env.upper(),
         "nodes": {},
         "edges": [],
+        "_edge_ids": set(),  # not persisted; rebuilt on load
         "warnings": [],
         "built_at": None,
         "build_seconds": 0,
@@ -81,7 +82,9 @@ def current(env="HCM"):
     if env not in GRAPHS:
         path = graph_path(env)
         if path.exists():
-            GRAPHS[env] = json.loads(path.read_text())
+            g = json.loads(path.read_text())
+            g["_edge_ids"] = {e["id"] for e in g.get("edges", [])}
+            GRAPHS[env] = g
         else:
             GRAPHS[env] = empty_graph(env)
     return GRAPHS[env]
@@ -89,7 +92,8 @@ def current(env="HCM"):
 
 def save(env="HCM"):
     graph = current(env)
-    graph_path(env).write_text(json.dumps(graph, indent=2, default=str))
+    saveable = {k: v for k, v in graph.items() if k != "_edge_ids"}
+    graph_path(env).write_text(json.dumps(saveable, indent=2, default=str))
     return graph
 
 
@@ -208,6 +212,41 @@ def clear(env="HCM"):
     return stats(env)
 
 
+def compact(env="HCM"):
+    """Remove duplicate edges and rebuild the O(1) edge index.
+
+    Duplicate edges can accumulate if a graph file was written before the
+    _edge_ids set was introduced. This function deduplicates in-place and
+    persists the cleaned graph.
+    """
+    env = env.upper()
+    graph = current(env)
+    edges = graph["edges"]
+    original_count = len(edges)
+    original_nodes = len(graph["nodes"])
+
+    # Deduplicate edges preserving order
+    seen: dict[str, dict] = {}
+    for edge in edges:
+        eid = edge.get("id", "")
+        if eid and eid not in seen:
+            seen[eid] = edge
+    graph["edges"] = list(seen.values())
+    graph["_edge_ids"] = set(seen.keys())
+
+    edges_removed = original_count - len(graph["edges"])
+    save(env)
+
+    return {
+        "environment": env,
+        "node_count": original_nodes,
+        "original_edges": original_count,
+        "edges_after": len(graph["edges"]),
+        "edges_removed": edges_removed,
+        "status": "compacted" if edges_removed > 0 else "already_clean",
+    }
+
+
 def node_id(node_type, name):
     return uom.object_id(node_type, name)
 
@@ -263,7 +302,9 @@ def add_edge(graph, source_type, source_name, target_type, target_name, edge_typ
         "metadata": metadata or {},
     }
 
-    if not any(existing["id"] == edge["id"] for existing in graph["edges"]):
+    edge_ids = graph.setdefault("_edge_ids", set())
+    if edge["id"] not in edge_ids:
+        edge_ids.add(edge["id"])
         graph["edges"].append(edge)
 
     return edge
@@ -300,53 +341,103 @@ def provider(graph, name, loader):
 
 def build(env="HCM", limit=50, persist=True):
     env = env.upper()
-    limit = max(1, min(int(limit), 250))
+    # Limits above 250 trigger batch-query mode (single IN-clause queries instead of N+1).
+    # Standard mode: limit≤250, N+1 queries. Full mode: limit≤2000, batch queries.
+    limit = max(1, min(int(limit), 2000))
+    batch_mode = limit > 250
     graph = empty_graph(env)
     start = time.time()
     BUILD_STATE[env] = {"status": "building", "started_at": start}
 
     def operators():
         rows = psdb.search_oprids(env, "", limit)
-        for row in rows:
-            add_node(graph, "operator", row.get("oprid"), row.get("oprid"), row)
-            for role in psdb.oprid_roles(row.get("oprid"), env, columns="summary"):
-                add_node(graph, "role", role.get("rolename"), role.get("rolename"), role)
-                add_edge(graph, "operator", row.get("oprid"), "role", role.get("rolename"), "OWNS", role)
+        if batch_mode:
+            oprids = [row.get("oprid") for row in rows if row.get("oprid")]
+            roles_map = psdb.batch_operator_roles(env, oprids)
+            for row in rows:
+                oprid = row.get("oprid")
+                add_node(graph, "operator", oprid, oprid, row)
+                for role in roles_map.get(oprid, []):
+                    add_node(graph, "role", role.get("rolename"), role.get("rolename"), role)
+                    add_edge(graph, "operator", oprid, "role", role.get("rolename"), "OWNS", role)
+        else:
+            for row in rows:
+                add_node(graph, "operator", row.get("oprid"), row.get("oprid"), row)
+                for role in psdb.oprid_roles(row.get("oprid"), env, columns="summary"):
+                    add_node(graph, "role", role.get("rolename"), role.get("rolename"), role)
+                    add_edge(graph, "operator", row.get("oprid"), "role", role.get("rolename"), "OWNS", role)
         return len(rows)
 
     def roles():
         rows = psdb.roles(env, "", limit)
-        for row in rows:
-            add_node(graph, "role", row.get("rolename"), row.get("rolename"), row)
-            for permissionlist in psdb.role_permissionlists(env, row.get("rolename"))[:limit]:
-                add_node(graph, "permissionlist", permissionlist.get("classid"), permissionlist.get("classid"), permissionlist)
-                add_edge(graph, "role", row.get("rolename"), "permissionlist", permissionlist.get("classid"), "CONTAINS", permissionlist)
+        if batch_mode:
+            rolenames = [row.get("rolename") for row in rows if row.get("rolename")]
+            pl_map = psdb.batch_role_permissionlists(env, rolenames)
+            for row in rows:
+                rolename = row.get("rolename")
+                add_node(graph, "role", rolename, rolename, row)
+                for pl in pl_map.get((rolename or "").upper(), []):
+                    add_node(graph, "permissionlist", pl.get("classid"), pl.get("classid"), pl)
+                    add_edge(graph, "role", rolename, "permissionlist", pl.get("classid"), "CONTAINS", pl)
+        else:
+            for row in rows:
+                add_node(graph, "role", row.get("rolename"), row.get("rolename"), row)
+                for permissionlist in psdb.role_permissionlists(env, row.get("rolename"))[:limit]:
+                    add_node(graph, "permissionlist", permissionlist.get("classid"), permissionlist.get("classid"), permissionlist)
+                    add_edge(graph, "role", row.get("rolename"), "permissionlist", permissionlist.get("classid"), "CONTAINS", permissionlist)
         return len(rows)
 
     def permissionlists():
         rows = psdb.permissionlists(env, "", limit)
-        for row in rows:
-            add_node(graph, "permissionlist", row.get("classid"), row.get("classid"), row)
-            for component in psdb.permissionlist_components(env, row.get("classid"))[:limit]:
-                add_node(graph, "component", component.get("pnlgrpname"), component.get("pnlgrpname"), component)
-                add_edge(graph, "permissionlist", row.get("classid"), "component", component.get("pnlgrpname"), "SECURES", component)
-                if component.get("menuname"):
-                    add_node(graph, "menu", component.get("menuname"), component.get("menuname"), component)
-                    add_edge(graph, "menu", component.get("menuname"), "component", component.get("pnlgrpname"), "CONTAINS", component)
+        if batch_mode:
+            classids = [row.get("classid") for row in rows if row.get("classid")]
+            comp_map = psdb.batch_permissionlist_components(env, classids)
+            for row in rows:
+                classid = row.get("classid")
+                add_node(graph, "permissionlist", classid, classid, row)
+                for component in comp_map.get((classid or "").upper(), []):
+                    add_node(graph, "component", component.get("pnlgrpname"), component.get("pnlgrpname"), component)
+                    add_edge(graph, "permissionlist", classid, "component", component.get("pnlgrpname"), "SECURES", component)
+                    if component.get("menuname"):
+                        add_node(graph, "menu", component.get("menuname"), component.get("menuname"), component)
+                        add_edge(graph, "menu", component.get("menuname"), "component", component.get("pnlgrpname"), "CONTAINS", component)
+        else:
+            for row in rows:
+                add_node(graph, "permissionlist", row.get("classid"), row.get("classid"), row)
+                for component in psdb.permissionlist_components(env, row.get("classid"))[:limit]:
+                    add_node(graph, "component", component.get("pnlgrpname"), component.get("pnlgrpname"), component)
+                    add_edge(graph, "permissionlist", row.get("classid"), "component", component.get("pnlgrpname"), "SECURES", component)
+                    if component.get("menuname"):
+                        add_node(graph, "menu", component.get("menuname"), component.get("menuname"), component)
+                        add_edge(graph, "menu", component.get("menuname"), "component", component.get("pnlgrpname"), "CONTAINS", component)
         return len(rows)
 
     def components():
         rows = psdb.components(env, "", limit)
-        for row in rows:
-            component = row.get("pnlgrpname")
-            add_node(graph, "component", component, component, row)
-            for key, rel in (("searchrecname", "USES"), ("addsearchrecname", "USES")):
-                if row.get(key):
-                    add_node(graph, "record", row.get(key), row.get(key), {"source": key})
-                    add_edge(graph, "component", component, "record", row.get(key), rel, {"source": key})
-            for page in psdb.component_pages(env, component)[:limit]:
-                add_node(graph, "page", page.get("pnlname"), page.get("pnlname"), page)
-                add_edge(graph, "component", component, "page", page.get("pnlname"), "CONTAINS", page)
+        if batch_mode:
+            component_names = [row.get("pnlgrpname") for row in rows if row.get("pnlgrpname")]
+            pages_map = psdb.batch_component_pages(env, component_names)
+            for row in rows:
+                component = row.get("pnlgrpname")
+                add_node(graph, "component", component, component, row)
+                for key, rel in (("searchrecname", "USES"), ("addsrchrecname", "USES")):
+                    if row.get(key):
+                        add_node(graph, "record", row.get(key), row.get(key), {"source": key})
+                        add_edge(graph, "component", component, "record", row.get(key), rel, {"source": key})
+                for page in pages_map.get((component or "").upper(), []):
+                    add_node(graph, "page", page.get("pnlname"), page.get("pnlname"), page)
+                    add_edge(graph, "component", component, "page", page.get("pnlname"), "CONTAINS", page)
+        else:
+            for row in rows:
+                component = row.get("pnlgrpname")
+                add_node(graph, "component", component, component, row)
+                for key, rel in (("searchrecname", "USES"), ("addsrchrecname", "USES")):
+                    if row.get(key):
+                        add_node(graph, "record", row.get(key), row.get(key), {"source": key})
+                        add_edge(graph, "component", component, "record", row.get(key), rel, {"source": key})
+                for page in psdb.component_pages(env, component)[:limit]:
+                    add_node(graph, "page", page.get("pnlname"), page.get("pnlname"), page)
+                    add_edge(graph, "component", component, "page", page.get("pnlname"), "CONTAINS", page)
         return len(rows)
 
     def pages():

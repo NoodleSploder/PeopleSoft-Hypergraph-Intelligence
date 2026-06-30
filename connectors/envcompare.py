@@ -4,6 +4,8 @@ Queries the same PeopleSoft metadata in two named environments and diffs the res
 All comparisons are grant-aware; errors per-environment are captured as warnings.
 """
 
+import difflib
+
 from connectors import psdb
 
 # ── PeopleSoft decode tables ───────────────────────────────────────────────────
@@ -644,3 +646,126 @@ def compare_portal_object(env1, env2, portal_objname):
         "warnings": warnings,
     })
     return result
+
+
+# ── PeopleCode Deep Source Diff ───────────────────────────────────────────────
+
+def _fetch_full_pc_source(env, ov1, ov2, ov3):
+    """Fetch full PeopleCode source from PSPCMTXT for OV1.OV2.OV3, concatenating all PROGSEQ chunks."""
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env, "PSPCMTXT"):
+        return None, [{"code": "PSPCMTXT_UNAVAILABLE", "message": f"PSPCMTXT not accessible in {env}", "severity": "warn"}]
+    try:
+        rows = psdb.query(env, """
+            SELECT PCTEXT
+              FROM sysadm.PSPCMTXT
+             WHERE UPPER(OBJECTVALUE1) = :ov1
+               AND UPPER(OBJECTVALUE2) = :ov2
+               AND UPPER(OBJECTVALUE3) = :ov3
+             ORDER BY PROGSEQ
+        """, {"ov1": ov1.upper(), "ov2": ov2.upper(), "ov3": ov3.upper()})
+        if not rows:
+            return None, warnings
+        source = "".join(str(r.get("pctext") or "") for r in rows).rstrip()
+        return source, warnings
+    except Exception as exc:
+        return None, [{"code": "PSPCMTXT_ERR", "message": str(exc), "severity": "warn"}]
+
+
+def _parse_pc_reference(reference):
+    """Parse a PeopleCode reference string into (ov1, ov2, ov3) components.
+
+    Accepts:
+      OV1.OV2.EVENT           — 3 parts (Record: rec.field.event)
+      OV1.OV2.OV3.EVENT       — 4 parts (Component: cmpnt.mkt.rec.event)
+      OV1.OV2.EVENT.PROGSEQ   — strips numeric suffix
+      OV1.OV2.OV3.EVENT.PROGSEQ
+
+    Returns (ov1, ov2, ov3) for PSPCMTXT WHERE clause.
+    """
+    from urllib.parse import unquote
+    ref = unquote(reference).upper().strip()
+    parts = ref.split(".")
+    # Strip trailing numeric (PROGSEQ)
+    if parts and parts[-1].isdigit():
+        parts = parts[:-1]
+    if len(parts) >= 4:
+        return parts[0], parts[1], parts[2], ".".join(parts[3:])
+    if len(parts) == 3:
+        return parts[0], parts[1], parts[2], None
+    if len(parts) == 2:
+        return parts[0], parts[1], None, None
+    return (parts[0] if parts else ""), None, None, None
+
+
+def compare_peoplecode_source(env1, env2, reference):
+    """Fetch and unified-diff the FULL PeopleCode source for a program across two environments.
+
+    Accepts references like:
+      PTPG_WORKREC.FUNCLIB.FieldFormula   (Record PeopleCode — fetches all PROGSEQ chunks)
+      GBL_JOB_DATA.W.JOB.FieldEdit        (Component PeopleCode)
+    Optional PROGSEQ suffix (e.g. .0) is stripped.
+    Source is fetched directly from PSPCMTXT, concatenating all chunks.
+    """
+    from urllib.parse import unquote
+    ref_upper = unquote(reference).upper().strip()
+
+    # Parse into OV components
+    parts = ref_upper.split(".")
+    if parts and parts[-1].isdigit():
+        parts = parts[:-1]  # strip PROGSEQ
+
+    warnings = []
+    if len(parts) < 3:
+        return {
+            "env1": env1, "env2": env2, "reference": ref_upper,
+            "exists_in_env1": False, "exists_in_env2": False,
+            "identical": True, "diff": "",
+            "line_count_env1": 0, "line_count_env2": 0,
+            "added_lines": 0, "removed_lines": 0,
+            "warnings": [{"code": "INVALID_REFERENCE",
+                          "message": f"Reference must have at least 3 parts (OV1.OV2.EVENT): {ref_upper}",
+                          "severity": "warn"}],
+        }
+
+    ov1, ov2, ov3 = parts[0], parts[1], ".".join(parts[2:])
+
+    src1, w1 = _fetch_full_pc_source(env1, ov1, ov2, ov3)
+    src2, w2 = _fetch_full_pc_source(env2, ov1, ov2, ov3)
+    warnings.extend(w1 + w2)
+
+    src1 = (src1 or "").rstrip()
+    src2 = (src2 or "").rstrip()
+
+    lines1 = (src1 + "\n").splitlines(keepends=True) if src1 else []
+    lines2 = (src2 + "\n").splitlines(keepends=True) if src2 else []
+
+    diff_lines = list(difflib.unified_diff(
+        lines1, lines2,
+        fromfile=f"{env1}",
+        tofile=f"{env2}",
+        lineterm="\n",
+        n=4,
+    ))
+
+    added   = sum(1 for l in diff_lines if l.startswith("+") and not l.startswith("+++"))
+    removed = sum(1 for l in diff_lines if l.startswith("-") and not l.startswith("---"))
+
+    return {
+        "env1": env1,
+        "env2": env2,
+        "reference": ref_upper,
+        "ov1": ov1,
+        "ov2": ov2,
+        "ov3": ov3,
+        "exists_in_env1": bool(src1),
+        "exists_in_env2": bool(src2),
+        "line_count_env1": len(lines1),
+        "line_count_env2": len(lines2),
+        "identical": src1 == src2,
+        "added_lines": added,
+        "removed_lines": removed,
+        "diff": "".join(diff_lines),
+        "warnings": warnings,
+    }

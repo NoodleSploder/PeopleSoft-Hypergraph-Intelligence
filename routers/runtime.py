@@ -119,6 +119,14 @@ def runtime_ash_sql(db: str, minutes: int = 30, limit: int = 10):
     return execution.oracle_ash_top_sql(db, minutes=minutes, limit=limit)
 
 
+@router.get("/ash/process")
+def runtime_ash_process(db: str, env: str = "HCM", instance: int = None):
+    """Return Oracle ASH activity correlated to a specific PeopleSoft process instance."""
+    if not instance:
+        return {"events": [], "top_sql": [], "total_samples": 0, "source": None, "warnings": []}
+    return execution.oracle_ash_for_process(db, env, instance)
+
+
 @router.get("/domains")
 def runtime_domains(env: str = "HCM"):
     """Return App Server domain topology from PSPMDOMAIN_VW (or PS_PSPMDOMAIN1_VW fallback)."""

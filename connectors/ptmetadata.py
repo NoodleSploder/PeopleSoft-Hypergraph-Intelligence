@@ -272,7 +272,7 @@ OBJECT_REGISTRY = {
         "graph_node_type": "component",
         "object_page": "/admin/object/component/{name}",
         "discovery": {"table": "PSPNLGRPDEFN", "name_column": "PNLGRPNAME"},
-        "search": {"table": "PSPNLGRPDEFN", "name_column": "PNLGRPNAME", "description_columns": ["DESCR"], "extra_search_columns": ["SEARCHRECNAME", "ADDSEARCHRECNAME"]},
+        "search": {"table": "PSPNLGRPDEFN", "name_column": "PNLGRPNAME", "description_columns": ["DESCR"], "extra_search_columns": ["SEARCHRECNAME", "ADDSRCHRECNAME"]},
         "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
     },
     "page": {

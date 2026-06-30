@@ -585,15 +585,16 @@ def field_search_records(env_name, field_ref):
 
     selected = [f"c.{col} as {col.lower()}" for col in columns]
 
+    add_col = "c.ADDSRCHRECNAME" if "ADDSRCHRECNAME" in columns else "c.SEARCHRECNAME"
     sql = f"""
-        select distinct {", ".join(selected)},
-               rf.recname,
-               rf.fieldname
-          from sysadm.pspnlgrpdefn c
-          join sysadm.psrecfield rf
-            on rf.recname in (c.searchrecname, c.addsearchrecname)
-         where rf.fieldname = upper(:fieldname)
-         order by c.pnlgrpname, rf.recname
+        SELECT DISTINCT {", ".join(selected)},
+               rf.RECNAME,
+               rf.FIELDNAME
+          FROM sysadm.PSPNLGRPDEFN c
+          JOIN sysadm.PSRECFIELD rf
+            ON rf.RECNAME IN (c.SEARCHRECNAME, {add_col})
+         WHERE rf.FIELDNAME = UPPER(:fieldname)
+         ORDER BY c.PNLGRPNAME, rf.RECNAME
     """
 
     return query(env_name, sql, {"fieldname": fieldname})
@@ -626,37 +627,46 @@ def field_views(env_name, field_ref):
 
 
 def field_peoplecode_metadata(env_name, field_ref):
-    resolved = resolve_field_reference(env_name, field_ref)
-    recname = resolved["recname"]
-    fieldname = resolved["fieldname"]
+    """Return PeopleCode programs that are attached to a specific record.fieldname.
 
-    if not resolved["resolved"]:
-        return []
-
-    columns = select_existing_columns(
-        env_name,
-        "PSPCMPROG",
-        ["OBJECTVALUE1", "OBJECTVALUE2", "OBJECTVALUE3", "OBJECTVALUE4", "OBJECTID1", "OBJECTID2", "OBJECTID3", "OBJECTID4", "PROGSEQ"],
-        required=[],
-    )
-
-    if not columns:
-        return []
-
-    predicates = []
-    params = {"recname": recname, "fieldname": fieldname}
-
-    for col in columns:
-        predicates.append(f"upper({col}) in (upper(:recname), upper(:fieldname))")
-
-    sql = f"""
-        select {", ".join(columns)}
-          from sysadm.pspcmprog
-         where {" or ".join(predicates)}
-         fetch first 100 rows only
+    Queries PSPCMPROG for:
+      - objectid1=2  (Record/Field level): OV1=RECNAME, OV2=FIELDNAME
+      - objectid1=10 (Component Record/Field level): OV3=RECNAME, OV4=FIELDNAME
+    Results normalized with peoplecode.normalize_program().
     """
+    from connectors import peoplecode as _pc, ptmetadata
 
-    return query(env_name, sql, params)
+    resolved = resolve_field_reference(env_name, field_ref)
+    if not resolved.get("resolved"):
+        return []
+
+    recname = resolved["recname"].upper()
+    fieldname = resolved["fieldname"].upper()
+
+    if not ptmetadata.has_table(env_name, "PSPCMPROG"):
+        return []
+
+    try:
+        rows = query(env_name, """
+            SELECT OBJECTID1, OBJECTID2, OBJECTID3, OBJECTID4,
+                   OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3, OBJECTVALUE4,
+                   OBJECTVALUE5, OBJECTVALUE6, OBJECTVALUE7, PROGSEQ,
+                   LASTUPDDTTM, LASTUPDOPRID
+              FROM sysadm.PSPCMPROG
+             WHERE (
+                   (OBJECTID1 = 2
+                    AND UPPER(OBJECTVALUE1) = :recname
+                    AND UPPER(OBJECTVALUE2) = :fieldname)
+                OR (OBJECTID1 = 10
+                    AND UPPER(OBJECTVALUE3) = :recname
+                    AND UPPER(OBJECTVALUE4) = :fieldname)
+             )
+             ORDER BY OBJECTID1, OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3, OBJECTVALUE5
+             FETCH FIRST 200 ROWS ONLY
+        """, {"recname": recname, "fieldname": fieldname})
+        return [_pc.normalize_program(row) for row in rows]
+    except Exception:
+        return []
 
 
 def record_indexes(env_name, recname):
@@ -920,6 +930,99 @@ def oprid_roles(oprid, env_name, columns="identity"):
     return query(env_name, sql, {"oprid": oprid})
 
 
+def _batch_in_query(env_name, sql_template, items, chunk_size=500):
+    """Execute an IN-clause query across chunks to stay under Oracle's 1000-item limit.
+
+    sql_template must contain the literal __IN_CLAUSE__ where the bind placeholders go.
+    Returns the concatenated result rows from all chunks.
+    """
+    results = []
+    for i in range(0, len(items), chunk_size):
+        chunk = items[i:i + chunk_size]
+        binds = {f"b{j}": item for j, item in enumerate(chunk)}
+        in_clause = ", ".join(f":b{j}" for j in range(len(chunk)))
+        sql = sql_template.replace("__IN_CLAUSE__", in_clause)
+        try:
+            results.extend(query(env_name, sql, binds))
+        except Exception:
+            pass
+    return results
+
+
+def batch_operator_roles(env_name, oprids):
+    """Return {oprid: [rows]} — all role memberships for a set of operators in one query."""
+    if not oprids:
+        return {}
+    rows = _batch_in_query(env_name, """
+        SELECT ROLEUSER, ROLENAME, DYNAMIC_SW
+          FROM sysadm.PSROLEUSER
+         WHERE ROLEUSER IN (__IN_CLAUSE__)
+         ORDER BY ROLEUSER, ROLENAME
+    """, [str(o).upper() for o in oprids])
+    result: dict = {}
+    for row in rows:
+        result.setdefault(str(row.get("roleuser") or "").strip().upper(), []).append(row)
+    return result
+
+
+def batch_role_permissionlists(env_name, rolenames):
+    """Return {rolename: [rows]} — all permission list assignments for a set of roles in one query."""
+    if not rolenames:
+        return {}
+    columns = select_existing_columns(
+        env_name, "PSROLECLASS", ["DYNAMIC_SW"], required=["ROLENAME", "CLASSID"]
+    )
+    rows = _batch_in_query(env_name, f"""
+        SELECT {", ".join(columns)}
+          FROM sysadm.PSROLECLASS
+         WHERE UPPER(ROLENAME) IN (__IN_CLAUSE__)
+         ORDER BY ROLENAME, CLASSID
+    """, [str(r).upper() for r in rolenames])
+    result: dict = {}
+    for row in rows:
+        result.setdefault(str(row.get("rolename") or "").strip().upper(), []).append(row)
+    return result
+
+
+def batch_permissionlist_components(env_name, classids):
+    """Return {classid: [rows]} — all component grants for a set of permission lists in one query."""
+    if not classids:
+        return {}
+    source = auth_component_source(env_name)
+    rows = _batch_in_query(env_name, f"""
+        SELECT DISTINCT ai.CLASSID, {source['expr']} AS pnlgrpname, ai.MENUNAME,
+               ai.AUTHORIZEDACTIONS, ai.DISPLAYONLY
+          FROM sysadm.PSAUTHITEM ai
+          {source["join"]}
+         WHERE ai.CLASSID IN (__IN_CLAUSE__)
+           AND {source["where"]} IS NOT NULL
+         ORDER BY ai.CLASSID, ai.MENUNAME
+    """, [str(c).upper() for c in classids])
+    result: dict = {}
+    for row in rows:
+        result.setdefault(str(row.get("classid") or "").strip().upper(), []).append(row)
+    return result
+
+
+def batch_component_pages(env_name, component_names):
+    """Return {component_name: [rows]} — all pages for a set of components in one query."""
+    if not component_names:
+        return {}
+    group_columns = select_existing_columns(
+        env_name, "PSPNLGROUP", ["MARKET", "ITEMNUM"], required=["PNLGRPNAME", "PNLNAME"]
+    )
+    rows = _batch_in_query(env_name, f"""
+        SELECT {", ".join(group_columns)}
+          FROM sysadm.PSPNLGROUP
+         WHERE PNLGRPNAME IN (__IN_CLAUSE__)
+         ORDER BY PNLGRPNAME, PNLNAME
+    """, [str(c).upper() for c in component_names])
+    result: dict = {}
+    for row in rows:
+        result.setdefault(str(row.get("pnlgrpname") or "").strip().upper(), []).append(row)
+    return result
+
+
 def roles(env_name, q="", limit=100):
     limit = max(1, min(int(limit), 500))
     columns = select_existing_columns(
@@ -1147,6 +1250,97 @@ def component_pages(env_name, component):
     """
 
     return query(env_name, sql, {"component": component})
+
+
+def component_page_hierarchy(env_name, component_name):
+    """Return pages and their structural contents (subpages/grids) for a component.
+
+    Returns a flat leveled list suitable for renderRows():
+      level 0 = page header (type chip, links to Page Explorer)
+      level 1 = structural element within that page (Subpage/Grid chip, links to Page Explorer)
+    Batch-fetches PSPNLFIELD for all pages in one query (FIELDTYPE IN (11, 18, 21)).
+    """
+    pages = component_pages(env_name, component_name)
+    if not pages:
+        return []
+
+    page_names = [str(p.get("pnlname") or "").strip().upper() for p in pages if p.get("pnlname")]
+    if not page_names:
+        return []
+
+    field_columns = select_existing_columns(
+        env_name, "PSPNLFIELD",
+        ["FIELDTYPE", "LEVELNUM", "OCCURSLEVEL", "SUBPNLNAME", "RECNAME", "LBLTEXT", "FIELDNUM"],
+        required=["PNLNAME"],
+    )
+
+    struct_by_page = {}
+    try:
+        binds = {f"p{i}": name for i, name in enumerate(page_names)}
+        in_clause = ", ".join(f":p{i}" for i in range(len(page_names)))
+        rows = query(env_name, f"""
+            SELECT {", ".join(field_columns)}
+              FROM sysadm.PSPNLFIELD
+             WHERE PNLNAME IN ({in_clause})
+               AND FIELDTYPE IN (11, 18, 21)
+             ORDER BY PNLNAME, FIELDNUM
+        """, binds)
+        for row in rows:
+            pn = str(row.get("pnlname") or "").strip().upper()
+            struct_by_page.setdefault(pn, []).append(row)
+    except Exception:
+        pass
+
+    _PNLTYPE_LABELS = {0: "Standard", 1: "Subpage", 2: "Secondary", 3: "Popup"}
+    _SUBPAGE_FT = {11, 18}
+    _GRID_FT = {21}
+
+    result = []
+    for page_row in pages:
+        pnlname = str(page_row.get("pnlname") or "").strip()
+        if not pnlname:
+            continue
+        try:
+            pnltype_int = int(page_row.get("page_pnltype") or 0)
+        except (TypeError, ValueError):
+            pnltype_int = 0
+        type_label = _PNLTYPE_LABELS.get(pnltype_int, f"type{pnltype_int}")
+        descr = str(page_row.get("page_descr") or "").strip()
+
+        result.append({
+            "level": 0,
+            "pnlname": pnlname,
+            "name": descr or pnlname,
+            "relationship": type_label,
+            "_links": {"admin": f"/admin/object/page/{pnlname}"},
+        })
+
+        for srow in struct_by_page.get(pnlname, []):
+            try:
+                ft = int(srow.get("fieldtype") or -1)
+            except (TypeError, ValueError):
+                ft = -1
+            subpnl = str(srow.get("subpnlname") or "").strip()
+            if not subpnl:
+                continue
+            if ft in _SUBPAGE_FT:
+                kind = "Subpage"
+            elif ft in _GRID_FT:
+                kind = "Grid"
+            else:
+                continue
+            lbl = str(srow.get("lbltext") or "").strip()
+            rec = str(srow.get("recname") or "").strip()
+            result.append({
+                "level": 1,
+                "pnlname": subpnl,
+                "name": lbl or subpnl,
+                "relationship": kind,
+                "recname": rec or None,
+                "_links": {"admin": f"/admin/object/page/{subpnl}"},
+            })
+
+    return result
 
 
 def components(env_name, q="", limit=100):
@@ -1380,28 +1574,46 @@ def page_records(env_name, page_name):
 
 
 def page_scroll_structure(env_name, page_name):
+    """Build a structural summary of a page's controls from PSPNLFIELD.
+
+    Returns only structural elements: Subpage inclusions, Grids, and Scroll Areas.
+    Regular field controls (edit boxes, buttons, etc.) are excluded.
+
+    PeopleTools PSPNLFIELD.FIELDTYPE numeric values (PeopleTools 8.5+):
+      11 = Subpage
+      18 = Scroll Area (subpage-like)
+      21 = Grid
+      All others = non-structural controls
+    """
     rows = page_fields(env_name, page_name)
     structure = []
 
-    for row in rows:
-        field_type = str(row.get("fieldtype") or "").upper()
-        level = row.get("levelnum") or row.get("occurslevel") or 0
-        kind = "Field"
+    _SUBPAGE_TYPES = {11, 18}
+    _GRID_TYPES = {21}
 
-        if row.get("subpnlname") or "SUB" in field_type:
+    for row in rows:
+        try:
+            ft = int(row.get("fieldtype") or -1)
+        except (TypeError, ValueError):
+            ft = -1
+
+        level = row.get("levelnum") or row.get("occurslevel") or 0
+        subpnl = str(row.get("subpnlname") or "").strip()
+
+        if ft in _SUBPAGE_TYPES and subpnl:
             kind = "Subpage"
-        elif "GRID" in field_type:
+        elif ft in _GRID_TYPES and subpnl:
             kind = "Grid"
-        elif "SCROLL" in field_type:
-            kind = "Scroll Area"
+        else:
+            continue
 
         structure.append({
             "level": level,
             "kind": kind,
-            "recname": row.get("recname"),
-            "fieldname": row.get("fieldname"),
-            "pnlname": row.get("subpnlname") or row.get("pnlfieldname"),
-            "label": row.get("lbltext"),
+            "recname": str(row.get("recname") or "").strip() or None,
+            "fieldname": str(row.get("fieldname") or "").strip() or None,
+            "pnlname": subpnl,
+            "label": str(row.get("lbltext") or "").strip() or None,
             "fieldnum": row.get("fieldnum"),
         })
 
@@ -1437,7 +1649,7 @@ def page_subpages(env_name, page_name):
             "label": row.get("label"),
         }
         for row in rows
-        if row.get("kind") == "Subpage" and row.get("pnlname")
+        if row.get("kind") == "Subpage"
     ]
 
 
@@ -1568,16 +1780,18 @@ def record_components(env_name, recname):
     columns = select_existing_columns(
         env_name,
         "PSPNLGRPDEFN",
-        ["DESCR", "MARKET"],
-        required=["PNLGRPNAME", "SEARCHRECNAME", "ADDSRCHRECNAME"],
+        ["DESCR", "MARKET", "ADDSRCHRECNAME"],
+        required=["PNLGRPNAME", "SEARCHRECNAME"],
     )
 
+    add_clause = "OR ADDSRCHRECNAME = UPPER(:recname)" if "ADDSRCHRECNAME" in columns else ""
+
     sql = f"""
-        select {", ".join(columns)}
-          from sysadm.pspnlgrpdefn
-         where searchrecname = upper(:recname)
-            or addsearchrecname = upper(:recname)
-         order by pnlgrpname
+        SELECT {", ".join(columns)}
+          FROM sysadm.PSPNLGRPDEFN
+         WHERE SEARCHRECNAME = UPPER(:recname)
+            {add_clause}
+         ORDER BY PNLGRPNAME
     """
 
     return query(env_name, sql, {"recname": recname})
@@ -2189,6 +2403,46 @@ def with_decoded_actions(rows):
     return enriched
 
 
+def permissionlist_page_grants(env_name, classid, limit=200):
+    """Return page-level grants for a permission list from PSAUTHITEM."""
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSAUTHITEM"):
+        return []
+    sql = f"""
+        SELECT MENUNAME, BARNAME, BARITEMNAME, PNLITEMNAME, DISPLAYONLY, AUTHORIZEDACTIONS
+          FROM sysadm.PSAUTHITEM
+         WHERE CLASSID = :classid
+           AND PNLITEMNAME IS NOT NULL
+           AND PNLITEMNAME != ' '
+         ORDER BY BARITEMNAME, PNLITEMNAME
+         FETCH FIRST {int(limit)} ROWS ONLY
+    """
+    try:
+        return with_decoded_actions(query(env_name, sql, {"classid": classid.upper()}))
+    except Exception:
+        return []
+
+
+def component_page_grants(env_name, component_name, limit=300):
+    """Return page-level security for a component — which permission lists grant each page."""
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSAUTHITEM"):
+        return []
+    sql = f"""
+        SELECT CLASSID, MENUNAME, BARNAME, PNLITEMNAME, DISPLAYONLY, AUTHORIZEDACTIONS
+          FROM sysadm.PSAUTHITEM
+         WHERE UPPER(BARITEMNAME) = :component
+           AND PNLITEMNAME IS NOT NULL
+           AND PNLITEMNAME != ' '
+         ORDER BY PNLITEMNAME, CLASSID
+         FETCH FIRST {int(limit)} ROWS ONLY
+    """
+    try:
+        return with_decoded_actions(query(env_name, sql, {"component": component_name.upper()}))
+    except Exception:
+        return []
+
+
 def component_menu_placements(env_name, component):
     source = auth_component_source(env_name)
     columns = select_existing_columns(
@@ -2259,55 +2513,81 @@ def component_records_used_by_pages(env_name, component):
 
 
 def component_portal_refs(env_name, component):
-    columns = table_columns(env_name, "PSPRSMDEFN")
+    """Return portal registry entries that reference this component.
 
+    Searches PSPRSMDEFN by PORTAL_URI_SEG2 = component (type C refs) plus
+    a LIKE fallback for URL-type refs. Joins parent and grandparent folder
+    labels to reconstruct the navigation path (portal > grandparent > parent > label).
+    """
+    columns = table_columns(env_name, "PSPRSMDEFN")
     if not columns:
         return []
 
+    has_seg2 = "portal_uri_seg2" in columns
+    has_label = "portal_label" in columns
+    has_prnt = "portal_prntobjname" in columns
+
     candidates = [
-        "PORTAL_NAME",
-        "PORTAL_OBJNAME",
-        "PORTAL_LABEL",
-        "PORTAL_PRNTOBJNAME",
-        "PORTAL_URI_SEG1",
-        "PORTAL_URI_SEG2",
-        "PORTAL_URI_SEG3",
-        "PORTAL_REFTYPE",
-        "PORTAL_URLTEXT",
-        "URL",
+        "PORTAL_NAME", "PORTAL_OBJNAME", "PORTAL_LABEL", "PORTAL_PRNTOBJNAME",
+        "PORTAL_URI_SEG1", "PORTAL_URI_SEG2", "PORTAL_URI_SEG3",
+        "PORTAL_REFTYPE", "PORTAL_URLTEXT",
     ]
-    selected = [col for col in candidates if col.lower() in columns]
-
-    if not selected:
+    base_cols = [col for col in candidates if col.lower() in columns]
+    if not base_cols:
         return []
 
-    search_columns = [
-        col for col in selected
-        if col.lower() in {
-            "portal_objname",
-            "portal_label",
-            "portal_uri_seg1",
-            "portal_uri_seg2",
-            "portal_uri_seg3",
-            "portal_urltext",
-            "url",
-        }
-    ]
+    select_parts = [f"p.{col}" for col in base_cols]
 
-    if not search_columns:
+    # Parent/grandparent label joins for navigation path reconstruction
+    join_clause = ""
+    if has_prnt and has_label:
+        select_parts.append("par.PORTAL_LABEL AS nav_parent_label")
+        select_parts.append("par.PORTAL_PRNTOBJNAME AS nav_gpar_objname" if "portal_prntobjname" in columns else "NULL AS nav_gpar_objname")
+        select_parts.append("gpar.PORTAL_LABEL AS nav_grandparent_label")
+        join_clause = """
+          LEFT JOIN sysadm.PSPRSMDEFN par
+            ON par.PORTAL_OBJNAME = p.PORTAL_PRNTOBJNAME
+           AND par.PORTAL_NAME = p.PORTAL_NAME
+          LEFT JOIN sysadm.PSPRSMDEFN gpar
+            ON gpar.PORTAL_OBJNAME = par.PORTAL_PRNTOBJNAME
+           AND gpar.PORTAL_NAME = p.PORTAL_NAME"""
+
+    # Primary: exact match on PORTAL_URI_SEG2 for content refs
+    where_parts = []
+    if has_seg2:
+        where_parts.append("(UPPER(p.PORTAL_URI_SEG2) = :component AND p.PORTAL_REFTYPE = 'C')")
+    # Fallback: LIKE on urltext for URL-type refs
+    if "portal_urltext" in columns:
+        where_parts.append("(UPPER(p.PORTAL_URLTEXT) LIKE :component_like AND p.PORTAL_REFTYPE != 'C')")
+
+    if not where_parts:
         return []
-
-    predicates = [f"upper({col}) like :component" for col in search_columns]
 
     sql = f"""
-        select {", ".join(selected)}
-          from sysadm.psprsmdefn
-         where {" or ".join(predicates)}
-         order by {selected[0]}
-         fetch first 100 rows only
+        SELECT {", ".join(select_parts)}
+          FROM sysadm.PSPRSMDEFN p{join_clause}
+         WHERE {" OR ".join(where_parts)}
+         ORDER BY p.PORTAL_NAME, p.PORTAL_PRNTOBJNAME, p.PORTAL_LABEL
+         FETCH FIRST 200 ROWS ONLY
     """
 
-    return query(env_name, sql, {"component": f"%{component.upper()}%"})
+    rows = query(env_name, sql, {
+        "component": component.upper(),
+        "component_like": f"%{component.upper()}%",
+    })
+
+    # Build nav_path string: grandparent > parent > label
+    result = []
+    for row in rows:
+        gpar = str(row.get("nav_grandparent_label") or "").strip()
+        par = str(row.get("nav_parent_label") or "").strip()
+        lbl = str(row.get("portal_label") or "").strip()
+        path_parts = [p for p in (gpar, par, lbl) if p]
+        row = dict(row)
+        if len(path_parts) > 1:
+            row["nav_path"] = " › ".join(path_parts)
+        result.append(row)
+    return result
 
 
 def _portal_registry_select_columns(env_name):

@@ -67,6 +67,7 @@ def attach_object_links(row, env):
     rolename = str(linked.get("rolename") or "").strip()
     oprid = str(linked.get("roleuser") or linked.get("oprid") or "").strip()
     portal_objname = str(linked.get("portal_objname") or "").strip()
+    encoded_ref = str(linked.get("encoded_reference") or "").strip()
 
     if recname and fieldname:
         field = f"{recname}.{fieldname}"
@@ -85,6 +86,8 @@ def attach_object_links(row, env):
         linked.setdefault("_links", {})["admin"] = object_url("operator", oprid)
     elif portal_objname:
         linked.setdefault("_links", {})["admin"] = object_url("portal_registry", portal_objname)
+    elif encoded_ref:
+        linked.setdefault("_links", {})["admin"] = f"/admin/object/peoplecode/{encoded_ref}"
 
     return linked
 
@@ -1240,14 +1243,17 @@ def permissionlist_object(env, classid):
     roles, r_warn = safe_relationship("permissionlist_roles", lambda: psdb.permissionlist_roles(env, classid))
     menus, m_warn = safe_relationship("permissionlist_menus", lambda: psdb.permissionlist_menus(env, classid))
     components, c_warn = safe_relationship("permissionlist_components", lambda: psdb.permissionlist_components(env, classid))
+    page_grants, pg_warn = safe_relationship("permissionlist_page_grants", lambda: psdb.permissionlist_page_grants(env, classid, limit=2000))
     warnings.extend(r_warn)
     warnings.extend(m_warn)
     warnings.extend(c_warn)
+    warnings.extend(pg_warn)
 
     relationships = {
         "roles": [attach_object_links(r, env) for r in (roles or [])],
         "menus": [attach_object_links(m, env) for m in (menus or [])],
         "components": [attach_object_links(c, env) for c in (components or [])],
+        "page_grants": page_grants or [],
     }
 
     nodes = {}
@@ -1286,6 +1292,41 @@ def permissionlist_object(env, classid):
     )
 
 
+def _group_page_grants(page_grants):
+    """Flatten PSAUTHITEM page-grant rows into a leveled list for Object Explorer rendering.
+
+    Returns component header rows (level=0) interleaved with page rows (level=1).
+    Uses `relationship` field for action chips and counts.
+    """
+    groups = {}
+    order = []
+    for row in page_grants:
+        comp = row.get("baritemname") or ""
+        if comp not in groups:
+            groups[comp] = []
+            order.append(comp)
+        groups[comp].append(row)
+
+    result = []
+    for comp in order:
+        rows = groups[comp]
+        result.append({
+            "name": comp,
+            "pnlgrpname": comp,
+            "relationship": f"{len(rows)} pages",
+            "level": 0,
+        })
+        for r in rows:
+            actions = ", ".join(r.get("decoded_actions") or [])
+            result.append({
+                "name": r.get("pnlitemname") or "",
+                "pnlname": r.get("pnlitemname") or "",
+                "relationship": actions if actions else ("Display Only" if r.get("displayonly") else ""),
+                "level": 1,
+            })
+    return result
+
+
 def sections_for_permissionlist(pl):
     rels = pl.get("_relationships", {})
     meta = pl.get("_metadata", {})
@@ -1293,6 +1334,7 @@ def sections_for_permissionlist(pl):
     roles = rels.get("roles", [])
     menus = rels.get("menus", [])
     components = rels.get("components", [])
+    page_grants = rels.get("page_grants", [])
     graph_nodes = pl.get("_graph", {}).get("nodes", [])
     graph_edges = pl.get("_graph", {}).get("edges", [])
     sections = [
@@ -1330,6 +1372,12 @@ def sections_for_permissionlist(pl):
             {**c, "relationship": ", ".join(c.get("decoded_actions") or [])}
             for c in components
         ], "data": {"count": len(components), "note": "" if components else "PSAUTHITEM/PSPNLGRPDEFN not accessible or no components granted"}},
+        {"name": "Page Grants", "items": _group_page_grants(page_grants),
+         "data": {
+             "count": len(page_grants),
+             "component_count": len({r.get("baritemname") for r in page_grants if r.get("baritemname")}),
+             "note": "" if page_grants else "PSAUTHITEM not accessible or no page-level grants found",
+         }},
         {"name": "Graph Preview", "items": graph_nodes,
          "data": {"node_count": len(graph_nodes), "edge_count": len(graph_edges)}},
         {"name": "Warnings", "items": pl.get("warnings", []),
@@ -1384,10 +1432,11 @@ def component_object(env, component_name):
     event_mapping, event_warn = safe_relationship("component_event_mapping", lambda: psdb.component_event_mapping(env, component_name))
     drop_zones, dz_warn = safe_relationship("component_drop_zones", lambda: psdb.component_drop_zones(env, component_name))
     access_result, access_warn = safe_relationship("component_access", lambda: psdb.component_access(env, component_name))
-    warnings.extend(page_warn + pl_warn + menu_warn + record_warn + portal_warn + rc_warn + event_warn + dz_warn + access_warn)
+    page_hierarchy, hier_warn = safe_relationship("component_page_hierarchy", lambda: psdb.component_page_hierarchy(env, component_name))
+    warnings.extend(page_warn + pl_warn + menu_warn + record_warn + portal_warn + rc_warn + event_warn + dz_warn + access_warn + hier_warn)
 
     search_records = []
-    for key in ("searchrecname", "addsearchrecname"):
+    for key in ("searchrecname", "addsrchrecname"):
         recname = raw.get(key)
         if recname:
             search_records.append({"recname": recname, "usage": key})
@@ -1423,6 +1472,7 @@ def component_object(env, component_name):
 
     relationships = {
         "pages": [attach_object_links(row, env) for row in (pages or [])],
+        "page_hierarchy": page_hierarchy or [],
         "search_records": [attach_object_links(row, env) for row in search_records],
         "page_records": [attach_object_links(row, env) for row in (page_records or [])],
         "menu_placements": [attach_object_links(row, env) for row in (menu_placements or [])],
@@ -1519,17 +1569,23 @@ def sections_for_component(component):
             "description": component.get("description") or "",
             "market": raw.get("market") or "",
             "searchrecname": raw.get("searchrecname") or "",
-            "addsearchrecname": raw.get("addsearchrecname") or "",
+            "addsrchrecname": raw.get("addsrchrecname") or "",
             "version": raw.get("version"),
             "lastupddttm": raw.get("lastupddttm") or "",
             "lastupdoprid": raw.get("lastupdoprid") or "",
             **counts,
         }},
-        {"name": "Pages", "items": rels.get("pages", []), "data": {"count": len(rels.get("pages", []))}},
+        {"name": "Pages", "items": rels.get("page_hierarchy") or rels.get("pages", []), "data": {
+            "count": len(rels.get("pages", [])),
+            "note": "Indented items show subpages and grids within each page" if rels.get("page_hierarchy") else "",
+        }},
         {"name": "Search Records", "items": rels.get("search_records", []), "data": {"count": len(rels.get("search_records", []))}},
         {"name": "Records Used By Pages", "items": rels.get("page_records", []), "data": {"count": len(rels.get("page_records", []))}},
         {"name": "Menu Placement", "items": rels.get("menu_placements", []), "data": {"count": len(rels.get("menu_placements", []))}},
-        {"name": "Portal Registry", "items": rels.get("portal_refs", []), "data": {"count": len(rels.get("portal_refs", []))}},
+        {"name": "Portal Registry", "items": [
+            {**r, "relationship": r.get("nav_path") or r.get("portal_name") or ""}
+            for r in rels.get("portal_refs", [])
+        ], "data": {"count": len(rels.get("portal_refs", []))}},
         {"name": "Permission Lists", "items": [
             {**r, "relationship": ", ".join(psdb.decode_authorized_actions(
                 r.get("authorizedactions"), r.get("displayonly")

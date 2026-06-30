@@ -66,7 +66,7 @@ def attach_links(row, env: str):
     page = linked.get("pnlname")
     record = linked.get("recname")
     if not record and not component:
-        record = linked.get("searchrecname") or linked.get("addsearchrecname")
+        record = linked.get("searchrecname") or linked.get("addsrchrecname")
     field = f"{record}.{linked.get('fieldname')}" if record and linked.get("fieldname") else None
 
     links = explorer_links(
@@ -483,8 +483,8 @@ def peoplesoft_peoplecode_search(q: str = "", env: str = "HCM", limit: int = 100
 
 
 @router.get("/api/peoplesoft/peoplecode")
-def peoplesoft_peoplecode(env: str = "HCM", q: str = "", limit: int = 100):
-    return peoplecode.programs(env, q, limit)
+def peoplesoft_peoplecode(env: str = "HCM", q: str = "", limit: int = 100, offset: int = 0):
+    return peoplecode.programs(env, q, limit=limit, offset=offset)
 
 
 @router.get("/api/peoplesoft/peoplecode/{reference:path}/references")
@@ -988,6 +988,11 @@ def peoplesoft_permissionlist_components(classid: str, env: str = "HCM"):
     ]
 
 
+@router.get("/api/peoplesoft/permissionlists/{classid}/page-grants")
+def peoplesoft_permissionlist_page_grants(classid: str, env: str = "HCM", limit: int = 200):
+    return psdb.permissionlist_page_grants(env, classid, limit=limit)
+
+
 @router.get("/api/peoplesoft/components")
 def peoplesoft_components(env: str = "HCM", q: str = "", limit: int = 100):
     return [
@@ -1025,6 +1030,18 @@ def peoplesoft_component_permissionlists(component: str, env: str = "HCM"):
     ]
 
 
+@router.get("/api/peoplesoft/components/{component}/page-grants")
+def peoplesoft_component_page_grants(component: str, env: str = "HCM", limit: int = 300):
+    """Return page-level security for a component — which permission lists grant each page."""
+    return psdb.component_page_grants(env, component, limit=limit)
+
+
+@router.get("/api/peoplesoft/components/{component}/hierarchy")
+def peoplesoft_component_hierarchy(component: str, env: str = "HCM"):
+    """Return page hierarchy with structural contents (subpages/grids) for a component."""
+    return psdb.component_page_hierarchy(env, component)
+
+
 @router.get("/api/peoplesoft/components/{component}/menu-placements")
 def peoplesoft_component_menu_placements(component: str, env: str = "HCM"):
     return [
@@ -1040,7 +1057,7 @@ def peoplesoft_component_records(component: str, env: str = "HCM"):
 
     records = []
     if component_row:
-        for key in ("searchrecname", "addsearchrecname"):
+        for key in ("searchrecname", "addsrchrecname"):
             record = component_row.get(key)
             if record:
                 records.append(attach_links({"recname": record, "usage": key}, env))
@@ -1285,7 +1302,7 @@ def peoplesoft_graph(object_type: str, object_name: str, env: str = "HCM"):
         component = psdb.component(env, object_name) or {}
         for key, relationship in (
             ("searchrecname", "uses_search_record"),
-            ("addsearchrecname", "uses_add_search_record"),
+            ("addsrchrecname", "uses_add_search_record"),
         ):
             record = component.get(key)
             if record:

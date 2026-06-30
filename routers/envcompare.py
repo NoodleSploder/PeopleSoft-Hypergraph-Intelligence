@@ -134,6 +134,16 @@ def compare_portal_object(
     return envcompare.compare_portal_object(env1, env2, name)
 
 
+@router.get("/peoplecode-source")
+def compare_peoplecode_source(
+    env1: str = Query("HCM"),
+    env2: str = Query("FSCM"),
+    ref:  str = Query(..., description="Encoded PeopleCode reference (e.g. JOB.EMPLID.FieldEdit.0)"),
+):
+    """Unified diff of PeopleCode source for a specific program across two environments."""
+    return envcompare.compare_peoplecode_source(env1, env2, ref)
+
+
 @router.get("/queries")
 def compare_queries(
     env1:  str = Query("HCM"),

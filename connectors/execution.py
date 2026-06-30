@@ -728,6 +728,152 @@ def oracle_ash_top_sql(db_name, minutes=30, limit=10):
         }
 
 
+# ── ASH correlation: PeopleSoft process → Oracle activity ───────────────────
+
+_PS_PROCESS_MODULE_MAP = {
+    # prcstype (lower) → ASH module value
+    "application engine": "PSAE",
+    # Others run under PSPRCSRV but aren't individually distinguishable by name
+}
+
+
+def _ash_module_filter(prcstype, prcsname):
+    """Return (module_filter, action_filter) SQL fragments for a process type.
+    Column refs are qualified with alias 'a' for use in joins with V$SQL.
+    """
+    pt = (prcstype or "").strip().lower()
+    if pt == "application engine":
+        return ("a.module = 'PSAE'", f"AND a.action = '{prcsname}'")
+    # Generic: PSPRCSRV handles all other types; no action filter
+    return ("a.module LIKE 'PSPRCSRV%'", "")
+
+
+def oracle_ash_for_process(db_name, env, instance_id):
+    """Return Oracle ASH activity for a specific PeopleSoft process instance.
+
+    Looks up PSPRCSRQST for time window and process type, then queries
+    V$ACTIVE_SESSION_HISTORY (or DBA_HIST fallback) filtered to that
+    process's Oracle activity signature.
+    """
+    warnings = []
+    try:
+        db = _db_by_name(db_name)
+    except ValueError as exc:
+        return {"events": [], "top_sql": [], "total_samples": 0, "source": None,
+                "db": db_name, "warnings": [ptmetadata.warning("DB_NOT_FOUND", str(exc))]}
+
+    # Fetch process row from PeopleSoft
+    prcs = process_instance(env, instance_id)
+    item = prcs.get("item")
+    if not item:
+        return {"events": [], "top_sql": [], "total_samples": 0, "source": None,
+                "db": db_name, "warnings": prcs.get("warnings", []) +
+                [ptmetadata.warning("PROCESS_NOT_FOUND", f"Instance {instance_id} not found in {env}")]}
+
+    prcstype = str(item.get("prcstype") or "")
+    prcsname = str(item.get("prcsname") or "")
+    begin_dt = item.get("begindttm")
+    end_dt   = item.get("enddttm")
+
+    if not begin_dt:
+        return {"events": [], "top_sql": [], "total_samples": 0, "source": None,
+                "db": db_name, "prcstype": prcstype, "prcsname": prcsname,
+                "warnings": [ptmetadata.warning("NO_BEGINDTTM", "Process has not started yet")]}
+
+    # Format timestamps for Oracle (isoformat from _clean gives YYYY-MM-DDTHH:MM:SS.ffffff)
+    def _ts(s):
+        if not s:
+            return None
+        clean = str(s).replace("T", " ")[:19]
+        return f"TIMESTAMP '{clean}'"
+
+    begin_ts = _ts(begin_dt)
+    end_ts   = _ts(end_dt) if end_dt else "SYSDATE"
+
+    mod_filter, action_filter = _ash_module_filter(prcstype, prcsname)
+    time_filter = f"a.SAMPLE_TIME >= {begin_ts} AND a.SAMPLE_TIME <= {end_ts}"
+
+    def _run_ash(table):
+        ev_sql = f"""
+            SELECT NVL(a.event, 'On CPU') as event,
+                   NVL(a.wait_class, 'CPU') as wait_class,
+                   COUNT(*) as samples
+              FROM {table} a
+             WHERE {mod_filter}
+               {action_filter}
+               AND {time_filter}
+             GROUP BY a.event, a.wait_class
+             ORDER BY samples DESC
+             FETCH FIRST 10 ROWS ONLY
+        """
+        sql_sql = f"""
+            SELECT a.sql_id, COUNT(*) as samples,
+                   MAX(a.sql_opname) as sql_opname,
+                   SUBSTR(MAX(s.sql_text), 1, 200) as sql_text
+              FROM {table} a
+              LEFT JOIN V$SQL s ON a.sql_id = s.sql_id AND s.child_number = 0
+             WHERE {mod_filter}
+               {action_filter}
+               AND {time_filter}
+               AND a.sql_id IS NOT NULL
+             GROUP BY a.sql_id
+             ORDER BY samples DESC
+             FETCH FIRST 10 ROWS ONLY
+        """
+        ev_rows  = oracle_connector.query_db(db, ev_sql)
+        sql_rows = oracle_connector.query_db(db, sql_sql)
+        total    = sum(r["samples"] for r in ev_rows)
+        events   = [
+            {**r, "pct": round(r["samples"] * 100.0 / total, 1) if total else 0}
+            for r in ev_rows
+        ]
+        top_sql  = [
+            {
+                "sql_id":    r["sql_id"],
+                "samples":   r["samples"],
+                "pct":       round(r["samples"] * 100.0 / total, 1) if total else 0,
+                "sql_opname": r.get("sql_opname") or "",
+                "sql_text":  (r.get("sql_text") or "")[:200],
+            }
+            for r in sql_rows
+        ]
+        return total, events, top_sql
+
+    # Try V$ASH first, fall back to DBA_HIST
+    source = None
+    total = 0
+    events = []
+    top_sql = []
+
+    try:
+        total, events, top_sql = _run_ash("V$ACTIVE_SESSION_HISTORY")
+        source = "V$ACTIVE_SESSION_HISTORY"
+    except Exception as exc:
+        warnings.append(ptmetadata.warning("ASH_VASH_ERR", str(exc), severity="warn"))
+
+    if not total:
+        try:
+            total, events, top_sql = _run_ash("DBA_HIST_ACTIVE_SESS_HISTORY")
+            source = "DBA_HIST_ACTIVE_SESS_HISTORY"
+        except Exception as exc:
+            warnings.append(ptmetadata.warning("ASH_HIST_ERR", str(exc), severity="warn"))
+
+    return {
+        "db": db_name,
+        "env": env,
+        "instance": instance_id,
+        "prcstype": prcstype,
+        "prcsname": prcsname,
+        "begin_dt": begin_dt,
+        "end_dt": end_dt,
+        "total_samples": total,
+        "events": events,
+        "top_sql": top_sql,
+        "source": source,
+        "warnings": warnings,
+    }
+
+
 def _runtime_node(node_type, name, label=None, data=None, links=None):
     name = str(name or "").strip()
     return {

@@ -58,6 +58,12 @@ def graph_clear(env: str = "HCM"):
     return graphdb.clear(env)
 
 
+@router.post("/compact")
+def graph_compact(env: str = "HCM"):
+    """Deduplicate edges and rebuild the O(1) edge index. Persists the result."""
+    return graphdb.compact(env)
+
+
 @router.get("/node/{node_id}")
 def graph_node(node_id: str, env: str = "HCM"):
     node = graphdb.get_node(env, node_id)

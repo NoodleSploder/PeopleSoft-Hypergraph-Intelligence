@@ -371,69 +371,84 @@ def normalize_program(row, source=None):
     }
 
 
-def programs(env, q="", limit=100):
-    limit = max(1, min(int(limit), 500))
+def programs(env, q="", limit=100, offset=0):
+    """Return PeopleCode program metadata from PSPCMPROG with optional search and pagination.
+
+    Supports:
+      - q: filter by object name (OBJECTVALUE columns) or source text (PSPCMTXT)
+      - limit: max 2000 rows per page
+      - offset: ROWS ONLY pagination for large result sets
+    Returns: {items, total_hint, offset, limit, has_more, warnings}
+    """
+    limit = max(1, min(int(limit), 2000))
+    offset = max(0, int(offset))
     caps = capabilities(env)
     if not caps["tables"]["pspcmprog"]:
         return {
-            "items": [],
-            "warnings": caps["warnings"],
+            "items": [], "total_hint": 0, "offset": offset, "limit": limit,
+            "has_more": False, "warnings": caps["warnings"],
         }
 
     candidates = [
-        "OBJECTID1",
-        "OBJECTID2",
-        "OBJECTID3",
-        "OBJECTID4",
-        "OBJECTVALUE1",
-        "OBJECTVALUE2",
-        "OBJECTVALUE3",
-        "OBJECTVALUE4",
-        "OBJECTVALUE5",
-        "OBJECTVALUE6",
-        "OBJECTVALUE7",
-        "PROGSEQ",
-        "LASTUPDDTTM",
-        "LASTUPDOPRID",
+        "OBJECTID1", "OBJECTID2", "OBJECTID3", "OBJECTID4",
+        "OBJECTVALUE1", "OBJECTVALUE2", "OBJECTVALUE3", "OBJECTVALUE4",
+        "OBJECTVALUE5", "OBJECTVALUE6", "OBJECTVALUE7",
+        "PROGSEQ", "LASTUPDDTTM", "LASTUPDOPRID",
     ]
     columns = safe_columns(env, "PSPCMPROG", candidates)
     if not columns:
         return {
-            "items": [],
+            "items": [], "total_hint": 0, "offset": offset, "limit": limit,
+            "has_more": False,
             "warnings": [warning("peoplecode_columns_unavailable", "No readable PSPCMPROG columns were detected.")],
         }
+
+    # Only search text (OBJECTVALUE) columns — not numeric ID or sequence columns
+    text_cols = [c for c in columns if c.startswith("OBJECTVALUE")]
 
     predicates = []
     params = {}
     if q:
         params["q"] = f"%{q.upper()}%"
-        for col in columns:
-            predicates.append(f"upper(to_char({col})) like :q")
-    where_clause = f"where {' or '.join(predicates)}" if predicates else ""
+        if text_cols:
+            predicates.append("(" + " OR ".join(f"UPPER({c}) LIKE :q" for c in text_cols) + ")")
+    where_clause = f"WHERE {' AND '.join(predicates)}" if predicates else ""
 
     try:
         rows = psdb.query(env, f"""
-            select {", ".join(columns)}
-              from sysadm.pspcmprog
+            SELECT {", ".join(columns)}
+              FROM sysadm.PSPCMPROG
               {where_clause}
-             fetch first {limit} rows only
+             ORDER BY OBJECTID1, OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3, OBJECTVALUE5
+             OFFSET {offset} ROWS FETCH NEXT {limit + 1} ROWS ONLY
         """, params)
     except Exception as exc:
         return {
-            "items": [],
+            "items": [], "total_hint": 0, "offset": offset, "limit": limit,
+            "has_more": False,
             "warnings": [warning("peoplecode_metadata_unavailable", str(exc))],
         }
 
-    items = [normalize_program(row) for row in rows]
-    if q and caps["tables"]["pspcmtxt"]:
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+    items = [normalize_program(row) for row in page_rows]
+
+    # Merge source-text search results only on the first page (offset=0) with no q or with q
+    if q and caps["tables"]["pspcmtxt"] and offset == 0:
         text_rows = source_search(env, q, limit)
         seen = {item["reference"] for item in items}
         for item in text_rows["items"]:
             if item["reference"] not in seen:
                 items.append(item)
                 seen.add(item["reference"])
+        items = items[:limit]
+
     return {
-        "items": items[:limit],
+        "items": items,
+        "total_hint": None,
+        "offset": offset,
+        "limit": limit,
+        "has_more": has_more,
         "warnings": caps["warnings"],
     }
 
@@ -442,18 +457,21 @@ def source_search(env, q, limit=100):
     columns = safe_columns(
         env,
         "PSPCMTXT",
-        ["OBJECTVALUE1", "OBJECTVALUE2", "OBJECTVALUE3", "OBJECTVALUE4", "PROGSEQ", "PROGTXT", "TXT", "TEXT", "LINE_NBR"],
+        ["OBJECTVALUE1", "OBJECTVALUE2", "OBJECTVALUE3", "OBJECTVALUE4",
+         "OBJECTVALUE5", "OBJECTVALUE6", "OBJECTVALUE7", "PROGSEQ",
+         "PCTEXT", "PROGTXT", "TXT", "TEXT", "LINE_NBR"],
     )
-    text_col = next((col for col in ("PROGTXT", "TXT", "TEXT") if col in columns), None)
+    # PCTEXT is canonical in PeopleTools 8.5+; older releases used PROGTXT/TXT/TEXT
+    text_col = next((col for col in ("PCTEXT", "PROGTXT", "TXT", "TEXT") if col in columns), None)
     if not text_col:
         return {"items": [], "warnings": [warning("peoplecode_source_unavailable", "No source text column found in PSPCMTXT.")]}
 
     try:
         rows = psdb.query(env, f"""
-            select {", ".join(columns)}
-              from sysadm.pspcmtxt
-             where upper({text_col}) like :q
-             fetch first {max(1, min(int(limit), 500))} rows only
+            SELECT {", ".join(c for c in columns if c != text_col)}, {text_col}
+              FROM sysadm.PSPCMTXT
+             WHERE UPPER({text_col}) LIKE :q
+             FETCH FIRST {max(1, min(int(limit), 500))} ROWS ONLY
         """, {"q": f"%{q.upper()}%"})
     except Exception as exc:
         return {"items": [], "warnings": [warning("peoplecode_source_unavailable", str(exc))]}
@@ -502,21 +520,26 @@ def source_for_reference(env, program_row):
     columns = safe_columns(
         env,
         "PSPCMTXT",
-        ["OBJECTVALUE1", "OBJECTVALUE2", "OBJECTVALUE3", "OBJECTVALUE4", "PROGSEQ", "PROGTXT", "TXT", "TEXT", "LINE_NBR"],
+        ["OBJECTVALUE1", "OBJECTVALUE2", "OBJECTVALUE3", "OBJECTVALUE4", "OBJECTVALUE5",
+         "OBJECTVALUE6", "OBJECTVALUE7", "PROGSEQ", "PCTEXT", "PROGTXT", "TXT", "TEXT", "LINE_NBR"],
     )
-    text_col = next((col for col in ("PROGTXT", "TXT", "TEXT") if col in columns), None)
+    # PCTEXT is the canonical column name in PeopleTools 8.5+; older releases used PROGTXT/TXT/TEXT
+    text_col = next((col for col in ("PCTEXT", "PROGTXT", "TXT", "TEXT") if col in columns), None)
     if not text_col:
         return {
             "source": None,
             "warnings": [warning("peoplecode_source_unavailable", "No source text column found in PSPCMTXT.")],
         }
 
+    # Match on OBJECTVALUEn columns that have data (skip blanks/spaces)
+    # PSPCMPROG has objectvalue1..7; PSPCMTXT has the same key columns
     predicates = []
     params = {}
-    for key in ("objectvalue1", "objectvalue2", "objectvalue3", "objectvalue4", "progseq"):
+    for key in ("objectvalue1", "objectvalue2", "objectvalue3", "objectvalue4",
+                "objectvalue5", "objectvalue6", "objectvalue7"):
         col = key.upper()
         if col in columns and program_row.get(key) not in (None, "", " "):
-            predicates.append(f"{col} = :{key}")
+            predicates.append(f"UPPER({col}) = UPPER(:{key})")
             params[key] = program_row.get(key)
 
     if not predicates:
@@ -525,14 +548,12 @@ def source_for_reference(env, program_row):
             "warnings": [warning("peoplecode_source_unavailable", "Insufficient metadata to reconstruct source text.")],
         }
 
-    order_col = "LINE_NBR" if "LINE_NBR" in columns else "PROGSEQ" if "PROGSEQ" in columns else text_col
-
     try:
         rows = psdb.query(env, f"""
-            select {text_col} as source_line
-              from sysadm.pspcmtxt
-             where {" and ".join(predicates)}
-             order by {order_col}
+            SELECT {text_col} AS source_chunk
+              FROM sysadm.PSPCMTXT
+             WHERE {" AND ".join(predicates)}
+             ORDER BY PROGSEQ
         """, params)
     except Exception as exc:
         return {
@@ -541,7 +562,7 @@ def source_for_reference(env, program_row):
         }
 
     return {
-        "source": "\n".join(str(row.get("source_line") or "") for row in rows),
+        "source": "".join(str(row.get("source_chunk") or "") for row in rows).rstrip(),
         "warnings": [],
     }
 
