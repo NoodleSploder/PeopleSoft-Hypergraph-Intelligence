@@ -1970,7 +1970,8 @@ function inferObject(row) {
 }
 
 function labelFor(row) {
-    return row.name || row.oprid || row.roleuser || row.rolename || row.classid ||
+    return row.title || row.label ||
+        row.name || row.oprid || row.roleuser || row.rolename || row.classid ||
         row.pnlgrpname || row.pnlname || row.recname || row.fieldname || row.portal_objname || row.menuname ||
         row.reference || row.ae_step || row.ae_section || row.ae_applid ||
         row.routingdefnname || row.msgnodename || row.queuename || row.ptibapplname ||
@@ -1980,11 +1981,12 @@ function labelFor(row) {
 }
 
 const _DETAIL_SKIP = new Set([
-    '_links','name','reference','oprid','roleuser','rolename','classid','pnlgrpname','pnlname',
+    '_links','title','label','name','reference','oprid','roleuser','rolename','classid','pnlgrpname','pnlname',
     'recname','fieldname','portal_objname','menuname','routingdefnname','msgnodename','queuename','ptibapplname',
     'ib_operationname','ae_step','ae_section','ae_applid','tree_name','tree_node','tree_branch','range_from',
     'bcname','bcitemname','objectvalue1',
     'has_peoplecode','encoded_reference','source','progseq','objectid1',
+    'portal_permtype_label','portal_reftype_label','portal_reftype','portal_permtype',
 ]);
 
 function detailFor(row) {

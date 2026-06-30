@@ -1929,6 +1929,61 @@ def portal_registry_object(env, portal_objname):
     )
 
 
+def _portal_label_items(items, use_reftype_chip=False):
+    """Add title and optional relationship chip to portal registry rows for the generic renderer."""
+    out = []
+    for row in (items or []):
+        r = dict(row)
+        if not r.get("title") and not r.get("label"):
+            r["title"] = (r.get("portal_label") or r.get("classid") or
+                          r.get("pnlgrpname") or r.get("portal_permname") or
+                          r.get("rolename") or r.get("roleuser") or
+                          r.get("portal_objname") or "")
+        if use_reftype_chip and not r.get("relationship") and r.get("portal_reftype"):
+            r["relationship"] = psdb.PORTAL_REFTYPE_LABELS.get(
+                str(r["portal_reftype"]).strip().upper(), r["portal_reftype"])
+        out.append(r)
+    return out
+
+
+def _portal_access_summary(access_paths):
+    """
+    Group flat access_paths rows (permlist→role→operator) into one row per
+    permission list, with role names and operator count as detail.
+    """
+    groups = {}
+    for row in (access_paths or []):
+        classid = str(row.get("classid") or row.get("portal_permname") or "").strip()
+        rolename = str(row.get("rolename") or "").strip()
+        roleuser = str(row.get("roleuser") or "").strip()
+        if not classid:
+            continue
+        if classid not in groups:
+            groups[classid] = {"roles": {}, "_links": row.get("_links", {})}
+        if rolename:
+            groups[classid]["roles"].setdefault(rolename, set())
+            if roleuser:
+                groups[classid]["roles"][rolename].add(roleuser)
+
+    summary = []
+    for classid, info in sorted(groups.items()):
+        roles = info["roles"]
+        op_count = sum(len(ops) for ops in roles.values())
+        role_list = sorted(roles.keys())
+        role_sample = ", ".join(role_list[:3])
+        if len(role_list) > 3:
+            role_sample += f" +{len(role_list) - 3} more"
+        summary.append({
+            "classid": classid,
+            "title": classid,
+            "roles": len(roles),
+            "operators": op_count,
+            "via_roles": role_sample,
+            "_links": {"admin": f"/admin/object/permissionlist/{classid}"},
+        })
+    return summary
+
+
 def sections_for_portal_registry(portal_obj):
     rels = portal_obj.get("_relationships", {})
     meta = portal_obj.get("_metadata", {})
@@ -1936,12 +1991,29 @@ def sections_for_portal_registry(portal_obj):
     counts = meta.get("counts", {})
     graph_nodes = portal_obj.get("_graph", {}).get("nodes", [])
     graph_edges = portal_obj.get("_graph", {}).get("edges", [])
-    return [
+
+    breadcrumbs = _portal_label_items(rels.get("breadcrumbs", []), use_reftype_chip=True)
+    children = _portal_label_items(rels.get("children", []), use_reftype_chip=True)
+    component_targets = _portal_label_items(rels.get("component_targets", []))
+    permissions = [
+        {**r, "relationship": r.get("portal_permtype_label") or ""}
+        for r in _portal_label_items(rels.get("permissions", []))
+    ]
+    access_paths = rels.get("access_paths", [])
+    access_summary = _portal_access_summary(access_paths)
+
+    nav_path = " → ".join(
+        r.get("portal_label") or r.get("portal_objname") or ""
+        for r in breadcrumbs if (r.get("portal_label") or r.get("portal_objname"))
+    )
+
+    sections = [
         {"name": "Definition", "items": [], "data": {
             "portal_name": raw.get("portal_name") or "",
             "portal_objname": portal_obj["name"],
             "portal_label": raw.get("portal_label") or "",
             "description": raw.get("descr254") or portal_obj.get("description") or "",
+            "navigation_path": nav_path,
             "parent": raw.get("portal_prntobjname") or "",
             "reference_type": raw.get("portal_reftype") or "",
             "reference_type_label": psdb.PORTAL_REFTYPE_LABELS.get(str(raw.get("portal_reftype") or "").strip().upper(), ""),
@@ -1954,24 +2026,32 @@ def sections_for_portal_registry(portal_obj):
             "lastupdoprid": raw.get("lastupdoprid") or "",
             **counts,
         }},
-        {"name": "Breadcrumbs", "items": rels.get("breadcrumbs", []), "data": {"count": len(rels.get("breadcrumbs", []))}},
-        {"name": "Children", "items": rels.get("children", []), "data": {"count": len(rels.get("children", []))}},
-        {"name": "Target Components", "items": rels.get("component_targets", []), "data": {"count": len(rels.get("component_targets", []))}},
-        {"name": "Attributes", "items": rels.get("attributes", []), "data": {"count": len(rels.get("attributes", []))}},
-        {"name": "Portal Security", "items": rels.get("permissions", []), "data": {
-            "count": len(rels.get("permissions", [])),
+        {"name": "Navigation Path", "items": breadcrumbs, "data": {"count": len(breadcrumbs)}},
+        {"name": "Children", "items": children, "data": {
+            "count": len(children),
+            "folders": sum(1 for r in children if str(r.get("portal_reftype") or "").upper() == "F"),
+            "content_refs": sum(1 for r in children if str(r.get("portal_reftype") or "").upper() == "C"),
+        }},
+        {"name": "Target Components", "items": component_targets, "data": {"count": len(component_targets)}},
+        {"name": "Attributes", "items": _portal_label_items(rels.get("attributes", [])), "data": {"count": len(rels.get("attributes", []))}},
+        {"name": "Portal Security", "items": permissions, "data": {
+            "count": len(permissions),
             "permissionlists": counts.get("permissionlists", 0),
             "roles": counts.get("roles", 0),
-            "inherited": sum(1 for row in rels.get("permissions", []) if row.get("inherited")),
+            "inherited": sum(1 for row in permissions if row.get("inherited")),
         }},
-        {"name": "Access Paths", "items": rels.get("access_paths", []), "data": {
-            "count": len(rels.get("access_paths", [])),
+        {"name": "Who Has Access", "items": access_summary, "data": {
+            "total_paths": len(access_paths),
+            "permissionlists": len(access_summary),
             "operators": counts.get("operators", 0),
             "roles": counts.get("roles", 0),
         }},
         {"name": "Graph Preview", "items": graph_nodes, "data": {"node_count": len(graph_nodes), "edge_count": len(graph_edges)}},
         {"name": "Warnings", "items": portal_obj.get("warnings", []), "data": {"count": len(portal_obj.get("warnings", []))}},
     ]
+    return [s for s in sections if s["items"] or (s["data"] and any(
+        v not in (None, "", 0, False, {}) for k, v in s["data"].items() if k != "count"
+    ) or s["name"] in ("Definition", "Warnings"))]
 
 
 def portal_registry_payload(portal_obj):

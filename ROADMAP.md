@@ -306,11 +306,16 @@
 -   Operator-to-Portal explanation
 -   Dedicated Portal UI
 -   Graph preview
+-   Rich portal reconstruction: navigation path breadcrumbs with reftype chips,
+    human-readable children labels (Folder/Content Reference chips), grouped
+    "Who Has Access" access-path summary (permlist → role count + operator count),
+    Portal Security permission chips, navigation_path string in Definition,
+    empty section filtering; `labelFor()` and `_DETAIL_SKIP` updated for generic
+    renderer
 
 ### Remaining
 
--   Rich portal reconstruction
--   Portal comparison
+-   Portal comparison (diff the same portal entry across two environments)
 
 ------------------------------------------------------------------------
 

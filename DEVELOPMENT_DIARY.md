@@ -1458,3 +1458,54 @@ New CSS classes: `.obj-hdr`, `.obj-hdr-row`, `.obj-hdr-name`, `.obj-type-chip`,
   section spans full width.
 - API `GET /api/peoplesoft/object/record/PSRECDEFN?env=HCM` — 15 sections,
   unchanged shape.
+
+### Portal Registry — Rich Reconstruction
+
+Improved `sections_for_portal_registry()` in `connectors/uom.py` and the
+generic row renderer in `routers/admin.py`.
+
+**`connectors/uom.py`**:
+
+- `_portal_label_items(items, use_reftype_chip=False)` — new helper that adds
+  `title` (portal_label → classid → pnlgrpname → portal_permname → rolename →
+  roleuser → portal_objname) and optionally sets `relationship` to the decoded
+  reftype label (Folder / Content Reference) for use as a renderer chip.
+
+- `_portal_access_summary(access_paths)` — new helper that groups the flat
+  permission-list→role→operator rows into one summary row per permission list,
+  with `roles` count, `operators` count, and a `via_roles` sample string. Turns
+  152+ flat rows into 3–5 grouped rows.
+
+- `sections_for_portal_registry()` — updated:
+  - "Breadcrumbs" renamed to **"Navigation Path"**; items get titles from
+    `portal_label` and a "Folder"/"Content Reference" chip via `relationship`.
+  - "Children" items get human-readable `title` from `portal_label` and a
+    reftype chip.
+  - **"Access Paths"** section replaced by **"Who Has Access"** — 3-column
+    grouped summary (permlist → roles → operators). Original raw paths still
+    in `_relationships` for the graph layer.
+  - "Portal Security" items get `relationship` chip from `portal_permtype_label`
+    (Permission List / Role).
+  - "Definition" data now includes `navigation_path` — a `→`-separated string
+    of ancestor folder labels all the way to the current item.
+  - Children data includes `folders` and `content_refs` counts.
+  - Empty sections (0 items, no meaningful data) filtered from the output.
+
+**`routers/admin.py`** (Object Explorer JS):
+
+- `labelFor(row)` — now checks `row.title` and `row.label` before falling back
+  to specific field names; applies to all object types.
+- `_DETAIL_SKIP` — added `title`, `label`, `portal_permtype_label`,
+  `portal_reftype_label`, `portal_reftype`, `portal_permtype` so those
+  helper fields don't clutter the detail text line.
+
+**Verification:**
+- `python -m py_compile connectors/uom.py routers/admin.py` — OK.
+- `scripts/smoke_admin_shell.py` — all pages pass.
+- `GET /api/peoplesoft/object/portal_registry/EOEC_CCI_INSTAL?env=HCM` —
+  "Navigation Path" (5 items, each with portal_label title + reftype chip),
+  "Who Has Access" (3 rows: EOCO9000 1 role 6 ops, EOEC9000 1 role 141 ops,
+  EOEC9010 1 role 5 ops), Definition.navigation_path shows full ancestor trail.
+- `GET /api/peoplesoft/object/portal_registry/EOCO_EOEC?env=HCM` — folder
+  object: "Children" shows 9 items (5 folders, 4 content refs) with human
+  labels and reftype chips.
