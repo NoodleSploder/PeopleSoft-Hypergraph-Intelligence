@@ -124,6 +124,16 @@ def compare_portals(
     return envcompare.compare_portals(env1, env2, q=q, limit=limit)
 
 
+@router.get("/portal-object")
+def compare_portal_object(
+    env1:   str = Query("HCM"),
+    env2:   str = Query("FSCM"),
+    name:   str = Query(..., description="PORTAL_OBJNAME to compare"),
+):
+    """Deep diff of a specific Portal Registry object across two environments."""
+    return envcompare.compare_portal_object(env1, env2, name)
+
+
 @router.get("/queries")
 def compare_queries(
     env1:  str = Query("HCM"),

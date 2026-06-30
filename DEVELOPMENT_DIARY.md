@@ -1604,3 +1604,24 @@ deep-linking between the AE Object Explorer and the Runtime Monitor.
 - `/api/peoplesoft/object/application_package/HRS_COMMON?env=HCM` → 4 sections, 170 classes ✓
 - Global search "HRS_CANDID" → application_package HRS_CANDIDATE_MANAGER score=66 ✓
 - Object Explorer `/admin/object/application_package/HRS_COMMON` → renders with "App Package" chip ✓
+
+---
+
+## 2026-06-30 — AE Restart Eligibility, SQL PeopleCode Cross-Reference, Portal Object Comparison
+
+### AE Restart Eligibility (Priority #6 completion)
+- `ae.state_records()` was broken — required column `RECNAME` but actual column is `AE_STATE_RECNAME` (column names vary by PeopleTools version). Fixed to accept both `AE_STATE_RECNAME` / `RECNAME` / `AE_DEFAULT_STATE` / `AE_ISBASESTATE` and normalize into consistent `recname`, `title`, `is_default`, `relationship` (chip) keys.
+- `ae_payload()` overview now includes `restart_eligible: bool` and `state_records: int`. GPGB_EDIEXPT shows `restart_eligible=true, state_records=1` (GPGB_EDILIB_AET). State Records section now shows AET records with Default chip and record cross-links.
+
+### SQL PeopleCode Cross-Reference (Priority #10 completion)
+- PSPCMTXT.PCTEXT is plain text — searchable via Oracle LIKE.
+- Added PeopleCode cross-reference block to `sql_object()`: searches `UPPER(PCTEXT) LIKE '%SQL.{sqlid}%'` against PSPCMTXT, normalizes each matching program via `peoplecode.normalize_program()`, adds type_label, parent cross-link, PeopleCode Explorer deep-link.
+- `sections_for_sql()` now adds "PeopleCode References" section when results exist (hidden when empty).
+- Test: `SQL.HR_GET_SETID_LOCATION` → 17 PeopleCode references.
+
+### Portal Object Deep Comparison (Priority #3 completion)
+- `compare_portal_object(env1, env2, portal_objname)` in `connectors/envcompare.py`: independently queries each env for PSPRSMDEFN definition, children (PORTAL_PRNTOBJNAME), and PSPORTALDEFN permissions; diffs by field and by presence.
+- `/api/envcompare/portal-object?env1=HCM&env2=FSCM&name=X` endpoint in `routers/envcompare.py`.
+- UI: `/admin/envcompare` Portals tab enhanced with "Deep Object Comparison" sub-panel; `runPortalObjectCompare()` + `renderPortalObjectDiff()` JS; shows stat boxes + definition diff table + collapsible children/permissions diff sections with add/remove/change chips.
+- Portal UOM `_links` now includes `compare` link to `/api/envcompare/portal-object?name=X`.
+- Test: PORTAL_GROUPLETS → 141 children differ (FSCM has FSCM-specific grouplets: Asset Management, Accounts Payable, etc.).

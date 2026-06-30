@@ -309,7 +309,7 @@
 
 ## Portal Explorer
 
-**Status:** Active Development
+**Status:** Feature Complete
 
 ### Completed
 
@@ -331,10 +331,10 @@
     Portal Security permission chips, navigation_path string in Definition,
     empty section filtering; `labelFor()` and `_DETAIL_SKIP` updated for generic
     renderer
-
-### Remaining
-
--   Portal comparison (diff the same portal entry across two environments)
+-   Portal object deep comparison: `compare_portal_object()` in envcompare.py;
+    `/api/envcompare/portal-object` endpoint; Deep Compare panel in
+    `/admin/envcompare` Portals tab with stat boxes + field diffs + children
+    add/remove/label-change chips + permission diffs; portal UOM `_links.compare`
 
 ------------------------------------------------------------------------
 
@@ -355,10 +355,12 @@
     title (#N), runstatus chip, computed duration, and `_links.admin` →
     `/admin/runtime?instance=N`; Runtime Monitor page handles `?instance=N` URL
     param to auto-open the process detail panel
+-   Restart eligibility: `state_records()` fixed to handle `AE_STATE_RECNAME`
+    column (vs older `RECNAME`); `ae_payload()` overview now includes
+    `restart_eligible` (bool) and `state_records` count; State Records section
+    shows AET records with Default chip and record cross-links
 
 ### Remaining
-
--   Restart analysis (PSAEAPPLSTATE checkpoints, restart eligibility)
 
 ------------------------------------------------------------------------
 
@@ -395,7 +397,7 @@
 
 ## SQL Definition Explorer
 
-**Status:** Foundation Complete
+**Status:** Feature Complete
 
 ### Completed
 
@@ -408,12 +410,10 @@
 -   `sql_definition` added to Object Explorer and Graph Explorer selectors
 -   `/api/peoplesoft/object/sql_definition/{id}?env=` endpoint
 -   AE References section: AE SQL steps using `%SQL(SQLID)` meta-SQL (PSSQLTEXTDEFN LIKE search)
-
 -   SQL type filter in search: `GET /api/peoplesoft/sql_definitions?sqltype=0|1|2|6`; Object Explorer shows SQL type filter UI when sql_definition type is selected
-
-### Remaining
-
--   PeopleCode cross-reference (binary BLOB search)
+-   PeopleCode References section: searches PSPCMTXT.PCTEXT for `SQL.SQLID` pattern;
+    returns normalized references with type label, parent object cross-links,
+    and PeopleCode Explorer deep-links
 
 ------------------------------------------------------------------------
 

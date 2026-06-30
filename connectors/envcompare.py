@@ -505,3 +505,142 @@ def summary(env1, env2):
             "delta": (c1 - c2) if (c1 is not None and c2 is not None) else None,
         })
     return {"env1": env1, "env2": env2, "counts": rows, "warnings": warnings}
+
+
+def compare_portal_object(env1, env2, portal_objname):
+    """
+    Deep diff of a specific Portal Registry object across two environments.
+    Compares: definition fields, permissions, children set.
+    """
+    from connectors import psdb
+
+    portal_objname = portal_objname.strip().upper()
+    warnings = []
+    result = {"env1": env1, "env2": env2, "portal_objname": portal_objname}
+
+    def _fetch_defn(env):
+        try:
+            cols = psdb.table_columns(env, "PSPRSMDEFN")
+            want = ["PORTAL_OBJNAME", "PORTAL_NAME", "PORTAL_REFTYPE", "PORTAL_LABEL",
+                    "PORTAL_URLTEXT", "PORTAL_URI_SEG1", "PORTAL_URI_SEG2", "PORTAL_URI_SEG3",
+                    "PORTAL_PRNTOBJNAME", "DESCR254", "LASTUPDDTTM", "LASTUPDOPRID",
+                    "PORTAL_SECTYPE", "PORTAL_HIDE"]
+            sel = [c for c in want if c.lower() in cols]
+            if not sel:
+                return None
+            rows = psdb.query(env, f"""
+                SELECT {', '.join(sel)}
+                  FROM SYSADM.PSPRSMDEFN
+                 WHERE PORTAL_OBJNAME = :name
+                 FETCH FIRST 1 ROWS ONLY
+            """, {"name": portal_objname})
+            return rows[0] if rows else None
+        except Exception as exc:
+            warnings.append({"code": "defn_error", "env": env, "message": str(exc), "severity": "warning"})
+            return None
+
+    def _fetch_children(env):
+        try:
+            rows = psdb.query(env, """
+                SELECT PORTAL_OBJNAME, PORTAL_LABEL, PORTAL_REFTYPE
+                  FROM SYSADM.PSPRSMDEFN
+                 WHERE PORTAL_PRNTOBJNAME = :name
+                 ORDER BY PORTAL_OBJNAME
+            """, {"name": portal_objname})
+            return {str(r.get("portal_objname") or "").strip(): dict(r) for r in rows}
+        except Exception as exc:
+            warnings.append({"code": "children_error", "env": env, "message": str(exc), "severity": "warning"})
+            return {}
+
+    def _fetch_permissions(env):
+        try:
+            rows = psdb.query(env, """
+                SELECT CLASSID, PORTAL_PERMTYPE
+                  FROM SYSADM.PSPORTALDEFN
+                 WHERE PORTAL_OBJNAME = :name
+                 ORDER BY CLASSID
+            """, {"name": portal_objname})
+            return {str(r.get("classid") or "").strip(): str(r.get("portal_permtype") or "").strip() for r in rows}
+        except Exception:
+            return {}
+
+    defn1 = _fetch_defn(env1)
+    defn2 = _fetch_defn(env2)
+
+    # Definition field diff
+    defn_diff = []
+    compare_fields = ["portal_reftype", "portal_label", "portal_urltext",
+                      "portal_uri_seg1", "portal_uri_seg2", "portal_uri_seg3",
+                      "portal_prntobjname", "descr254", "portal_sectype", "portal_hide"]
+    for field in compare_fields:
+        v1 = str(defn1.get(field) or "").strip() if defn1 else None
+        v2 = str(defn2.get(field) or "").strip() if defn2 else None
+        if v1 != v2:
+            defn_diff.append({"field": field, env1: v1, env2: v2})
+
+    # Children diff
+    children1 = _fetch_children(env1)
+    children2 = _fetch_children(env2)
+    all_children = sorted(set(children1) | set(children2))
+    children_diff = []
+    for child in all_children:
+        in1 = child in children1
+        in2 = child in children2
+        if not (in1 and in2):
+            children_diff.append({
+                "portal_objname": child,
+                "status": f"only_in_{env1}" if in1 else f"only_in_{env2}",
+                "portal_label": (children1.get(child) or children2.get(child) or {}).get("portal_label"),
+            })
+        else:
+            # Both have it — check if label differs
+            l1 = str(children1[child].get("portal_label") or "").strip()
+            l2 = str(children2[child].get("portal_label") or "").strip()
+            if l1 != l2:
+                children_diff.append({
+                    "portal_objname": child,
+                    "status": "label_differs",
+                    env1: l1,
+                    env2: l2,
+                })
+
+    # Permissions diff
+    perms1 = _fetch_permissions(env1)
+    perms2 = _fetch_permissions(env2)
+    all_perms = sorted(set(perms1) | set(perms2))
+    perms_diff = []
+    for classid in all_perms:
+        in1 = classid in perms1
+        in2 = classid in perms2
+        if not (in1 and in2):
+            perms_diff.append({
+                "classid": classid,
+                "status": f"only_in_{env1}" if in1 else f"only_in_{env2}",
+            })
+        elif perms1[classid] != perms2[classid]:
+            perms_diff.append({
+                "classid": classid,
+                "status": "type_differs",
+                env1: perms1[classid],
+                env2: perms2[classid],
+            })
+
+    ts1 = str(defn1.get("lastupddttm") or "") if defn1 else None
+    ts2 = str(defn2.get("lastupddttm") or "") if defn2 else None
+
+    result.update({
+        "exists_in_env1": defn1 is not None,
+        "exists_in_env2": defn2 is not None,
+        "last_updated": {env1: ts1, env2: ts2},
+        "definition_diffs": defn_diff,
+        "children_diffs": children_diff,
+        "permissions_diffs": perms_diff,
+        "summary": {
+            "definition_changes": len(defn_diff),
+            "children_changes": len(children_diff),
+            "permissions_changes": len(perms_diff),
+            "total_changes": len(defn_diff) + len(children_diff) + len(perms_diff),
+        },
+        "warnings": warnings,
+    })
+    return result

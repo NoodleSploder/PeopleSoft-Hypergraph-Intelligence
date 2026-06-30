@@ -6502,10 +6502,18 @@ a.obj-link:hover{text-decoration:underline;}
   <div id="pane-portals" class="pane" style="display:none;">
     <div class="ctrl">
       <input id="portalQ" type="text" placeholder="Search portal object name or label…" style="width:300px;" onkeydown="if(event.key==='Enter')runCompare('portals')">
-      <button onclick="runCompare('portals')">Compare</button>
+      <button onclick="runCompare('portals')">Compare Catalog</button>
       <span class="spinner" id="spin-portals">&#9679;&#9679;&#9679;</span>
     </div>
     <div id="res-portals"></div>
+    <hr style="border-color:#1a2a3a;margin:18px 0">
+    <div style="font-size:11px;color:#8ab;margin-bottom:8px;font-weight:bold;letter-spacing:.05em;">DEEP OBJECT COMPARISON</div>
+    <div class="ctrl">
+      <input id="portalObjName" type="text" placeholder="Portal object name (e.g. PORTAL_GROUPLETS)…" style="width:340px;" onkeydown="if(event.key==='Enter')runPortalObjectCompare()">
+      <button onclick="runPortalObjectCompare()">Deep Compare</button>
+      <span class="spinner" id="spin-portal-obj">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-portal-obj"></div>
   </div>
 
   <!-- PS Queries tab -->
@@ -6638,6 +6646,84 @@ async function runGraphCompare() {
   const d = await api(`/api/envcompare/graph?env1=${env1()}&env2=${env2()}&node_types=${encodeURIComponent(types)}&limit=250`);
   $('spin-graph').classList.remove('on');
   renderGraphDiff(d);
+}
+
+async function runPortalObjectCompare() {
+  const name = ($('portalObjName').value || '').trim().toUpperCase();
+  if (!name) return;
+  $('spin-portal-obj').classList.add('on');
+  $('res-portal-obj').innerHTML = '';
+  try {
+    const d = await api(`/api/envcompare/portal-object?env1=${env1()}&env2=${env2()}&name=${encodeURIComponent(name)}`);
+    $('spin-portal-obj').classList.remove('on');
+    renderPortalObjectDiff(d);
+  } catch(e) {
+    $('spin-portal-obj').classList.remove('on');
+    $('res-portal-obj').innerHTML = `<div class="err-msg">${esc(String(e))}</div>`;
+  }
+}
+
+function renderPortalObjectDiff(d) {
+  const e1 = d.env1, e2 = d.env2;
+  const sum = d.summary || {};
+  let h = '';
+  (d.warnings || []).forEach(w => {
+    h += `<div class="warn-msg">${esc(w.message||String(w))}</div>`;
+  });
+  // Existence
+  const ex1 = d.exists_in_env1, ex2 = d.exists_in_env2;
+  const lu1 = (d.last_updated||{})[e1] || '—';
+  const lu2 = (d.last_updated||{})[e2] || '—';
+  h += `<div class="stat-grid">
+    ${sBox(sum.definition_changes||0, 'Definition Changes', sum.definition_changes?'n-changed':'n-same')}
+    ${sBox(sum.children_changes||0, 'Children Changes', sum.children_changes?'n-changed':'n-same')}
+    ${sBox(sum.permissions_changes||0, 'Permission Changes', sum.permissions_changes?'n-changed':'n-same')}
+  </div>`;
+  h += `<table><thead><tr><th>Attribute</th><th>${esc(e1)}</th><th>${esc(e2)}</th></tr></thead><tbody>
+    <tr><td>Exists</td><td>${ex1?'✓':'✗'}</td><td>${ex2?'✓':'✗'}</td></tr>
+    <tr><td>Last Updated</td><td class="mono">${esc(lu1)}</td><td class="mono">${esc(lu2)}</td></tr>
+  </tbody></table>`;
+  if ((d.definition_diffs||[]).length) {
+    const rows = d.definition_diffs.map(df =>
+      `<tr><td class="mono">${esc(df.field)}</td>
+       <td class="diff-v1 mono">${esc(df[e1]||'—')}</td>
+       <td class="diff-v2 mono">${esc(df[e2]||'—')}</td></tr>`
+    ).join('');
+    h += collapsibleSection(
+      `<span class="chip chip-chg">Definition Differences (${d.definition_diffs.length})</span>`,
+      rows, ['Field', e1, e2], 'pod-defn', true
+    );
+  }
+  if ((d.children_diffs||[]).length) {
+    const rows = d.children_diffs.map(cd => {
+      const cls = cd.status.startsWith('only_in_'+e1)?'chip-del':cd.status.startsWith('only_in_'+e2)?'chip-add':'chip-chg';
+      const lbl = cd.portal_label || cd[e1] || cd[e2] || '';
+      const link = `<a href="/admin/object/portal_registry/${esc(cd.portal_objname)}" target="_blank" style="color:#00e5ff44;font-size:9px;">↗</a>`;
+      return `<tr><td class="mono">${esc(cd.portal_objname)} ${link}</td>
+        <td>${esc(lbl)}</td>
+        <td><span class="chip ${cls}">${esc(cd.status.replace(/_/g,' '))}</span></td></tr>`;
+    }).join('');
+    h += collapsibleSection(
+      `<span class="chip ${d.children_diffs.length?'chip-chg':'chip-add'}">Children Differences (${d.children_diffs.length})</span>`,
+      rows, ['Object Name', 'Label', 'Status'], 'pod-children', true
+    );
+  }
+  if ((d.permissions_diffs||[]).length) {
+    const rows = d.permissions_diffs.map(pd => {
+      const cls = pd.status.startsWith('only_in_'+e1)?'chip-del':pd.status.startsWith('only_in_'+e2)?'chip-add':'chip-chg';
+      return `<tr><td class="mono">${esc(pd.classid)}</td>
+        <td>${esc(pd[e1]||'—')}</td><td>${esc(pd[e2]||'—')}</td>
+        <td><span class="chip ${cls}">${esc(pd.status.replace(/_/g,' '))}</span></td></tr>`;
+    }).join('');
+    h += collapsibleSection(
+      `<span class="chip chip-chg">Permission Differences (${d.permissions_diffs.length})</span>`,
+      rows, ['Permission List', e1, e2, 'Status'], 'pod-perms', true
+    );
+  }
+  if (sum.total_changes === 0) {
+    h += `<div style="color:#00aa66;padding:12px;font-size:12px;">&#10003; Identical in both environments.</div>`;
+  }
+  $('res-portal-obj').innerHTML = h;
 }
 
 // ─── Diff renderer ────────────────────────────────────────────────────────────

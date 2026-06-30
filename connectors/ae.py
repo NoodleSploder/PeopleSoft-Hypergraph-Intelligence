@@ -292,24 +292,34 @@ def ae_sql_step_text(env, ae_applid):
 
 
 def state_records(env, ae_applid):
-    """Get state records for an AE program."""
+    """Get state records for an AE program from PSAEAPPLSTATE."""
     ae_applid = ae_applid.upper()
 
+    # Column name varies by PeopleTools version: AE_STATE_RECNAME (newer) or RECNAME (older)
     rows, err = safe_ae_query(
         env,
         "PSAEAPPLSTATE",
-        ["AE_APPLID", "RECNAME", "AE_ISBASESTATE"],
+        ["AE_APPLID", "AE_STATE_RECNAME", "RECNAME", "AE_DEFAULT_STATE", "AE_ISBASESTATE"],
         "ae_applid = :ae_applid",
         {"ae_applid": ae_applid},
-        required_cols=["AE_APPLID", "RECNAME"],
-        order_by="recname",
+        required_cols=["AE_APPLID"],
+        order_by="1",
     )
 
     linked = []
     for row in rows:
         item = dict(row)
-        recname = item.get("recname")
+        # Normalize: prefer AE_STATE_RECNAME, fall back to RECNAME
+        recname = (
+            str(item.get("ae_state_recname") or item.get("recname") or "").strip() or None
+        )
+        is_default = str(item.get("ae_default_state") or item.get("ae_isbasestate") or "").strip()
         if recname:
+            item["recname"] = recname
+            item["title"] = recname
+            item["is_default"] = is_default in ("Y", "1", "T")
+            if is_default in ("Y", "1", "T"):
+                item["relationship"] = "Default"
             item.setdefault("_links", {})["admin"] = f"/admin/object/record/{recname}"
         linked.append(item)
 

@@ -632,6 +632,9 @@ def sections_for_ae(ae_obj):
 
 def ae_payload(ae_obj):
     """Build the object-page payload for an AE UOM object."""
+    rels = ae_obj.get("_relationships", {})
+    state_records = rels.get("state_records", [])
+    restart_eligible = len(state_records) > 0
     return {
         "type": ae_obj["type"],
         "name": ae_obj["name"],
@@ -641,6 +644,8 @@ def ae_payload(ae_obj):
             "display_name": ae_obj["display_name"],
             "description": ae_obj["description"],
             "status": ae_obj["status"],
+            "restart_eligible": restart_eligible,
+            "state_records": len(state_records),
             **ae_obj.get("_metadata", {}).get("raw", {}),
         },
         "sections": sections_for_ae(ae_obj),
@@ -1912,6 +1917,7 @@ def portal_registry_object(env, portal_objname):
             "self": f"/api/peoplesoft/portal-registry/{portal_objname}",
             "admin": object_url("portal_registry", portal_objname),
             "graph": graph_url("portal_registry", portal_objname),
+            "compare": f"/api/envcompare/portal-object?name={portal_objname}",
         },
         _relationships=relationships,
         _graph={"nodes": list(nodes.values()), "edges": edges},
@@ -2540,6 +2546,43 @@ def sql_object(env, sql_id):
         except Exception:
             pass
 
+    # Cross-references: PeopleCode programs that reference this SQL definition
+    # via GetSQL(SQL.SQLID), CreateSQL(SQL.SQLID), or SQLExec(SQL.SQLID)
+    xref_pc = []
+    if ptmetadata.has_table(env, "PSPCMTXT") and defn:
+        try:
+            from connectors import peoplecode as _pc
+            pc_pat = f"%SQL.{sql_id}%"
+            pc_rows = psdb.query(env, """
+                SELECT DISTINCT OBJECTID1, OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3,
+                       OBJECTVALUE4, OBJECTVALUE5, OBJECTVALUE6, OBJECTVALUE7, PROGSEQ
+                  FROM SYSADM.PSPCMTXT
+                 WHERE UPPER(PCTEXT) LIKE UPPER(:pat)
+                 FETCH FIRST 100 ROWS ONLY
+            """, {"pat": pc_pat})
+            for row in pc_rows:
+                norm = _pc.normalize_program(row)
+                ref = norm.get("reference") or ""
+                enc = norm.get("encoded_reference") or _pc.encode_reference(ref)
+                oid1 = row.get("objectid1")
+                xref_item = {
+                    "reference": ref,
+                    "type_label": norm.get("object_type_label") or str(oid1),
+                    "event": norm.get("event") or "",
+                    "title": ref,
+                    "_links": {"admin": f"/admin/object/peoplecode/{enc}"},
+                }
+                parent = norm.get("parent") or {}
+                if parent.get("type") and parent.get("name"):
+                    xref_item["parent_type"] = parent["type"]
+                    xref_item["parent_name"] = parent["name"]
+                    xref_item.setdefault("_links", {})["parent"] = (
+                        f"/admin/object/{parent['type']}/{parent['name']}"
+                    )
+                xref_pc.append(xref_item)
+        except Exception:
+            pass
+
     nodes_g = {}
     add_node(nodes_g, graph_node("sql_definition", sql_id, defn))
 
@@ -2556,6 +2599,7 @@ def sql_object(env, sql_id):
                 for db, v in text_variants.items()
             ],
             "xref_ae": xref_ae,
+            "xref_pc": xref_pc,
         },
         _graph={"nodes": list(nodes_g.values()), "edges": []},
         _metadata={
@@ -2589,7 +2633,8 @@ def sections_for_sql(s_obj):
         primary_note = first["label"]
 
     xref_ae = rels.get("xref_ae", [])
-    return [
+    xref_pc = rels.get("xref_pc", [])
+    sections = [
         {"name": "Definition", "items": [], "data": {
             "sqlid": s_obj["name"],
             "sql_type": meta.get("sql_type_label") or "",
@@ -2605,13 +2650,21 @@ def sections_for_sql(s_obj):
         }},
         {"name": "DB Variants", "items": rels.get("text_variants", []),
          "data": {"count": len(variants)}},
-        {"name": "AE References", "items": xref_ae, "data": {
-            "count": len(xref_ae),
-            "note": "AE SQL steps using %SQL(" + s_obj["name"] + ") meta-SQL substitution" if xref_ae else "",
-        }},
-        {"name": "Warnings", "items": s_obj.get("warnings", []),
-         "data": {"count": len(s_obj.get("warnings", []))}},
     ]
+    if xref_ae:
+        sections.append({"name": "AE References", "items": xref_ae, "data": {
+            "count": len(xref_ae),
+            "note": "AE SQL steps using %SQL(" + s_obj["name"] + ") meta-SQL substitution",
+        }})
+    if xref_pc:
+        sections.append({"name": "PeopleCode References", "items": xref_pc, "data": {
+            "count": len(xref_pc),
+            "note": f"PeopleCode programs referencing SQL.{s_obj['name']}",
+        }})
+    if s_obj.get("warnings"):
+        sections.append({"name": "Warnings", "items": s_obj["warnings"],
+                         "data": {"count": len(s_obj["warnings"])}})
+    return sections
 
 
 def sql_payload(s_obj):
@@ -3762,12 +3815,18 @@ def sections_for_app_package(pkg):
             seen.add(key)
 
             full_ref = f"{pkg['name']}:{':'.join(parts[:-1])}"
+            # Build encoded peoplecode reference: OV1.OV2.OV3.OV4.progseq
+            from connectors import peoplecode as _pc
+            # Reference uses dot notation: pkgroot.subpkg.classname.OnExecute
+            pc_ref_raw = f"{pkg['name']}.{'.'.join(parts)}.0"
+            pc_enc = _pc.encode_reference(pc_ref_raw)
             pc_display.append({
                 "title": class_name,
                 "sub_package": sub_path,
                 "event": event,
                 "full_ref": full_ref,
                 "relationship": sub_path or pkg["name"],
+                "_links": {"peoplecode": f"/admin/object/peoplecode/{pc_enc}"},
             })
 
         sections.append({
