@@ -48,6 +48,7 @@ Technical debt:
 
 Verification:
 - `python -m py_compile connectors/graphdb.py` — OK.
+- `python - <<'PY' import main ...` — OK.
 - Parser checks:
   - `SELECT A, B FROM PS_JOB J` -> READS `JOB`.
   - `FROM PS_EPO_PG_HDR A, PS_EPO_PG_ITEM B` -> READS both records.
@@ -57,6 +58,11 @@ Verification:
 - Non-persisted `graphdb.build('HCM', limit=1, persist=False)` completed and
   emitted a SQL Definition `READS` edge:
   `sql_definition:EODC_FORMXREF_EXIST_SEL -> record:EODC_FORM_XREF`.
+- `GET /admin/graph` against the running service — 200.
+- `GET /api/graph/stats?env=HCM` against the running service — 200.
+- `systemctl restart deathstar-api` was blocked by interactive authentication
+  in this shell. The running service is healthy, but the deployed service still
+  needs a privileged restart to load this committed connector change.
 
 Next recommended work:
 - Fix the pre-existing graph provider column assumptions surfaced by the
