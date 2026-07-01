@@ -65,7 +65,20 @@ PeopleSoft-Explorer/
 │   ├── tracing.py                  # Transaction tracing helpers
 │   └── uom.py                      # Unified Object Model providers
 ├── routers/
-│   ├── admin.py                    # Admin UI/Object Explorer/Graph Explorer pages
+│   ├── admin/                      # Admin UI package (split 2026-07-01)
+│   │   ├── __init__.py             #   Re-exports router; triggers sub-module imports
+│   │   ├── _core.py                #   Shared: router obj, nav groups, _shell, _nav_html, CSS/JS
+│   │   ├── home.py                 #   /, /users
+│   │   ├── security.py             #   /security, /record, /field, /operator, /role, /peoplecode
+│   │   ├── graph.py                #   /graph, /object, /portal, /metadata, /graphdb
+│   │   ├── runtime.py              #   /runtime, /infra, /tracing, /envcompare
+│   │   ├── data.py                 #   /sqlws, /query, /conqrs
+│   │   ├── integration.py          #   /ib, /ibmessage, /ibapp, /ibsvcgrp, /ibrtng, /iboper
+│   │   ├── objects.py              #   /ci, /tree, /menu, /appclass, /adsdef, /cbskill, /approval, /contsvc, /urldef
+│   │   ├── portal.py               #   /navcoll, /relcontent, /efmapping, /dropzone, /pivotgrid, /srchdef, /srchcat, /xpub, /stylesheet, /pcsearch
+│   │   ├── platform.py             #   /prcsdefn, /filelayout, /xlat, /project, /msgcat, /archobj, /timezone, /locale, /ptftest
+│   │   ├── perf.py                 #   /pmmetric, /pmtrans, /pmevent
+│   │   └── tools.py                #   /reports, /tools, /docs
 │   ├── authelia_admin.py           # Authelia user/group administration
 │   ├── envcompare.py               # Environment comparison API
 │   ├── field.py                    # Field metadata API

@@ -83,6 +83,59 @@ body {
     border-color: rgba(0,229,255,.45);
 }
 
+/* ── Dropdown nav groups ────────────────────────────────────────────────── */
+.ds-nav-group {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.ds-nav-grouplbl {
+    color: var(--muted);
+    font-size: 12px;
+    padding: 5px 9px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+    cursor: default;
+    transition: color .15s, border-color .15s;
+    user-select: none;
+    line-height: 1;
+}
+.ds-nav-group:hover > .ds-nav-grouplbl,
+.ds-nav-group.ds-active > .ds-nav-grouplbl {
+    color: var(--cyan);
+    border-color: rgba(0,229,255,.3);
+}
+.ds-nav-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 1px);
+    left: 0;
+    background: rgba(3,8,18,.98);
+    border: 1px solid rgba(0,229,255,.25);
+    border-radius: 4px;
+    min-width: 160px;
+    padding: 4px 0;
+    z-index: 10000;
+    flex-direction: column;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+}
+.ds-nav-group:hover > .ds-nav-dropdown { display: flex; }
+.ds-nav-drop-link {
+    color: var(--muted);
+    font-size: 12px;
+    padding: 6px 14px;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color .15s, background .15s;
+}
+.ds-nav-drop-link:hover,
+.ds-nav-drop-link.ds-active {
+    color: var(--cyan);
+    background: rgba(0,229,255,.07);
+    text-decoration: none;
+}
+
 /* ── Page header ────────────────────────────────────────────────────────── */
 .ds-page-hdr {
     display: flex;

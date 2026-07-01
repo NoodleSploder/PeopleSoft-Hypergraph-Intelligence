@@ -62,7 +62,7 @@ The following major subsystems are production-ready:
 - PM Event Explorer
 - IB Service Operations Explorer
 - Version-aware metadata adapters
-- Shared frontend shell with global navigation and environment selector
+- Shared frontend shell with grouped dropdown navigation (8 functional groups + Home/Users direct links) and environment selector
 - Admin shell smoke test harness (28+ pages; 23 new providers added in Phase 5)
 - Scheduled graph snapshots with retention pruning
 
@@ -424,7 +424,7 @@ All existing providers have been rewritten against the verified live SYSADM sche
 New providers should follow the established verification methodology:
 1. Query `all_tables`/`all_tab_columns` to find the real table and column names
 2. Pull live sample rows to confirm usable keys (never assume PeopleTools naming conventions)
-3. Write psdb.py → ptmetadata.py → graphdb.py → uom.py → routers/peoplesoft.py → routers/admin.py in that order
+3. Write psdb.py → ptmetadata.py → graphdb.py → uom.py → routers/peoplesoft.py → routers/admin/<group>.py in that order
 4. Compile-check and smoke-test at each layer before proceeding
 
 Completed in this session:

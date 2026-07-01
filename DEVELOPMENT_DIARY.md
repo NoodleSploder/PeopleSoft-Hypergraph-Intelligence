@@ -2984,3 +2984,97 @@ Search supports free-text (operation name, service, description) plus routing-ty
 **`routers/admin.py`**: `("iboper", "IB Operations", "/admin/iboper")` in `_NAV`; amber/orange chip (`#ffaa44`); `/admin/iboper` two-panel explorer with Sync/Async/REST colored badges, routing type filter dropdown, and routingList renderer showing active/inactive routings.
 
 **`scripts/smoke_admin_shell.py`**: Added `/admin/iboper`; passes (28/28 OK, 2 pre-existing failures unchanged).
+
+------------------------------------------------------------------------
+
+## 2026-07-01 — Nav Redesign and Admin Package Split
+
+Date/time: 2026-07-01 CDT
+
+### Nav bar redesign
+
+**Problem**: The flat horizontal nav bar had grown to 49 links spanning multiple
+monitors and was unmanageable. Additionally, 16 pages added in earlier sessions
+referenced undefined module-level names (`_nav_html`, `_NAV_CSS`, `_ESC_JS`),
+causing `NameError` 500s on every request. A further 16 route decorators had
+a double `/admin/` prefix bug (router prefix + decorator both included `/admin/`)
+returning 404 for those pages. `Request` was not imported despite being used in
+type annotations on those routes.
+
+**Solution**: Replaced the flat `_NAV` list with `_NAV_GROUPS` (grouped dropdown
+structure). Added three shared module-level constants:
+- `_NAV_CSS` — CSS string embedded inline by standalone pages (no `app.css` link)
+- `_ESC_JS` — JS `esc()` helper embedded inline in standalone page `<script>` blocks
+- `_nav_html(active, env=None)` — generates the `<nav>` element with CSS-only hover dropdowns
+
+Added `from fastapi import APIRouter, Request` to satisfy annotation resolution on
+Python 3.14. Fixed all 16 double-prefix decorators via `sed`. Added `?v=2`
+cache-buster to CSS/JS links in `_shell()` to force browsers off the cached
+pre-dropdown version.
+
+Nav groups (CSS-only hover, no JavaScript required):
+- Direct: **Home** · **Users**
+- Dropdowns: **Runtime** (Runtime, Infra, Tracing, Env Compare) ·
+  **Data** (SQL Workspace, Queries, Conn. Queries) ·
+  **Integration** (IB Explorer, IB Messages, IB App Svcs, IB Svc Groups, IB Routings, IB Operations) ·
+  **Objects** (CIs, Trees, Menus, App Classes, ADS Defs, Chatbot Skills, Approvals, Content Svcs, URL Defs) ·
+  **Portal** (Nav Collections, Related Content, Event Mapping, Drop Zones, PivotGrids, Search Defs,
+  Search Cats, XML Publisher, Style Sheets, PC Search) ·
+  **Platform** (Processes, File Layouts, Translate, Projects, Messages, Archive Objs,
+  Timezones, Locales, PTF Tests) ·
+  **Perf** (PM Metrics, PM Transactions, PM Events) ·
+  **Tools** (Reports, Tools, Docs)
+
+CSS: `.ds-nav-group`, `.ds-nav-grouplbl`, `.ds-nav-dropdown`, `.ds-nav-drop-link`
+added to `/static/app.css`. `_NAV_CSS` mirrors these rules for standalone pages.
+Active group gets `ds-nav-group ds-active` class; active item gets `ds-nav-drop-link ds-active`.
+
+### Admin UI package split
+
+**Problem**: `routers/admin.py` had grown to 15,529 lines across 67 routes,
+making it impractical to navigate or maintain.
+
+**Solution**: Converted to a package at `routers/admin/`. A Python script
+(`split_admin.py`, run once and discarded) identified route block boundaries
+via `@router.get(` markers, assigned each block to a module by URL prefix, and
+wrote each file with a standard import header. `main.py` required no changes —
+`from routers import admin; admin.router` works identically with the package.
+
+Package layout (`routers/admin/`):
+
+| File | Routes | Lines |
+|------|--------|-------|
+| `_core.py` | — | 195 |
+| `__init__.py` | — | 18 |
+| `home.py` | `/`, `/users` | 705 |
+| `security.py` | `/security`, `/record`, `/field`, `/operator`, `/role`, `/peoplecode` | 2 507 |
+| `graph.py` | `/graph`, `/object`, `/portal`, `/metadata`, `/graphdb` | 2 870 |
+| `runtime.py` | `/runtime`, `/infra`, `/tracing`, `/envcompare` | 2 359 |
+| `data.py` | `/sqlws`, `/query`, `/conqrs` | 1 165 |
+| `integration.py` | `/ib`, `/ibmessage`, `/ibapp`, `/ibsvcgrp`, `/ibrtng`, `/iboper` | 1 574 |
+| `objects.py` | `/ci`, `/tree`, `/menu`, `/appclass`, `/adsdef`, `/cbskill`, `/approval`, `/contsvc`, `/urldef` | 1 042 |
+| `portal.py` | `/navcoll`, `/relcontent`, `/efmapping`, `/dropzone`, `/pivotgrid`, `/srchdef`, `/srchcat`, `/xpub`, `/stylesheet`, `/pcsearch` | 1 367 |
+| `platform.py` | `/prcsdefn`, `/filelayout`, `/xlat`, `/project`, `/msgcat`, `/archobj`, `/timezone`, `/locale`, `/ptftest` | 1 182 |
+| `perf.py` | `/pmmetric`, `/pmtrans`, `/pmevent` | 393 |
+| `tools.py` | `/reports`, `/tools`, `/docs` | 225 |
+
+Sub-module header (standard for all sub-modules):
+```python
+import json
+from fastapi import Request
+from fastapi.responses import HTMLResponse
+from ._core import router, _shell, _nav_html, _NAV_CSS, _ESC_JS
+```
+
+Files modified:
+- `routers/admin/` (new package — replaces `routers/admin.py`)
+- `static/app.css` (added dropdown nav CSS rules)
+- `ARCHITECTURE.md`, `README.md`, `ROADMAP.md`, `HANDOFF_PROMPT.md`, `DEVELOPMENT_DIARY.md`
+
+Verification:
+- `python3 -c "from routers.admin import router; print(len(router.routes), 'routes')"` → 67 routes
+- `python3 -c "import main"` → OK (SyntaxWarning in portal.py inline JS regex pre-existing)
+- All 67 routes smoke-tested via `curl localhost:8088`; all returned 200
+- Service restarted via `kill -HUP`; `journalctl` confirmed clean startup
+- Nav groupings confirmed in browser; dropdown hover works; active group highlights correctly
+- `app.css?v=2` cache-buster forces browsers to fetch updated stylesheet

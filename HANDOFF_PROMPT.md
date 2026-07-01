@@ -8,6 +8,22 @@ Before changing code, read and reconcile:
 4. `README.md`
 5. Existing code patterns in `connectors/`, `routers/`, `static/`, and `scripts/`
 
+**Admin UI package structure** (split 2026-07-01): `routers/admin.py` no longer exists.
+The admin UI is now the package `routers/admin/` with these files:
+- `_core.py` — router object, `_NAV_GROUPS`, `_NAV_CSS`, `_ESC_JS`, `_nav_html()`, `_shell()`
+- `__init__.py` — re-exports `router`; importing it registers all sub-module routes
+- `home.py`, `security.py`, `graph.py`, `runtime.py`, `data.py`, `integration.py`,
+  `objects.py`, `portal.py`, `platform.py`, `perf.py`, `tools.py`
+- Each sub-module imports `router, _shell, _nav_html, _NAV_CSS, _ESC_JS` from `._core`
+- New admin pages go in the sub-module matching their nav group (see `_NAV_GROUPS` in `_core.py`)
+
+**Nav bar** (redesigned 2026-07-01): was 49 flat links; now a grouped CSS-only dropdown bar.
+Groups: Runtime · Data · Integration · Objects · Portal · Platform · Perf · Tools
+Direct links: Home · Users. Active group highlights on any child page.
+Styles in `/static/app.css` (`.ds-nav-group`, `.ds-nav-dropdown`, `.ds-nav-drop-link`).
+Standalone pages (no `app.css`) embed `_NAV_CSS` inline and call `_nav_html(active, env)`.
+`_ESC_JS` provides the `esc()` HTML-escape helper embedded in standalone page `<script>` blocks.
+
 Follow the architecture exactly:
 
 * SQL belongs in `connectors/`, not routers.
