@@ -5274,6 +5274,282 @@ def connected_query_payload(env, conqrsname):
     }
 
 
+# ---------------------------------------------------------------------------
+# File Layout Definitions (PSFLDDEFN)
+# ---------------------------------------------------------------------------
+
+_FILE_FMT_CLS = {"Fixed Width": "chip-info", "Delimited": "chip-ok", "XML": "chip-ok"}
+_FILE_FMT_LABEL = {0: "Fixed Width", 1: "Delimited", 2: "XML"}
+_FILE_FIELD_TYPE = {0: "Character", 1: "Number", 2: "Date", 3: "Time", 4: "DateTime", 6: "Image"}
+
+
+def file_layout_object(env, flddefnname):
+    data = psdb.get_file_layout(env, flddefnname.upper())
+    if "error" in data:
+        return None
+    defn = data.get("definition", {})
+    fmt_label = _FILE_FMT_LABEL.get(defn.get("fldformat"), "Unknown")
+    return {
+        "type": "file_layout",
+        "name": defn.get("flddefnname", flddefnname),
+        "title": (defn.get("descr") or "").strip() or flddefnname,
+        "format": fmt_label,
+        "seg_count": defn.get("fldsegcount") or 0,
+        "delimiter": (defn.get("flddelimiter") or "").strip() or None,
+        "qualifier": (defn.get("fldqualifier") or "").strip() or None,
+        "lastupdoprid": (defn.get("lastupdoprid") or "").strip() or None,
+        "lastupddttm": defn.get("lastupddttm"),
+        "segments": data.get("segments", []),
+        "fields": data.get("fields", []),
+        "counts": data.get("counts", {}),
+        "_raw": data,
+        "_links": {"admin": "/admin/filelayout"},
+        "warnings": data.get("warnings", []),
+    }
+
+
+def sections_for_file_layout(obj):
+    sections = []
+
+    # Overview
+    ov_rows = []
+    fmt = obj.get("format")
+    if fmt:
+        ov_rows.append({"label": "Format", "chips": [{"label": fmt, "cls": _FILE_FMT_CLS.get(fmt, "chip-muted")}]})
+    if obj.get("seg_count"):
+        ov_rows.append({"label": "Segments", "value": str(obj["seg_count"])})
+    if obj.get("delimiter"):
+        ov_rows.append({"label": "Delimiter", "value": obj["delimiter"]})
+    if obj.get("qualifier"):
+        ov_rows.append({"label": "Qualifier", "value": obj["qualifier"]})
+    if obj.get("lastupdoprid"):
+        ov_rows.append({"label": "Last Updated By", "value": obj["lastupdoprid"]})
+    if obj.get("lastupddttm"):
+        ov_rows.append({"label": "Last Updated", "value": str(obj["lastupddttm"])[:19]})
+
+    if ov_rows:
+        sections.append({"id": "overview", "title": "Overview", "type": "kv", "rows": ov_rows})
+
+    # Segments
+    segs = obj.get("segments", [])
+    if segs:
+        items = []
+        for seg in segs:
+            seg_name = (seg.get("fldsegname") or "").strip()
+            seg_id = (seg.get("fldsegid") or "").strip()
+            fld_cnt = seg.get("fldfieldcount") or 0
+            rec = (seg.get("recname_file") or "").strip() or None
+            meta_parts = []
+            if seg_id:
+                meta_parts.append(f"ID: {seg_id}")
+            if fld_cnt:
+                meta_parts.append(f"{fld_cnt} fields")
+            if rec:
+                meta_parts.append(f"Record: {rec}")
+            items.append({
+                "name": seg_name,
+                "chips": [{"label": "Segment", "cls": "chip-muted"}],
+                "meta": " | ".join(meta_parts) if meta_parts else None,
+            })
+        sections.append({
+            "id": "segments",
+            "title": f"Segments ({len(segs)})",
+            "type": "items",
+            "items": items,
+        })
+
+    # Fields (grouped by segment)
+    fields = obj.get("fields", [])
+    if fields:
+        from collections import defaultdict
+        by_seg = defaultdict(list)
+        for f in fields:
+            by_seg[(f.get("fldsegname") or "").strip()].append(f)
+
+        for seg_name, seg_fields in by_seg.items():
+            field_items = []
+            for f in seg_fields:
+                fname = (f.get("fldfieldname") or "").strip()
+                ftype_code = f.get("fldfieldtype", 0)
+                ftype_label = _FILE_FIELD_TYPE.get(ftype_code, f"Type {ftype_code}")
+                flen = f.get("fldlength") or 0
+                fstart = f.get("fldstart") or 0
+                chips = [{"label": ftype_label, "cls": "chip-muted"}]
+                meta_parts = []
+                if fstart:
+                    meta_parts.append(f"pos {fstart}")
+                if flen:
+                    meta_parts.append(f"len {flen}")
+                field_items.append({
+                    "name": fname,
+                    "chips": chips,
+                    "meta": " | ".join(meta_parts) if meta_parts else None,
+                })
+            sections.append({
+                "id": f"fields_{seg_name}",
+                "title": f"Fields — {seg_name} ({len(seg_fields)})",
+                "type": "items",
+                "items": field_items,
+            })
+
+    return sections
+
+
+def file_layout_payload(env, flddefnname):
+    obj = file_layout_object(env, flddefnname)
+    if obj is None:
+        return None
+    return {
+        "type": "file_layout",
+        "name": obj["name"],
+        "title": obj["title"],
+        "overview": {"format": obj.get("format")},
+        "sections": sections_for_file_layout(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Process Definitions (PS_PRCSDEFN)
+# ---------------------------------------------------------------------------
+
+_PRCS_RUNLOC_LABEL = {"0": "Server", "1": "Client", "2": "Server"}
+_PRCS_TYPE_CLS = {
+    "Application Engine": "chip-ok",
+    "SQR Report": "chip-info",
+    "XML Publisher": "chip-info",
+    "COBOL SQL": "chip-muted",
+    "SQR Process": "chip-muted",
+    "SQR Report For WF Delivery": "chip-muted",
+    "Data Mover": "chip-muted",
+}
+
+
+def _prcs_type_chip(prcstype):
+    return {"label": prcstype, "cls": _PRCS_TYPE_CLS.get(prcstype, "chip-muted")}
+
+
+def process_defn_object(env, compound_key):
+    data = psdb.get_process_definition(env, compound_key)
+    if "error" in data:
+        return None
+    defn = data.get("definition", {})
+    prcstype = defn.get("prcstype", "")
+    prcsname = defn.get("prcsname", compound_key)
+    return {
+        "type": "prcs_defn",
+        "name": compound_key,
+        "prcsname": prcsname,
+        "prcstype": prcstype,
+        "title": defn.get("descr") or prcsname,
+        "category": (defn.get("prcscategory") or "").strip() or None,
+        "restart_enabled": defn.get("restartenabled") == "1",
+        "retry_count": defn.get("retrycount") or 0,
+        "timeout_minutes": defn.get("timeoutminutes") or 0,
+        "max_concurrent": defn.get("maxconcurrent") or 0,
+        "run_location": _PRCS_RUNLOC_LABEL.get(str(defn.get("runlocation") or "0"), "Server"),
+        "server_name": (defn.get("servername") or "").strip() or None,
+        "msg_log_tbl": (defn.get("msglogtbl") or "").strip() or None,
+        "rqst_tbl": (defn.get("rqsttbl") or "").strip() or None,
+        "recur_name": (defn.get("recurname") or "").strip() or None,
+        "parm_list": (defn.get("parmlist") or "").strip() or None,
+        "lastupddttm": defn.get("lastupddttm"),
+        "lastupdoprid": (defn.get("lastupdoprid") or "").strip() or None,
+        "run_cntl_pages": data.get("run_cntl_pages", []),
+        "prcs_groups": data.get("prcs_groups", []),
+        "counts": data.get("counts", {}),
+        "_raw": data,
+        "_links": {"admin": f"/admin/prcsdefn"},
+        "warnings": data.get("warnings", []),
+    }
+
+
+def sections_for_process_defn(obj):
+    sections = []
+
+    # Overview
+    overview_rows = []
+    if obj.get("prcstype"):
+        overview_rows.append({"label": "Type", "chips": [_prcs_type_chip(obj["prcstype"])]})
+    if obj.get("category"):
+        overview_rows.append({"label": "Category", "value": obj["category"]})
+    if obj.get("run_location"):
+        overview_rows.append({"label": "Run Location", "value": obj["run_location"]})
+    if obj.get("server_name"):
+        overview_rows.append({"label": "Server", "value": obj["server_name"]})
+    if obj.get("restart_enabled"):
+        overview_rows.append({"label": "Restart Enabled", "chips": [{"label": "Yes", "cls": "chip-ok"}]})
+    if obj.get("retry_count"):
+        overview_rows.append({"label": "Retry Count", "value": str(obj["retry_count"])})
+    if obj.get("timeout_minutes"):
+        overview_rows.append({"label": "Timeout (min)", "value": str(obj["timeout_minutes"])})
+    if obj.get("max_concurrent"):
+        overview_rows.append({"label": "Max Concurrent", "value": str(obj["max_concurrent"])})
+    if obj.get("recur_name"):
+        overview_rows.append({"label": "Schedule", "value": obj["recur_name"]})
+    if obj.get("rqst_tbl"):
+        overview_rows.append({"label": "Run Control Table", "value": obj["rqst_tbl"]})
+    if obj.get("msg_log_tbl"):
+        overview_rows.append({"label": "Log Table", "value": obj["msg_log_tbl"]})
+    if obj.get("parm_list"):
+        overview_rows.append({"label": "Parameters", "value": obj["parm_list"]})
+    if obj.get("lastupdoprid"):
+        overview_rows.append({"label": "Last Updated By", "value": obj["lastupdoprid"]})
+    if obj.get("lastupddttm"):
+        overview_rows.append({"label": "Last Updated", "value": str(obj["lastupddttm"])[:19]})
+
+    if overview_rows:
+        sections.append({
+            "id": "overview",
+            "title": "Overview",
+            "type": "kv",
+            "rows": overview_rows,
+        })
+
+    # Run Control Pages
+    pages = obj.get("run_cntl_pages", [])
+    if pages:
+        sections.append({
+            "id": "run_cntl_pages",
+            "title": f"Run Control Pages ({len(pages)})",
+            "type": "chips",
+            "chips": [{"label": p, "cls": "chip-info"} for p in pages],
+        })
+
+    # Process Groups
+    groups = obj.get("prcs_groups", [])
+    if groups:
+        sections.append({
+            "id": "prcs_groups",
+            "title": f"Process Groups ({len(groups)})",
+            "type": "chips",
+            "chips": [{"label": g, "cls": "chip-muted"} for g in groups],
+        })
+
+    return sections
+
+
+def process_defn_payload(env, compound_key):
+    obj = process_defn_object(env, compound_key)
+    if obj is None:
+        return None
+    return {
+        "type": "prcs_defn",
+        "name": obj["name"],
+        "title": obj["title"],
+        "overview": {
+            "prcstype": obj.get("prcstype"),
+            "category": obj.get("category"),
+        },
+        "sections": sections_for_process_defn(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
 def canonical_object(env, object_type, name):
     object_type = object_type.lower()
     if object_type == "component_interface":
@@ -5345,6 +5621,10 @@ def canonical_object(env, object_type, name):
         return pivot_grid_object(env, name)
     if object_type == "connected_query":
         return connected_query_object(env, name)
+    if object_type == "prcs_defn":
+        return process_defn_object(env, name)
+    if object_type == "file_layout":
+        return file_layout_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])

@@ -160,6 +160,8 @@ Continue expanding object coverage.
 - Search Categories (rewritten 2026-06-30 against verified PSPTSF_SRCCAT keyed by PTSF_SRCCAT_NAME)
 - PivotGrid Definitions (added 2026-06-30; PSPGCORE, 154 rows, keyed by PTPG_PGRIDNAME; sub-tables PSPGMODEL/PSPGSETTINGS/PSPGNUIOPT)
 - Connected Query Definitions (added 2026-06-30; PSCONQRSDEFN, 97 rows, keyed by CONQRSNAME; sub-tables PSCONQRSMAP/PSCONQRSFLDREL showing parent-child query composition)
+- Process Definitions (added 2026-06-30; PS_PRCSDEFN, 2873 rows, composite key PRCSTYPE~PRCSNAME; sub-tables PS_PRCSDEFNPNL/PS_PRCSDEFNGRP; types: AE, SQR, XML Publisher, COBOL, Data Mover)
+- File Layout Definitions (added 2026-06-30; PSFLDDEFN, 533 rows, keyed by FLDDEFNNAME; sub-tables PSFLDSEGDEFN/PSFLDFIELDDEFN; formats: Fixed Width, Delimited, XML)
 
 ### ⚠️ Stub Providers (no live backing tables found in verified HCM schema)
 
@@ -406,11 +408,13 @@ New providers should follow the established verification methodology:
 
 Completed in this session:
 - **PivotGrid Explorer** — implemented against verified `PSPGCORE` (154 rows); exposes data model columns, data source type (PS Query vs Component), query name, NUI options
+- **Connected Query Explorer** — implemented against verified `PSCONQRSDEFN` (97 rows); shows parent-child query composition and field join relationships
+- **Process Definition Explorer** — implemented against verified `PS_PRCSDEFN` (2873 rows); composite key PRCSTYPE~PRCSNAME; shows run control pages and process groups
+- **File Layout Explorer** — implemented against verified `PSFLDDEFN` (533 rows); shows segments (PSFLDSEGDEFN) and fields (PSFLDFIELDDEFN); supports Fixed Width/Delimited/XML formats
 
 Candidates for next session:
-- **Activity Guide Collections** — `PS_AGC_TILE_TBL` (2 rows) and related AGC tables found in live schema; low row count but valid definition structure with `agc_tile_id` key
 - **WorkCenters** — no standalone definition header table found; EOWC tables are runtime config keyed by portal object name, not metadata definitions; deprioritized
 - **Dashboards** — no definition tables found (PS_EOEN_DASHBRD/PS_PT_ACMDASHTBL are 0-row log/cache tables); deprioritized
-- **BI Publisher report definitions** — no distinct BI tables found; all PSXP tables are already covered by XML Publisher provider; deprioritized
-
-After those four, the remaining Phase 5 providers are: Branding, Page Composer.
+- **BI Publisher / Branding / Page Composer** — no backing definition tables found in live HCM SYSADM schema; deprioritized
+- **Activity Guide Collections** — `PS_AGC_TILE_TBL` (2 rows): too few rows to be useful
+- **Translate Values** — `PSXLATITEM` (49177 rows): valid candidate if field-level translate lookup is needed

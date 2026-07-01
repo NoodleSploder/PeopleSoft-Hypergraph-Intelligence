@@ -5522,3 +5522,219 @@ def get_connected_query(env_name, conqrsname):
         },
         "warnings": warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# Process Definitions (PS_PRCSDEFN)
+# ---------------------------------------------------------------------------
+
+_PRCS_RUNLOC = {"0": "Server", "1": "Client", "2": "Server"}
+_PRCS_OUTDEST = {
+    "5": "File", "6": "Printer", "8": "E-mail", "9": "Web", "10": "Window",
+    "11": "Default", "12": "Feed",
+}
+
+
+def search_process_definitions(env_name, q="", prcstype="", limit=100):
+    from connectors import ptmetadata
+    warnings = []
+    items = []
+    if not ptmetadata.has_table(env_name, "PS_PRCSDEFN"):
+        warnings.append("PS_PRCSDEFN not found in schema")
+        return {"items": [], "warnings": warnings}
+    try:
+        sql = """
+            SELECT PRCSTYPE, PRCSNAME, DESCR, PRCSCATEGORY, RESTARTENABLED,
+                   LASTUPDDTTM, LASTUPDOPRID
+              FROM SYSADM.PS_PRCSDEFN
+             WHERE (:q IS NULL OR UPPER(PRCSNAME) LIKE UPPER(:q)
+                    OR UPPER(DESCR) LIKE UPPER(:q))
+               AND (:pt IS NULL OR PRCSTYPE = :pt)
+             ORDER BY PRCSTYPE, PRCSNAME
+             FETCH FIRST :lim ROWS ONLY
+        """
+        q_param = f"%{q}%" if q else None
+        pt_param = prcstype if prcstype else None
+        rows = query(env_name, sql, {"q": q_param, "pt": pt_param, "lim": limit})
+        for r in rows:
+            d = dict(r)
+            d["_key"] = f"{d['prcstype']}~{d['prcsname']}"
+            items.append(d)
+    except Exception as exc:
+        warnings.append(f"PS_PRCSDEFN search: {exc}")
+    return {"items": items, "warnings": warnings}
+
+
+def get_process_definition(env_name, compound_key):
+    """compound_key is '{prcstype}~{prcsname}'"""
+    from connectors import ptmetadata
+    warnings = []
+    if "~" not in compound_key:
+        return {"error": f"Invalid key format: {compound_key!r}"}
+
+    sep = compound_key.index("~")
+    prcstype = compound_key[:sep]
+    prcsname = compound_key[sep + 1:]
+
+    if not ptmetadata.has_table(env_name, "PS_PRCSDEFN"):
+        return {"error": "PS_PRCSDEFN not found"}
+
+    # Header
+    defn = None
+    try:
+        rows = query(env_name, """
+            SELECT PRCSTYPE, PRCSNAME, DESCR, PRCSCATEGORY, PARMLIST,
+                   RESTARTENABLED, RETRYCOUNT, TIMEOUTMINUTES, MAXCONCURRENT,
+                   RUNLOCATION, SERVERNAME, MSGLOGTBL, RQSTTBL, RECURNAME,
+                   RETENTIONDAYS, PT_RETENTIONDAYS, OUTDESTTYPE, OUTDEST,
+                   PRCSPRIORITY, PRCSFILENAME, LASTUPDDTTM, LASTUPDOPRID
+              FROM SYSADM.PS_PRCSDEFN
+             WHERE PRCSTYPE = :pt AND PRCSNAME = :pn
+        """, {"pt": prcstype, "pn": prcsname})
+        if not rows:
+            return {"error": f"Process definition not found: {compound_key}"}
+        defn = dict(rows[0])
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    # Run control pages
+    run_cntl_pages = []
+    if ptmetadata.has_table(env_name, "PS_PRCSDEFNPNL"):
+        try:
+            pnl_rows = query(env_name, """
+                SELECT PNLGRPNAME FROM SYSADM.PS_PRCSDEFNPNL
+                 WHERE PRCSTYPE = :pt AND PRCSNAME = :pn
+                   AND TRIM(PNLGRPNAME) IS NOT NULL
+                   AND TRIM(PNLGRPNAME) != ' '
+                 ORDER BY PNLGRPNAME
+            """, {"pt": prcstype, "pn": prcsname})
+            run_cntl_pages = [r["pnlgrpname"].strip() for r in (pnl_rows or []) if r.get("pnlgrpname", "").strip()]
+        except Exception as exc:
+            warnings.append(f"PS_PRCSDEFNPNL: {exc}")
+
+    # Process groups
+    prcs_groups = []
+    if ptmetadata.has_table(env_name, "PS_PRCSDEFNGRP"):
+        try:
+            grp_rows = query(env_name, """
+                SELECT PRCSGRP FROM SYSADM.PS_PRCSDEFNGRP
+                 WHERE PRCSTYPE = :pt AND PRCSNAME = :pn
+                 ORDER BY PRCSGRP
+            """, {"pt": prcstype, "pn": prcsname})
+            prcs_groups = [r["prcsgrp"].strip() for r in (grp_rows or []) if r.get("prcsgrp", "").strip()]
+        except Exception as exc:
+            warnings.append(f"PS_PRCSDEFNGRP: {exc}")
+
+    return {
+        "definition": defn,
+        "run_cntl_pages": run_cntl_pages,
+        "prcs_groups": prcs_groups,
+        "counts": {
+            "run_cntl_pages": len(run_cntl_pages),
+            "prcs_groups": len(prcs_groups),
+        },
+        "warnings": warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# File Layout Definitions (PSFLDDEFN)
+# ---------------------------------------------------------------------------
+
+_FILE_LAYOUT_FMT = {0: "Fixed Width", 1: "Delimited", 2: "XML"}
+
+
+def search_file_layouts(env_name, q="", limit=100):
+    from connectors import ptmetadata
+    warnings = []
+    items = []
+    if not ptmetadata.has_table(env_name, "PSFLDDEFN"):
+        warnings.append("PSFLDDEFN not found in schema")
+        return {"items": [], "warnings": warnings}
+    try:
+        sql = """
+            SELECT FLDDEFNNAME, FLDFORMAT, FLDSEGCOUNT, DESCR, LASTUPDDTTM, LASTUPDOPRID
+              FROM SYSADM.PSFLDDEFN
+             WHERE (:q IS NULL OR UPPER(FLDDEFNNAME) LIKE UPPER(:q)
+                    OR UPPER(DESCR) LIKE UPPER(:q))
+             ORDER BY FLDDEFNNAME
+             FETCH FIRST :lim ROWS ONLY
+        """
+        q_param = f"%{q}%" if q else None
+        rows = query(env_name, sql, {"q": q_param, "lim": limit})
+        for r in rows:
+            d = dict(r)
+            d["fldformat_label"] = _FILE_LAYOUT_FMT.get(d.get("fldformat"), "Unknown")
+            items.append(d)
+    except Exception as exc:
+        warnings.append(f"PSFLDDEFN search: {exc}")
+    return {"items": items, "warnings": warnings}
+
+
+def get_file_layout(env_name, flddefnname):
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env_name, "PSFLDDEFN"):
+        return {"error": "PSFLDDEFN not found"}
+
+    # Header
+    defn = None
+    try:
+        rows = query(env_name, """
+            SELECT FLDDEFNNAME, FLDFORMAT, FLDSEGCOUNT, DESCR, DESCRLONG,
+                   FLDTAG, FLDQUALIFIER, FLDDELIMITERTYPE, FLDDELIMITER,
+                   FLDIMPLYDECIMAL, FLDEXCELFORMAT, FLDCONVERTTABS, FLDFILENAME,
+                   FLDSEGID, FLDSEGIDSTART, FLDSEGIDLENGTH,
+                   LASTUPDDTTM, LASTUPDOPRID
+              FROM SYSADM.PSFLDDEFN
+             WHERE FLDDEFNNAME = :id
+        """, {"id": flddefnname.upper()})
+        if not rows:
+            return {"error": f"File layout not found: {flddefnname}"}
+        defn = dict(rows[0])
+        defn["fldformat_label"] = _FILE_LAYOUT_FMT.get(defn.get("fldformat"), "Unknown")
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    # Segments
+    segments = []
+    if ptmetadata.has_table(env_name, "PSFLDSEGDEFN"):
+        try:
+            seg_rows = query(env_name, """
+                SELECT FLDSEGNAME, FLDSEGID, FLDSEGPARENT, FLDSEQNO,
+                       FLDFIELDCOUNT, FLDMAXSEGLEN, RECNAME_FILE, DESCR100,
+                       FLDDELIMITER, FLDQUALIFIER
+                  FROM SYSADM.PSFLDSEGDEFN
+                 WHERE FLDDEFNNAME = :id
+                 ORDER BY FLDSEQNO, FLDSEGNAME
+            """, {"id": flddefnname.upper()})
+            segments = [dict(r) for r in (seg_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSFLDSEGDEFN: {exc}")
+
+    # Fields (top-level segment fields, limited to keep response manageable)
+    fields = []
+    if ptmetadata.has_table(env_name, "PSFLDFIELDDEFN"):
+        try:
+            fld_rows = query(env_name, """
+                SELECT FLDSEGNAME, FLDFIELDNAME, FLDSEQNO, FLDSTART,
+                       FLDLENGTH, FLDFIELDTYPE, DESCR100, FLDTAG
+                  FROM SYSADM.PSFLDFIELDDEFN
+                 WHERE FLDDEFNNAME = :id
+                 ORDER BY FLDSEGNAME, FLDSEQNO
+                 FETCH FIRST 200 ROWS ONLY
+            """, {"id": flddefnname.upper()})
+            fields = [dict(r) for r in (fld_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSFLDFIELDDEFN: {exc}")
+
+    return {
+        "definition": defn,
+        "segments": segments,
+        "fields": fields,
+        "counts": {
+            "segments": len(segments),
+            "fields": len(fields),
+        },
+        "warnings": warnings,
+    }

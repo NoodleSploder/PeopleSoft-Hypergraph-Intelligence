@@ -730,6 +730,33 @@ OBJECT_REGISTRY.setdefault("connected_query", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("file_layout", {
+    "display_title": "File Layout",
+    "icon": "file-text",
+    "graph_node_type": "file_layout",
+    "object_page": "/admin/filelayout",
+    "discovery": {"table": "PSFLDDEFN", "name_column": "FLDDEFNNAME"},
+    "search": {"table": "PSFLDDEFN", "name_column": "FLDDEFNNAME",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["FLDFORMAT"]},
+    "supported_versions": ["8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+# Compound key: "{PRCSTYPE}~{PRCSNAME}" — PRCSNAME alone is not unique across types
+OBJECT_REGISTRY.setdefault("prcs_defn", {
+    "display_title": "Process Definition",
+    "icon": "cpu",
+    "graph_node_type": "prcs_defn",
+    "object_page": "/admin/prcsdefn",
+    "discovery": {"table": "PS_PRCSDEFN", "name_column": "PRCSNAME"},
+    "search": {"table": "PS_PRCSDEFN", "name_column": "PRCSNAME",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["PRCSTYPE", "PRCSCATEGORY"]},
+    "supported_versions": ["8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 for object_type in [
     "content_reference",
     "section",

@@ -926,6 +926,40 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "connected_query", cid, r.get("descr") or cid, r)
         return len(rows)
 
+    def file_layouts():
+        if not ptmetadata.has_table(env, "PSFLDDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT FLDDEFNNAME, FLDFORMAT, FLDSEGCOUNT, DESCR
+              FROM SYSADM.PSFLDDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY FLDDEFNNAME
+        """) or []
+        for r in rows:
+            fid = r.get("flddefnname")
+            if not fid:
+                continue
+            add_node(graph, "file_layout", fid, r.get("descr") or fid, r)
+        return len(rows)
+
+    def process_definitions():
+        if not ptmetadata.has_table(env, "PS_PRCSDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT PRCSTYPE, PRCSNAME, DESCR, PRCSCATEGORY
+              FROM SYSADM.PS_PRCSDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY PRCSTYPE, PRCSNAME
+        """) or []
+        for r in rows:
+            pname = r.get("prcsname")
+            ptype = r.get("prcstype", "")
+            if not pname:
+                continue
+            key = f"{ptype}~{pname}"
+            add_node(graph, "prcs_defn", key, r.get("descr") or pname, r)
+        return len(rows)
+
     for name, loader in (
         ("operators", operators),
         ("roles", roles),
@@ -952,6 +986,8 @@ def build(env="HCM", limit=50, persist=True):
         ("drop_zones", drop_zones),
         ("pivot_grids", pivot_grids),
         ("connected_queries", connected_queries),
+        ("file_layouts", file_layouts),
+        ("process_definitions", process_definitions),
     ):
         provider(graph, name, loader)
 

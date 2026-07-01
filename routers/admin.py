@@ -29,6 +29,8 @@ _NAV = [
     ("dropzone",   "Drop Zones",    "/admin/dropzone"),
     ("pivotgrid",  "PivotGrids",    "/admin/pivotgrid"),
     ("conqrs",     "Conn. Queries", "/admin/conqrs"),
+    ("prcsdefn",   "Processes",     "/admin/prcsdefn"),
+    ("filelayout", "File Layouts",  "/admin/filelayout"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -3053,6 +3055,8 @@ const TYPE_CHIP_CFG = {
     drop_zone:               {label:'Drop Zone',     bg:'#1a1000',border:'#ee880044',color:'#ee8800'},
     pivot_grid:              {label:'PivotGrid',     bg:'#0a1a10',border:'#22cc6644',color:'#22cc66'},
     connected_query:         {label:'Conn. Query',   bg:'#001018',border:'#00ccee44',color:'#00ccee'},
+    prcs_defn:               {label:'Process Def',   bg:'#100a18',border:'#aa66ff44',color:'#aa66ff'},
+    file_layout:             {label:'File Layout',   bg:'#0a1218',border:'#44aaff44',color:'#44aaff'},
 };
 
 function typeChipHtml(type) {
@@ -12663,3 +12667,312 @@ async function selectCQ(conqrsname, idx) {
 
 doSearch();
 </script>""")
+
+
+@router.get("/admin/prcsdefn")
+def admin_prcsdefn(request: Request, env: str = "HCM"):
+    nav = _nav_html("prcsdefn", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Process Definitions</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#0d0d11;color:#ccd;font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}}
+{_NAV_CSS}
+.shell{{display:flex;flex:1;overflow:hidden}}
+.sidebar{{width:300px;min-width:220px;border-right:1px solid #222;display:flex;flex-direction:column;overflow:hidden}}
+.filters{{padding:10px;border-bottom:1px solid #1a1a22}}
+.filters input,.filters select{{width:100%;background:#111;border:1px solid #333;color:#ccd;padding:5px 8px;border-radius:3px;font-size:12px;margin-bottom:6px}}
+.list{{overflow-y:auto;flex:1;padding:4px 0}}
+.item{{padding:7px 12px;cursor:pointer;border-left:3px solid transparent;transition:background .1s}}
+.item:hover{{background:#151520}}
+.item.sel{{background:#12121e;border-left-color:#aa66ff}}
+.item-name{{font-family:monospace;font-size:12px;color:#aa66ff;font-weight:bold}}
+.item-meta{{font-size:10px;color:#556;margin-top:2px}}
+.item-descr{{font-size:11px;color:#889;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.detail{{flex:1;overflow-y:auto;padding:20px}}
+.muted{{color:#445;font-size:12px;padding:20px}}
+h2{{color:#aa66ff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:16px 0 6px;padding-bottom:4px;border-bottom:1px solid #1e1e2a}}
+.kv-grid{{display:grid;grid-template-columns:140px 1fr;gap:4px 10px;font-size:12px;margin-bottom:10px}}
+.kv-key{{color:#556;padding-top:1px}}
+.kv-val{{color:#aab;font-family:monospace;word-break:break-all}}
+.chip{{display:inline-block;padding:1px 7px;border-radius:2px;font-size:10px;font-weight:bold;margin:1px 3px 1px 0;white-space:nowrap}}
+.chip-ok{{background:#0a1a0a;border:1px solid #22cc6644;color:#22cc66}}
+.chip-info{{background:#001018;border:1px solid #00ccee44;color:#00ccee}}
+.chip-muted{{background:#1a1a1a;border:1px solid #33333388;color:#778}}
+.chip-purple{{background:#100a18;border:1px solid #aa66ff44;color:#aa66ff}}
+.stat{{display:inline-block;margin-right:14px;font-size:11px;color:#556}}
+.stat b{{color:#aa66ff;font-size:14px;margin-right:4px}}
+.field-row{{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #1a1a22;font-size:12px}}
+.type-badge{{display:inline-block;padding:1px 7px;border-radius:2px;font-size:10px;font-weight:bold;border:1px solid #aa66ff44;background:#100a18;color:#aa66ff;margin-right:6px}}
+</style></head>
+<body>
+{nav}
+<div class="shell">
+  <div class="sidebar">
+    <div class="filters">
+      <input id="qInput" placeholder="Search name / description…" oninput="doSearch()">
+      <select id="typeFilter" onchange="doSearch()">
+        <option value="">All Types</option>
+        <option value="Application Engine">Application Engine</option>
+        <option value="SQR Report">SQR Report</option>
+        <option value="XML Publisher">XML Publisher</option>
+        <option value="COBOL SQL">COBOL SQL</option>
+        <option value="SQR Process">SQR Process</option>
+        <option value="SQR Report For WF Delivery">SQR/WF Delivery</option>
+        <option value="Data Mover">Data Mover</option>
+      </select>
+    </div>
+    <div class="list" id="list"></div>
+  </div>
+  <div class="detail" id="detail"><div class="muted">Select a process definition.</div></div>
+</div>
+<script>
+const ENV = {repr(env)};
+let _all = [], _sel = -1;
+
+async function api(url) {{
+  try {{ const r = await fetch(url); return r.ok ? r.json() : null; }} catch {{ return null; }}
+}}
+function esc(s) {{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }}
+function chip(cls, label) {{ return `<span class="chip ${{cls}}">${{esc(label)}}</span>`; }}
+
+function typeChip(t) {{
+  const cls = {{
+    'Application Engine':'chip-ok','SQR Report':'chip-info','XML Publisher':'chip-info',
+    'COBOL SQL':'chip-muted','SQR Process':'chip-muted','Data Mover':'chip-muted',
+    'SQR Report For WF Delivery':'chip-muted'
+  }}[t] || 'chip-muted';
+  return chip(cls, t);
+}}
+
+async function doSearch() {{
+  const q = document.getElementById('qInput').value;
+  const prcstype = document.getElementById('typeFilter').value;
+  const data = await api(`/api/peoplesoft/process-definitions?env=${{ENV}}&q=${{encodeURIComponent(q)}}&prcstype=${{encodeURIComponent(prcstype)}}&limit=500`);
+  _all = (data?.items || []);
+  const list = document.getElementById('list');
+  list.innerHTML = _all.map((it, i) => `
+    <div class="item" id="item-${{i}}" onclick="selectItem(${{i}}, '${{encodeURIComponent(it._key)}}')">
+      <div class="item-name">${{esc(it.prcsname)}}</div>
+      <div class="item-meta">${{esc(it.prcstype)}}</div>
+      <div class="item-descr">${{esc(it.descr||'')}}</div>
+    </div>`).join('');
+}}
+
+async function selectItem(idx, key) {{
+  _sel = idx;
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${{idx}}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api(`/api/peoplesoft/object/prcs_defn/${{key}}?env=${{ENV}}`);
+  if (!d) {{ detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }}
+
+  const uom = d._uom || {{}};
+  const sections = d.sections || [];
+  const ovSec = sections.find(s => s.id === 'overview');
+  const pgSec = sections.find(s => s.id === 'run_cntl_pages');
+  const grpSec = sections.find(s => s.id === 'prcs_groups');
+  const counts = uom.counts || {{}};
+
+  let html = `<div style="margin-bottom:12px">
+    ${{typeChip(uom.prcstype||'')}}
+    <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#aa66ff">${{esc(uom.prcsname||'')}}</span>
+  </div>`;
+
+  if (uom.title && uom.title !== uom.prcsname) {{
+    html += `<div style="color:#889;font-size:13px;margin-bottom:12px">${{esc(uom.title)}}</div>`;
+  }}
+
+  const ovRows = (ovSec?.rows || []).filter(r => !['Type'].includes(r.label));
+  if (ovRows.length) {{
+    html += `<div class="kv-grid">`;
+    for (const row of ovRows) {{
+      const val = row.value ? esc(String(row.value)) :
+        (row.chips||[]).map(c => chip(c.cls||'chip-info', c.label)).join('') || '';
+      html += `<div class="kv-key">${{esc(row.label)}}</div><div class="kv-val">${{val}}</div>`;
+    }}
+    html += `</div>`;
+  }}
+
+  html += `<div style="margin:10px 0">`
+    + `<span class="stat"><b>${{counts.run_cntl_pages||0}}</b>Run Control Pages</span>`
+    + `<span class="stat"><b>${{counts.prcs_groups||0}}</b>Process Groups</span>`
+    + `</div>`;
+
+  if (pgSec?.chips?.length) {{
+    html += `<h2>Run Control Pages</h2>`;
+    html += pgSec.chips.map(c => chip('chip-info', c.label)).join(' ');
+  }}
+  if (grpSec?.chips?.length) {{
+    html += `<h2>Process Groups</h2>`;
+    html += grpSec.chips.map(c => chip('chip-muted', c.label)).join(' ');
+  }}
+
+  if (!ovRows.length && !pgSec && !grpSec) {{
+    html += `<div class="muted">No detail available.</div>`;
+  }}
+
+  detail.innerHTML = html;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/filelayout")
+def admin_filelayout(request: Request, env: str = "HCM"):
+    nav = _nav_html("filelayout", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>File Layouts</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#0d0d11;color:#ccd;font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}}
+{_NAV_CSS}
+.shell{{display:flex;flex:1;overflow:hidden}}
+.sidebar{{width:300px;min-width:220px;border-right:1px solid #222;display:flex;flex-direction:column;overflow:hidden}}
+.filters{{padding:10px;border-bottom:1px solid #1a1a22}}
+.filters input{{width:100%;background:#111;border:1px solid #333;color:#ccd;padding:5px 8px;border-radius:3px;font-size:12px}}
+.list{{overflow-y:auto;flex:1;padding:4px 0}}
+.item{{padding:7px 12px;cursor:pointer;border-left:3px solid transparent;transition:background .1s}}
+.item:hover{{background:#151520}}
+.item.sel{{background:#12121e;border-left-color:#44aaff}}
+.item-name{{font-family:monospace;font-size:12px;color:#44aaff;font-weight:bold}}
+.item-meta{{font-size:10px;color:#556;margin-top:2px}}
+.item-descr{{font-size:11px;color:#889;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.detail{{flex:1;overflow-y:auto;padding:20px}}
+.muted{{color:#445;font-size:12px;padding:20px}}
+h2{{color:#44aaff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:16px 0 6px;padding-bottom:4px;border-bottom:1px solid #1e1e2a}}
+.kv-grid{{display:grid;grid-template-columns:140px 1fr;gap:4px 10px;font-size:12px;margin-bottom:10px}}
+.kv-key{{color:#556;padding-top:1px}}
+.kv-val{{color:#aab;font-family:monospace;word-break:break-all}}
+.chip{{display:inline-block;padding:1px 7px;border-radius:2px;font-size:10px;font-weight:bold;margin:1px 3px 1px 0;white-space:nowrap}}
+.chip-ok{{background:#0a1a0a;border:1px solid #22cc6644;color:#22cc66}}
+.chip-info{{background:#001018;border:1px solid #00ccee44;color:#00ccee}}
+.chip-muted{{background:#1a1a1a;border:1px solid #33333388;color:#778}}
+.chip-blue{{background:#0a1218;border:1px solid #44aaff44;color:#44aaff}}
+.stat{{display:inline-block;margin-right:14px;font-size:11px;color:#556}}
+.stat b{{color:#44aaff;font-size:14px;margin-right:4px}}
+.field-row{{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #1a1a22;font-size:12px}}
+.seg-header{{background:#0d1220;border:1px solid #1a2a3a;border-radius:3px;padding:6px 10px;margin:8px 0 4px;font-family:monospace;font-size:12px;color:#44aaff;font-weight:bold}}
+.seg-meta{{color:#556;font-size:10px;margin-left:8px;font-weight:normal}}
+</style></head>
+<body>
+{nav}
+<div class="shell">
+  <div class="sidebar">
+    <div class="filters">
+      <input id="qInput" placeholder="Search name / description…" oninput="doSearch()">
+    </div>
+    <div class="list" id="list"></div>
+  </div>
+  <div class="detail" id="detail"><div class="muted">Select a file layout.</div></div>
+</div>
+<script>
+const ENV = {repr(env)};
+let _all = [];
+
+async function api(url) {{
+  try {{ const r = await fetch(url); return r.ok ? r.json() : null; }} catch {{ return null; }}
+}}
+function esc(s) {{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }}
+function chip(cls, label) {{ return `<span class="chip ${{cls}}">${{esc(label)}}</span>`; }}
+
+function fmtChip(fmt) {{
+  const cls = {{Fixed:' Width':'chip-info',Delimited:'chip-ok',XML:'chip-ok'}}[fmt] || 'chip-muted';
+  const map = {{'Fixed Width':'chip-info','Delimited':'chip-ok','XML':'chip-ok'}};
+  return chip(map[fmt]||'chip-muted', fmt||'?');
+}}
+
+function fieldTypeLabel(t) {{
+  return [,'Number','Date','Time','DateTime','','Image'][t] || 'Char';
+}}
+
+async function doSearch() {{
+  const q = document.getElementById('qInput').value;
+  const data = await api(`/api/peoplesoft/file-layouts?env=${{ENV}}&q=${{encodeURIComponent(q)}}&limit=500`);
+  _all = (data?.items || []);
+  const list = document.getElementById('list');
+  list.innerHTML = _all.map((it, i) => `
+    <div class="item" id="item-${{i}}" onclick="selectItem(${{i}}, '${{encodeURIComponent(it.flddefnname)}}')">
+      <div class="item-name">${{esc(it.flddefnname)}}</div>
+      <div class="item-meta">${{esc(it.fldformat_label||'')}}</div>
+      <div class="item-descr">${{esc(it.descr||'')}}</div>
+    </div>`).join('');
+}}
+
+async function selectItem(idx, name) {{
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${{idx}}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api(`/api/peoplesoft/object/file_layout/${{name}}?env=${{ENV}}`);
+  if (!d) {{ detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }}
+
+  const uom = d._uom || {{}};
+  const sections = d.sections || [];
+  const ovSec = sections.find(s => s.id === 'overview');
+  const segSec = sections.find(s => s.id === 'segments');
+  const fieldSecs = sections.filter(s => s.id.startsWith('fields_'));
+  const counts = uom.counts || {{}};
+
+  let html = `<div style="margin-bottom:12px">
+    ${{fmtChip(uom.format)}}
+    <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#44aaff">${{esc(uom.name||'')}}</span>
+  </div>`;
+
+  if (uom.title && uom.title !== uom.name) {{
+    html += `<div style="color:#889;font-size:13px;margin-bottom:12px">${{esc(uom.title)}}</div>`;
+  }}
+
+  const ovRows = (ovSec?.rows || []).filter(r => r.label !== 'Format');
+  if (ovRows.length) {{
+    html += `<div class="kv-grid">`;
+    for (const row of ovRows) {{
+      const val = row.value ? esc(String(row.value)) :
+        (row.chips||[]).map(c => chip(c.cls||'chip-info', c.label)).join('') || '';
+      html += `<div class="kv-key">${{esc(row.label)}}</div><div class="kv-val">${{val}}</div>`;
+    }}
+    html += `</div>`;
+  }}
+
+  html += `<div style="margin:10px 0">`
+    + `<span class="stat"><b>${{counts.segments||0}}</b>Segments</span>`
+    + `<span class="stat"><b>${{counts.fields||0}}</b>Fields</span>`
+    + `</div>`;
+
+  if (segSec?.items?.length) {{
+    html += `<h2>Segments</h2>`;
+    for (const seg of segSec.items) {{
+      html += `<div class="seg-header">${{esc(seg.name)}}${{seg.meta ? `<span class="seg-meta">${{esc(seg.meta)}}</span>` : ''}}</div>`;
+    }}
+  }}
+
+  for (const fsec of fieldSecs) {{
+    if (fsec.items?.length) {{
+      html += `<h2>${{esc(fsec.title)}}</h2>`;
+      html += fsec.items.map(f =>
+        `<div class="field-row">
+           <span style="font-family:monospace;color:#aad;min-width:160px">${{esc(f.name)}}</span>
+           ${{(f.chips||[]).map(c => chip(c.cls||'chip-muted', c.label)).join('')}}
+           ${{f.meta ? `<span style="color:#445;font-size:10px">${{esc(f.meta)}}</span>` : ''}}
+         </div>`
+      ).join('');
+    }}
+  }}
+
+  if (!ovRows.length && !segSec) {{
+    html += `<div class="muted">No detail available.</div>`;
+  }}
+
+  detail.innerHTML = html;
+}}
+
+doSearch();
+</script>
+</body></html>""")

@@ -371,6 +371,11 @@ def object_payload(env, object_type, object_name):
     if object_type == "connected_query":
         return uom.connected_query_payload(env, object_name)
 
+    if object_type == "prcs_defn":
+        return uom.process_defn_payload(env, object_name)
+    if object_type == "file_layout":
+        return uom.file_layout_payload(env, object_name)
+
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
 
@@ -1122,6 +1127,18 @@ def peoplesoft_pivot_grids(env: str = "HCM", q: str = "", limit: int = 100):
 def peoplesoft_connected_queries(env: str = "HCM", q: str = "", limit: int = 100):
     """Search Connected Query definitions (PSCONQRSDEFN)."""
     return psdb.search_connected_queries(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/process-definitions")
+def peoplesoft_process_definitions(env: str = "HCM", q: str = "", prcstype: str = "", limit: int = 200):
+    """Search Process Scheduler definitions (PS_PRCSDEFN)."""
+    return psdb.search_process_definitions(env, q=q, prcstype=prcstype, limit=limit)
+
+
+@router.get("/api/peoplesoft/file-layouts")
+def peoplesoft_file_layouts(env: str = "HCM", q: str = "", limit: int = 200):
+    """Search File Layout definitions (PSFLDDEFN)."""
+    return psdb.search_file_layouts(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/security/reports")
