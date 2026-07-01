@@ -27,6 +27,8 @@ _NAV = [
     ("srchdef",    "Search Defs",   "/admin/srchdef"),
     ("srchcat",    "Search Cats",   "/admin/srchcat"),
     ("dropzone",   "Drop Zones",    "/admin/dropzone"),
+    ("pivotgrid",  "PivotGrids",    "/admin/pivotgrid"),
+    ("conqrs",     "Conn. Queries", "/admin/conqrs"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -3049,6 +3051,8 @@ const TYPE_CHIP_CFG = {
     search_definition:      {label:'Search Def',    bg:'#001820',border:'#2299ee44',color:'#2299ee'},
     search_category:        {label:'Search Cat',    bg:'#10001a',border:'#7744ee44',color:'#7744ee'},
     drop_zone:               {label:'Drop Zone',     bg:'#1a1000',border:'#ee880044',color:'#ee8800'},
+    pivot_grid:              {label:'PivotGrid',     bg:'#0a1a10',border:'#22cc6644',color:'#22cc66'},
+    connected_query:         {label:'Conn. Query',   bg:'#001018',border:'#00ccee44',color:'#00ccee'},
 };
 
 function typeChipHtml(type) {
@@ -12379,6 +12383,279 @@ async function selectDz(dzname, idx) {
          </div>`
       ).join('');
     }
+  }
+
+  detail.innerHTML = html;
+}
+
+doSearch();
+</script>""")
+
+@router.get("/pivotgrid", response_class=HTMLResponse)
+def admin_pivotgrid():
+    return _shell("PivotGrid Explorer", "pivotgrid", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#22cc66;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #22cc6633;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #22cc6622;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;min-width:220px;border-right:1px solid #22cc6622;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input{background:#0b1b24;color:#d7faff;border:1px solid #22cc6644;padding:5px 8px;font-size:12px}
+input:focus{outline:none;border-color:#22cc66}
+button{background:#22cc66;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(34,204,102,.07);border-left-color:#22cc6655}
+.item.sel{background:rgba(34,204,102,.12);border-left-color:#22cc66}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;margin-right:3px}
+.chip-ok{background:#002800;border:1px solid #22cc6644;color:#22cc66}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778}
+.chip-info{background:#0a1a10;border:1px solid #22cc6644;color:#22cc66}
+.stat{display:inline-block;padding:4px 12px;border:1px solid #22cc6633;background:#0a1a10;font-size:11px;margin:2px}
+.stat b{color:#22cc66;font-size:16px;display:block}
+.kv-grid{display:grid;grid-template-columns:140px 1fr;gap:3px 12px;font-size:12px;margin-bottom:10px}
+.kv-key{color:#556;text-align:right;padding-top:2px}
+.kv-val{color:#d7faff;font-family:monospace}
+.field-row{padding:5px 10px;border-bottom:1px solid #0a1a10;font-size:11px;display:flex;gap:8px;align-items:baseline}
+.field-row:hover{background:#061410}
+a{color:#22cc66;text-decoration:none} a:hover{text-decoration:underline}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="pgSearch" type="text" placeholder="Search PivotGrid name or title..." style="width:280px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>PivotGrids</h2>
+    <div id="list" class="muted">Search to load PivotGrids.</div>
+  </div>
+  <div class="content">
+    <h2>Selected PivotGrid</h2>
+    <div id="detail" class="muted">Select a PivotGrid from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function chip(cls, label) { return `<span class="chip ${esc(cls)}">${esc(label)}</span>`; }
+function typeChip(dstype) { return dstype ? chip('chip-info', dstype) : ''; }
+
+async function doSearch() {
+  const q = document.getElementById('pgSearch').value.trim();
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading...</div>';
+  const params = new URLSearchParams({env: ENV, limit: 200});
+  if (q) params.set('q', q);
+  const d = await api(`/api/peoplesoft/pivot-grids?${params}`);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
+  const items = d.items || [];
+  document.getElementById('stats').textContent = `${items.length} result${items.length !== 1 ? 's' : ''}`;
+  if (!items.length) { list.innerHTML = '<div class="muted">No PivotGrids found.</div>'; return; }
+  list.innerHTML = items.map((r, i) =>
+    `<div class="item" id="item-${i}" onclick="selectPG('${esc(r.ptpg_pgridname)}', ${i})">
+       <div class="item-name">${esc(r.ptpg_pgridname)}</div>
+       <div class="item-meta">${esc((r.ptpg_pgridtitle||'').slice(0,60))}</div>
+     </div>`
+  ).join('');
+}
+
+async function selectPG(pgridname, idx) {
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${idx}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api(`/api/peoplesoft/object/pivot_grid/${encodeURIComponent(pgridname)}?env=${ENV}`);
+  if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
+
+  const ov = d.overview || {};
+  const adminUrl = `/admin/object/pivot_grid/${esc(pgridname)}`;
+  const sections = d.sections || [];
+  const overviewSec = sections.find(s => s.id === 'overview') || {};
+  const rows = overviewSec.rows || [];
+  const colsSec = sections.find(s => s.id === 'columns');
+
+  let html = `
+    <div style="margin-bottom:12px">
+      ${typeChip(ov.ds_type)}
+      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#22cc66">${esc(pgridname)}</span>
+      &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
+    </div>`;
+
+  if (rows.length) {
+    html += `<div class="kv-grid">`;
+    for (const row of rows) {
+      html += `<div class="kv-key">${esc(row.label)}</div><div class="kv-val">${esc(String(row.value||''))}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  const counts = d._uom?._raw?.counts || {};
+  html += `<div style="margin:10px 0">`
+    + `<span class="stat"><b>${counts.columns||0}</b>Columns</span>`
+    + `</div>`;
+
+  if (colsSec && (colsSec.items||[]).length) {
+    html += `<h2>${esc(colsSec.title)}</h2>`;
+    html += colsSec.items.map(it =>
+      `<div class="field-row">
+         <span style="font-family:monospace;color:#d7faff">${esc(it.name)}</span>
+         ${(it.chips||[]).map(c => chip(c.cls||'chip-info', c.label)).join('')}
+         ${it.meta ? `<span style="color:#556;font-size:10px">${esc(it.meta)}</span>` : ''}
+       </div>`
+    ).join('');
+  }
+
+  if (!rows.length && !colsSec) {
+    html += `<div class="muted">No detail available.</div>`;
+  }
+
+  detail.innerHTML = html;
+}
+
+doSearch();
+</script>""")
+
+@router.get("/conqrs", response_class=HTMLResponse)
+def admin_conqrs():
+    return _shell("Connected Query Explorer", "conqrs", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#00ccee;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00ccee33;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #00ccee22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;min-width:220px;border-right:1px solid #00ccee22;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input{background:#0b1b24;color:#d7faff;border:1px solid #00ccee44;padding:5px 8px;font-size:12px}
+input:focus{outline:none;border-color:#00ccee}
+button{background:#00ccee;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(0,204,238,.07);border-left-color:#00ccee55}
+.item.sel{background:rgba(0,204,238,.12);border-left-color:#00ccee}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;margin-right:3px}
+.chip-ok{background:#002800;border:1px solid #00cc6644;color:#00cc66}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778}
+.chip-info{background:#001018;border:1px solid #00ccee44;color:#00ccee}
+.stat{display:inline-block;padding:4px 12px;border:1px solid #00ccee33;background:#001018;font-size:11px;margin:2px}
+.stat b{color:#00ccee;font-size:16px;display:block}
+.kv-grid{display:grid;grid-template-columns:140px 1fr;gap:3px 12px;font-size:12px;margin-bottom:10px}
+.kv-key{color:#556;text-align:right;padding-top:2px}
+.kv-val{color:#d7faff;font-family:monospace}
+.field-row{padding:5px 10px;border-bottom:1px solid #001018;font-size:11px;display:flex;gap:8px;align-items:baseline}
+.field-row:hover{background:#020c14}
+a{color:#00ccee;text-decoration:none} a:hover{text-decoration:underline}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="cqSearch" type="text" placeholder="Search Connected Query name or description..." style="width:280px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Connected Queries</h2>
+    <div id="list" class="muted">Search to load Connected Queries.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Connected Query</h2>
+    <div id="detail" class="muted">Select a query from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function chip(cls, label) { return `<span class="chip ${esc(cls)}">${esc(label)}</span>`; }
+function statusChip(label) {
+  if (!label) return '';
+  return chip(label === 'Active' ? 'chip-ok' : 'chip-muted', label);
+}
+
+async function doSearch() {
+  const q = document.getElementById('cqSearch').value.trim();
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading...</div>';
+  const params = new URLSearchParams({env: ENV, limit: 200});
+  if (q) params.set('q', q);
+  const d = await api(`/api/peoplesoft/connected-queries?${params}`);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
+  const items = d.items || [];
+  document.getElementById('stats').textContent = `${items.length} result${items.length !== 1 ? 's' : ''}`;
+  if (!items.length) { list.innerHTML = '<div class="muted">No Connected Queries found.</div>'; return; }
+  list.innerHTML = items.map((r, i) =>
+    `<div class="item" id="item-${i}" onclick="selectCQ('${esc(r.conqrsname)}', ${i})">
+       <div class="item-name">${esc(r.conqrsname)}</div>
+       <div class="item-meta">${esc((r.descr||'').slice(0,60))}</div>
+     </div>`
+  ).join('');
+}
+
+async function selectCQ(conqrsname, idx) {
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${idx}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api(`/api/peoplesoft/object/connected_query/${encodeURIComponent(conqrsname)}?env=${ENV}`);
+  if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
+
+  const ov = d.overview || {};
+  const adminUrl = `/admin/object/connected_query/${esc(conqrsname)}`;
+  const sections = d.sections || [];
+  const overviewSec = sections.find(s => s.id === 'overview') || {};
+  const rows = overviewSec.rows || [];
+  const qmapSec = sections.find(s => s.id === 'query_map');
+  const fjSec = sections.find(s => s.id === 'field_joins');
+
+  let html = `
+    <div style="margin-bottom:12px">
+      ${statusChip(ov.status)}
+      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#00ccee">${esc(conqrsname)}</span>
+      &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
+    </div>`;
+
+  if (rows.length) {
+    html += `<div class="kv-grid">`;
+    for (const row of rows) {
+      html += `<div class="kv-key">${esc(row.label)}</div><div class="kv-val">${esc(String(row.value||''))}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  const counts = d._uom?._raw?.counts || {};
+  html += `<div style="margin:10px 0">`
+    + `<span class="stat"><b>${counts.sub_queries||0}</b>Queries</span>`
+    + `<span class="stat"><b>${counts.field_joins||0}</b>Field Joins</span>`
+    + `</div>`;
+
+  for (const sec of [qmapSec, fjSec]) {
+    if (sec && (sec.items||[]).length) {
+      html += `<h2>${esc(sec.title)}</h2>`;
+      html += sec.items.map(it =>
+        `<div class="field-row">
+           <span style="font-family:monospace;color:#d7faff">${esc(it.name)}</span>
+           ${(it.chips||[]).map(c => chip(c.cls||'chip-info', c.label)).join('')}
+           ${it.meta ? `<span style="color:#556;font-size:10px">${esc(it.meta)}</span>` : ''}
+         </div>`
+      ).join('');
+    }
+  }
+
+  if (!rows.length && !qmapSec) {
+    html += `<div class="muted">No detail available.</div>`;
   }
 
   detail.innerHTML = html;

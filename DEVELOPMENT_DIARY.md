@@ -2417,3 +2417,47 @@ All four already had `has_table()` guards in psdb.py and graphdb.py producing gr
 **`ROADMAP.md`**: Corrected Completed Providers list; added ⚠️ Stub Providers section; rewrote Next Slice section with verification methodology and verified HomepageTile table candidates (`PS_AGC_TILE_TBL`, `PS_HCTS_TILE_SEC` found in live schema).
 
 **Verification:** `python -m py_compile` on all six files → ALL OK. `uom.search_category_payload('HCM', 'DOES_NOT_EXIST_XYZ')` → `None` (graceful not-found).
+
+---
+
+## PivotGrid Explorer (PSPGCORE) — 2026-06-30
+
+Implemented the PivotGrid vertical slice. Schema verified against live HCM: `PSPGCORE` (154 rows, all type `PUB`, keyed by `PTPG_PGRIDNAME`). Data source breakdown: 140 PS Query, 14 Component. For PS Query grids, the actual query name is stored in `PSPGSETTINGS` WHERE `PTPG_DSNAME='QRYNAME'`. Data model columns in `PSPGMODEL` (3228 rows, 3 column types: `DIM`=Dimension, `DISO`=Display Only, `VAL`=Value). NUI/UI options in `PSPGNUIOPT` (137 rows, includes view name, access group, component mapping, publish-as-tile and share flags).
+
+Pre-investigation found no viable backing tables for Dashboards (PS_EOEN_DASHBRD/PS_PT_ACMDASHTBL both 0 rows), WorkCenters (EOWC tables are runtime config with no header definition table), or BI Publisher (no distinct tables — PSXP family already covered by XML Publisher). PivotGrid was the only well-populated definition table found in the Phase 5 candidate set.
+
+**`connectors/psdb.py`**: `_PTPG_DSTYPE`/`_PTPG_COLTYPE` dicts; `search_pivot_grids(env, q, limit)` querying `PSPGCORE`; `get_pivot_grid(env, pgridname)` fetching definition + PSPGSETTINGS datasource name + PSPGMODEL columns + PSPGNUIOPT options. Returns `{definition, datasource_name, columns, nui_opts, counts, warnings}`.
+
+**`connectors/ptmetadata.py`**: `OBJECT_REGISTRY.setdefault("pivot_grid", {...})` with `PSPGCORE`/`PTPG_PGRIDNAME` discovery/search tables, icon `bar-chart-2`, versions 8.54–8.62.
+
+**`connectors/uom.py`**: `_PTPG_DSTYPE_CHIP`, `_PTPG_COLTYPE_CHIP`; `pivot_grid_object()`, `sections_for_pivot_grid()`, `pivot_grid_payload()`; dispatched in `canonical_object()`. Sections: Overview (name, title, data source type+name, view, access group, component mapping, publish-as-tile, owner, validity, timestamps) / Data Model Columns (type chip DIM/DISO/VAL, format as meta).
+
+**`connectors/graphdb.py`**: `pivot_grids()` provider added to build loop; queries `PSPGCORE` keyed by `PTPG_PGRIDNAME`.
+
+**`routers/peoplesoft.py`**: `GET /api/peoplesoft/pivot-grids`; `pivot_grid` dispatch in `object_payload()`.
+
+**`routers/admin.py`**: `("pivotgrid", "PivotGrids", "/admin/pivotgrid")` in `_NAV`; `pivot_grid` chip (green palette `#22cc66`); `/admin/pivotgrid` two-panel explorer page with type chip, kv overview, column model section with DIM/DISO/VAL chips and format meta.
+
+**Verification:** `python -m py_compile` all six files → ALL OK. `uom.pivot_grid_payload('HCM', 'TL_TIME_STATUS_IRPT')` → overview `{ds_type: 'PS Query', datasource: 'TL_TIME_STATUS_IRPT', owner: 'PPT'}`, 37 columns. `uom.pivot_grid_payload('HCM', 'EODP_RRF_MNT_FL')` (Component type) → `datasource: None` (no QRYNAME setting). Not-found returns `None`. Search with `q='time'` returns 5 results with correct type labels.
+
+---
+
+## Connected Query Explorer (PSCONQRSDEFN) — 2026-06-30
+
+Implemented the Connected Query vertical slice. Schema verified against live HCM: `PSCONQRSDEFN` (97 rows), keyed by `CONQRSNAME`. `PT_REPORT_STATUS`: A=Active, I=Inactive. Sub-tables: `PSCONQRSMAP` (356 rows) holds the parent-child PS Query composition — each row links a parent query name to a child query name; the root query has blank `QRYNAMEPARENT`. `PSCONQRSFLDREL` (597 rows) holds the join field relationships between parent and child queries per `SEQNUM`.
+
+Activity Definitions (`PSACTIVITYDEFN`, 518 rows) were also found but determined to be legacy classic-era workflow activity definitions (pre-Fluid, not PeopleSoft Activity Guide), with low operational relevance; not implemented.
+
+**`connectors/psdb.py`**: `_CONQRS_STATUS` dict; `search_connected_queries(env, q, limit)` querying `PSCONQRSDEFN`; `get_connected_query(env, conqrsname)` fetching definition + PSCONQRSMAP composition + PSCONQRSFLDREL field joins (filtered to non-blank field entries). Returns `{definition, query_map, field_rels, counts, warnings}`.
+
+**`connectors/ptmetadata.py`**: `OBJECT_REGISTRY.setdefault("connected_query", {...})` with `PSCONQRSDEFN`/`CONQRSNAME` discovery/search tables, icon `git-merge`, versions 8.54–8.62.
+
+**`connectors/uom.py`**: `_CONQRS_STATUS_CHIP`; `connected_query_object()`, `sections_for_connected_query()`, `connected_query_payload()`; dispatched in `canonical_object()`. Sections: Overview / Component Queries (root marked with "Root" chip, child queries show parent name as meta) / Field Joins (child field with parent field as meta).
+
+**`connectors/graphdb.py`**: `connected_queries()` provider added to build loop; queries `PSCONQRSDEFN`.
+
+**`routers/peoplesoft.py`**: `GET /api/peoplesoft/connected-queries`; `connected_query` dispatch in `object_payload()`.
+
+**`routers/admin.py`**: `("conqrs", "Conn. Queries", "/admin/conqrs")` in `_NAV`; `connected_query` chip (cyan palette `#00ccee`); `/admin/conqrs` two-panel explorer with status chip, kv overview, component queries and field joins sections.
+
+**Verification:** `python -m py_compile` all six files → ALL OK. `uom.connected_query_payload('HCM', 'HRS_SRCH_JOB_OPENING_CQY')` → 6 component queries, 5 field joins, status Active. Not-found returns `None`.

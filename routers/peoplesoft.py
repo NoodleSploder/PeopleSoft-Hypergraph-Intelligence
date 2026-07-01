@@ -365,6 +365,12 @@ def object_payload(env, object_type, object_name):
     if object_type == "drop_zone":
         return uom.drop_zone_payload(env, object_name)
 
+    if object_type == "pivot_grid":
+        return uom.pivot_grid_payload(env, object_name)
+
+    if object_type == "connected_query":
+        return uom.connected_query_payload(env, object_name)
+
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
 
@@ -1104,6 +1110,18 @@ def peoplesoft_search_categories(env: str = "HCM", q: str = "", limit: int = 100
 @router.get("/api/peoplesoft/drop-zones")
 def peoplesoft_drop_zones_list(env: str = "HCM", q: str = "", limit: int = 100):
     return psdb.search_drop_zones(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/pivot-grids")
+def peoplesoft_pivot_grids(env: str = "HCM", q: str = "", limit: int = 100):
+    """Search PivotGrid definitions (PSPGCORE)."""
+    return psdb.search_pivot_grids(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/connected-queries")
+def peoplesoft_connected_queries(env: str = "HCM", q: str = "", limit: int = 100):
+    """Search Connected Query definitions (PSCONQRSDEFN)."""
+    return psdb.search_connected_queries(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/security/reports")

@@ -5290,3 +5290,235 @@ def get_search_category(env_name, srccat_name):
         },
         "warnings": warnings,
     }
+
+# ---------------------------------------------------------------------------
+# PivotGrid (PSPGCORE)
+#
+# Verified against the live SYSADM schema 2026-06-30.  PSPGCORE is the
+# PivotGrid definition header (154 rows in HCM, all type PUB).  Keyed by
+# PTPG_PGRIDNAME.  Data source is either a PS Query (PSQUERY, 140 rows) or
+# a Component (COMPONENT, 14 rows).  For PSQUERY grids the query name is in
+# PSPGSETTINGS WHERE PTPG_DSNAME='QRYNAME'.  Data model columns come from
+# PSPGMODEL (3228 rows, keyed by PTPG_PGRIDNAME).  Display options come from
+# PSPGDISPOPT (154 rows, 1:1 with header).  NUI options from PSPGNUIOPT
+# (137 rows, subset with query/access config).
+# ---------------------------------------------------------------------------
+
+_PTPG_DSTYPE = {"PSQUERY": "PS Query", "COMPONENT": "Component"}
+_PTPG_COLTYPE = {"DIM": "Dimension", "DISO": "Display Only", "VAL": "Value"}
+
+
+def search_pivot_grids(env_name, q="", limit=100):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSPGCORE"):
+        return {"items": [], "warnings": ["PSPGCORE not accessible"]}
+    clauses = []
+    params = {"lim": limit}
+    if q:
+        clauses.append("(UPPER(PTPG_PGRIDNAME) LIKE UPPER(:q) OR UPPER(PTPG_PGRIDTITLE) LIKE UPPER(:q2))")
+        params["q"] = f"%{q}%"
+        params["q2"] = f"%{q}%"
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    try:
+        rows = query(env_name, f"""
+            SELECT PTPG_PGRIDNAME, PTPG_PGRIDTITLE, PTPG_DSTYPE, PTPG_PGRIDTYPE,
+                   OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
+              FROM SYSADM.PSPGCORE
+             {where}
+             ORDER BY PTPG_PGRIDNAME
+             FETCH FIRST :lim ROWS ONLY
+        """, params)
+        items = []
+        for r in (rows or []):
+            item = dict(r)
+            item["ptpg_dstype_label"] = _PTPG_DSTYPE.get(item.get("ptpg_dstype"), item.get("ptpg_dstype"))
+            items.append(item)
+        return {"items": items, "warnings": []}
+    except Exception as exc:
+        return {"items": [], "warnings": [str(exc)]}
+
+
+def get_pivot_grid(env_name, pgridname):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSPGCORE"):
+        return {"error": "not_accessible", "warnings": ["PSPGCORE not accessible"]}
+    warnings = []
+
+    rows = query(env_name, """
+        SELECT PTPG_PGRIDNAME, PTPG_PGRIDTITLE, PTPG_DSTYPE, PTPG_PGRIDTYPE,
+               OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID, DESCRLONG,
+               PTPG_ISVALIDMODEL, PTPG_ISSIMPL_WIZ, PTPG_USESQLTYPE
+          FROM SYSADM.PSPGCORE
+         WHERE PTPG_PGRIDNAME = :id
+    """, {"id": pgridname})
+    if not rows:
+        return {"error": "not_found", "warnings": [f"PivotGrid {pgridname!r} not found"]}
+    defn = dict(rows[0])
+    defn["ptpg_dstype_label"] = _PTPG_DSTYPE.get(defn.get("ptpg_dstype"), defn.get("ptpg_dstype"))
+
+    # Data source name (query name for PSQUERY type)
+    datasource_name = None
+    if ptmetadata.has_table(env_name, "PSPGSETTINGS"):
+        try:
+            sr = query(env_name, """
+                SELECT PTPG_DSVALUE FROM SYSADM.PSPGSETTINGS
+                 WHERE PTPG_PGRIDNAME = :id AND PTPG_DSNAME = 'QRYNAME'
+                 FETCH FIRST 1 ROWS ONLY
+            """, {"id": pgridname})
+            if sr:
+                datasource_name = str(sr[0].get("ptpg_dsvalue") or "").strip() or None
+        except Exception as exc:
+            warnings.append(f"PSPGSETTINGS: {exc}")
+
+    # Data model columns
+    columns = []
+    if ptmetadata.has_table(env_name, "PSPGMODEL"):
+        try:
+            col_rows = query(env_name, """
+                SELECT PTPG_DSCOLUMN, PTPG_COLMNTYPE, PTPG_AGGREGATE, PTPG_FORMAT,
+                       PTPG_TOTAL
+                  FROM SYSADM.PSPGMODEL
+                 WHERE PTPG_PGRIDNAME = :id
+                 ORDER BY PTPG_DSCOLUMN
+            """, {"id": pgridname})
+            for r in (col_rows or []):
+                item = dict(r)
+                item["ptpg_colmntype_label"] = _PTPG_COLTYPE.get(
+                    str(item.get("ptpg_colmntype") or "").strip(),
+                    str(item.get("ptpg_colmntype") or "").strip()
+                )
+                columns.append(item)
+        except Exception as exc:
+            warnings.append(f"PSPGMODEL: {exc}")
+
+    # NUI options (query access group, view name)
+    nui_opts = {}
+    if ptmetadata.has_table(env_name, "PSPGNUIOPT"):
+        try:
+            nr = query(env_name, """
+                SELECT PTPG_VIEWNAME, ACCESS_GROUP, PTPG_COMPMAPPING,
+                       PTPG_ALLOWPUBTILE, PTPG_ALLOWSHARE
+                  FROM SYSADM.PSPGNUIOPT
+                 WHERE PTPG_PGRIDNAME = :id
+                 FETCH FIRST 1 ROWS ONLY
+            """, {"id": pgridname})
+            if nr:
+                nui_opts = dict(nr[0])
+        except Exception as exc:
+            warnings.append(f"PSPGNUIOPT: {exc}")
+
+    return {
+        "definition": defn,
+        "datasource_name": datasource_name,
+        "columns": columns,
+        "nui_opts": nui_opts,
+        "counts": {"columns": len(columns)},
+        "warnings": warnings,
+    }
+
+# ---------------------------------------------------------------------------
+# Connected Query (PSCONQRSDEFN)
+#
+# Verified against the live SYSADM schema 2026-06-30.  PSCONQRSDEFN is the
+# Connected Query definition header (97 rows in HCM), keyed by CONQRSNAME.
+# PT_REPORT_STATUS: A=Active, I=Inactive.  The query composition (parent/child
+# PS Query links) lives in PSCONQRSMAP (356 rows): row with blank QRYNAMEPARENT
+# is the root query; subsequent rows link child queries to their parent by
+# query name.  Join field relationships are in PSCONQRSFLDREL (597 rows): each
+# row (same SEQNUM as the PSCONQRSMAP row) holds QRYFLDNAMEPAR / QRYFLDNAMECHILD
+# field references; root query row (seqnum=1) has blank fields since it has no
+# parent join.
+# ---------------------------------------------------------------------------
+
+_CONQRS_STATUS = {"A": "Active", "I": "Inactive"}
+
+
+def search_connected_queries(env_name, q="", limit=100):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSCONQRSDEFN"):
+        return {"items": [], "warnings": ["PSCONQRSDEFN not accessible"]}
+    clauses = []
+    params = {"lim": limit}
+    if q:
+        clauses.append("(UPPER(CONQRSNAME) LIKE UPPER(:q) OR UPPER(DESCR) LIKE UPPER(:q2))")
+        params["q"] = f"%{q}%"
+        params["q2"] = f"%{q}%"
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    try:
+        rows = query(env_name, f"""
+            SELECT CONQRSNAME, DESCR, PT_REPORT_STATUS, OBJECTOWNERID, LASTUPDDTTM
+              FROM SYSADM.PSCONQRSDEFN
+             {where}
+             ORDER BY CONQRSNAME
+             FETCH FIRST :lim ROWS ONLY
+        """, params)
+        items = []
+        for r in (rows or []):
+            item = dict(r)
+            item["pt_report_status_label"] = _CONQRS_STATUS.get(
+                str(item.get("pt_report_status") or "").strip(), "")
+            items.append(item)
+        return {"items": items, "warnings": []}
+    except Exception as exc:
+        return {"items": [], "warnings": [str(exc)]}
+
+
+def get_connected_query(env_name, conqrsname):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSCONQRSDEFN"):
+        return {"error": "not_accessible", "warnings": ["PSCONQRSDEFN not accessible"]}
+    warnings = []
+
+    rows = query(env_name, """
+        SELECT CONQRSNAME, DESCR, PT_REPORT_STATUS, OBJECTOWNERID,
+               VERSION, LASTUPDDTTM, LASTUPDOPRID, DESCRLONG
+          FROM SYSADM.PSCONQRSDEFN
+         WHERE CONQRSNAME = :id
+    """, {"id": conqrsname})
+    if not rows:
+        return {"error": "not_found", "warnings": [f"Connected Query {conqrsname!r} not found"]}
+    defn = dict(rows[0])
+    defn["pt_report_status_label"] = _CONQRS_STATUS.get(
+        str(defn.get("pt_report_status") or "").strip(), "")
+
+    # Query composition map (parent-child query chain)
+    query_map = []
+    if ptmetadata.has_table(env_name, "PSCONQRSMAP"):
+        try:
+            map_rows = query(env_name, """
+                SELECT SEQNUM, QRYNAMEPARENT, QRYNAMECHILD, EFFDTCONDTYPE,
+                       CQ_SUPPORTSORDERBY, RECNAME
+                  FROM SYSADM.PSCONQRSMAP
+                 WHERE CONQRSNAME = :id
+                 ORDER BY SEQNUM
+            """, {"id": conqrsname})
+            query_map = [dict(r) for r in (map_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSCONQRSMAP: {exc}")
+
+    # Field join relationships (skip root row which has blank fields)
+    field_rels = []
+    if ptmetadata.has_table(env_name, "PSCONQRSFLDREL"):
+        try:
+            fld_rows = query(env_name, """
+                SELECT SEQNUM, QRYFLDNAMEPAR, QRYFLDNAMECHILD, SELCOUNT
+                  FROM SYSADM.PSCONQRSFLDREL
+                 WHERE CONQRSNAME = :id
+                   AND TRIM(QRYFLDNAMECHILD) IS NOT NULL
+                   AND TRIM(QRYFLDNAMECHILD) != ' '
+                 ORDER BY SEQNUM
+            """, {"id": conqrsname})
+            field_rels = [dict(r) for r in (fld_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSCONQRSFLDREL: {exc}")
+
+    return {
+        "definition": defn,
+        "query_map": query_map,
+        "field_rels": field_rels,
+        "counts": {
+            "sub_queries": len(query_map),
+            "field_joins": len(field_rels),
+        },
+        "warnings": warnings,
+    }

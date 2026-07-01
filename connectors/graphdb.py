@@ -894,6 +894,38 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "drop_zone", dz, r.get("descr") or dz, r)
         return len(rows)
 
+    def pivot_grids():
+        if not ptmetadata.has_table(env, "PSPGCORE"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT PTPG_PGRIDNAME, PTPG_PGRIDTITLE, PTPG_DSTYPE, OBJECTOWNERID
+              FROM SYSADM.PSPGCORE
+             WHERE ROWNUM <= {limit}
+             ORDER BY PTPG_PGRIDNAME
+        """) or []
+        for r in rows:
+            pid = r.get("ptpg_pgridname")
+            if not pid:
+                continue
+            add_node(graph, "pivot_grid", pid, r.get("ptpg_pgridtitle") or pid, r)
+        return len(rows)
+
+    def connected_queries():
+        if not ptmetadata.has_table(env, "PSCONQRSDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT CONQRSNAME, DESCR, PT_REPORT_STATUS, OBJECTOWNERID
+              FROM SYSADM.PSCONQRSDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY CONQRSNAME
+        """) or []
+        for r in rows:
+            cid = r.get("conqrsname")
+            if not cid:
+                continue
+            add_node(graph, "connected_query", cid, r.get("descr") or cid, r)
+        return len(rows)
+
     for name, loader in (
         ("operators", operators),
         ("roles", roles),
@@ -918,6 +950,8 @@ def build(env="HCM", limit=50, persist=True):
         ("search_definitions", search_definitions),
         ("search_categories", search_categories),
         ("drop_zones", drop_zones),
+        ("pivot_grids", pivot_grids),
+        ("connected_queries", connected_queries),
     ):
         provider(graph, name, loader)
 

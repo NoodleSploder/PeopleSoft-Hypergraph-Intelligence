@@ -704,6 +704,32 @@ OBJECT_REGISTRY.setdefault("drop_zone", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("pivot_grid", {
+    "display_title": "PivotGrid",
+    "icon": "bar-chart-2",
+    "graph_node_type": "pivot_grid",
+    "object_page": "/admin/object/pivot_grid/{name}",
+    "discovery": {"table": "PSPGCORE", "name_column": "PTPG_PGRIDNAME"},
+    "search": {"table": "PSPGCORE", "name_column": "PTPG_PGRIDNAME",
+               "description_columns": ["PTPG_PGRIDTITLE"],
+               "extra_search_columns": ["OBJECTOWNERID", "PTPG_DSTYPE"]},
+    "supported_versions": ["8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+OBJECT_REGISTRY.setdefault("connected_query", {
+    "display_title": "Connected Query",
+    "icon": "git-merge",
+    "graph_node_type": "connected_query",
+    "object_page": "/admin/object/connected_query/{name}",
+    "discovery": {"table": "PSCONQRSDEFN", "name_column": "CONQRSNAME"},
+    "search": {"table": "PSCONQRSDEFN", "name_column": "CONQRSNAME",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["OBJECTOWNERID", "PT_REPORT_STATUS"]},
+    "supported_versions": ["8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 for object_type in [
     "content_reference",
     "section",

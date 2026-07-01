@@ -158,6 +158,8 @@ Continue expanding object coverage.
 - XML Publisher Reports (rewritten 2026-06-30 against verified PSXPRPTDEFN/PSXPDATASRC/PSXPRPTTMPL/PSXPTMPLDEFN/PSXPRPTOUTFMT)
 - Search Definitions (rewritten 2026-06-30 against verified PSPTSF_SD keyed by PTSF_SOURCE_NAME; prior version used APPCLASSID which is blank on all rows)
 - Search Categories (rewritten 2026-06-30 against verified PSPTSF_SRCCAT keyed by PTSF_SRCCAT_NAME)
+- PivotGrid Definitions (added 2026-06-30; PSPGCORE, 154 rows, keyed by PTPG_PGRIDNAME; sub-tables PSPGMODEL/PSPGSETTINGS/PSPGNUIOPT)
+- Connected Query Definitions (added 2026-06-30; PSCONQRSDEFN, 97 rows, keyed by CONQRSNAME; sub-tables PSCONQRSMAP/PSCONQRSFLDREL showing parent-child query composition)
 
 ### ⚠️ Stub Providers (no live backing tables found in verified HCM schema)
 
@@ -402,10 +404,13 @@ New providers should follow the established verification methodology:
 3. Write psdb.py → ptmetadata.py → graphdb.py → uom.py → routers/peoplesoft.py → routers/admin.py in that order
 4. Compile-check and smoke-test at each layer before proceeding
 
-Candidates in priority order:
-- **WorkCenters** — verify backing table (likely `PSPTWORKCTRL` or similar); search and detail view
-- **Dashboards** — verify backing table; dashboard definition discovery and explorer
-- **Homepage Tiles** — verify backing table (possibly `PS_AGC_TILE_TBL` or `PS_HCTS_TILE_SEC`, both found in live schema); tile registry discovery and explorer
-- **BI Publisher report definitions** — distinct from XML Publisher; report bursting and scheduling metadata
+Completed in this session:
+- **PivotGrid Explorer** — implemented against verified `PSPGCORE` (154 rows); exposes data model columns, data source type (PS Query vs Component), query name, NUI options
+
+Candidates for next session:
+- **Activity Guide Collections** — `PS_AGC_TILE_TBL` (2 rows) and related AGC tables found in live schema; low row count but valid definition structure with `agc_tile_id` key
+- **WorkCenters** — no standalone definition header table found; EOWC tables are runtime config keyed by portal object name, not metadata definitions; deprioritized
+- **Dashboards** — no definition tables found (PS_EOEN_DASHBRD/PS_PT_ACMDASHTBL are 0-row log/cache tables); deprioritized
+- **BI Publisher report definitions** — no distinct BI tables found; all PSXP tables are already covered by XML Publisher provider; deprioritized
 
 After those four, the remaining Phase 5 providers are: Branding, Page Composer.

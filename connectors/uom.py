@@ -5078,6 +5078,202 @@ def drop_zone_payload(env, dzname):
     }
 
 
+_PTPG_DSTYPE_CHIP = {
+    "PSQUERY": "chip-info",
+    "COMPONENT": "chip-info",
+}
+_PTPG_COLTYPE_CHIP = {
+    "DIM": ("chip-ok", "Dimension"),
+    "DISO": ("chip-muted", "Display Only"),
+    "VAL": ("chip-ok", "Value"),
+}
+
+
+def pivot_grid_object(env, pgridname):
+    data = psdb.get_pivot_grid(env, pgridname.upper())
+    if "error" in data:
+        return None
+    defn = data.get("definition", {})
+    return {
+        "type": "pivot_grid",
+        "name": defn.get("ptpg_pgridname", pgridname),
+        "title": defn.get("ptpg_pgridtitle") or pgridname,
+        "ds_type": defn.get("ptpg_dstype"),
+        "ds_type_label": defn.get("ptpg_dstype_label"),
+        "datasource_name": data.get("datasource_name"),
+        "owner": str(defn.get("objectownerid") or "").strip() or None,
+        "_raw": data,
+        "_links": {"admin": object_url("pivot_grid", pgridname.upper())},
+        "warnings": data.get("warnings", []),
+    }
+
+
+def sections_for_pivot_grid(obj):
+    raw = obj.get("_raw", {})
+    defn = raw.get("definition", {})
+    columns = raw.get("columns", [])
+    nui = raw.get("nui_opts", {})
+    counts = raw.get("counts", {})
+    sections = []
+
+    def _c(v):
+        return str(v or "").strip() or None
+
+    overview_rows = [
+        ("Name", _c(defn.get("ptpg_pgridname"))),
+        ("Title", _c(defn.get("ptpg_pgridtitle"))),
+        ("Description", _c(defn.get("descrlong"))),
+        ("Data Source Type", defn.get("ptpg_dstype_label")),
+        ("Data Source", obj.get("datasource_name")),
+        ("View Name", _c(nui.get("ptpg_viewname"))),
+        ("Component Mapping", _c(nui.get("ptpg_compmapping"))),
+        ("Access Group", _c(nui.get("access_group"))),
+        ("Publish as Tile", "Yes" if _c(nui.get("ptpg_allowpubtile")) == "Y" else None),
+        ("Allow Share", "Yes" if _c(nui.get("ptpg_allowshare")) == "Y" else None),
+        ("Owner", obj.get("owner")),
+        ("Valid Model", "Yes" if _c(defn.get("ptpg_isvalidmodel")) == "Y" else None),
+        ("Last Updated", defn.get("lastupddttm")),
+        ("Last Updated By", _c(defn.get("lastupdoprid"))),
+    ]
+    sections.append({"id": "overview", "title": "Overview",
+                     "rows": [{"label": k, "value": v} for k, v in overview_rows if v is not None]})
+
+    if columns:
+        col_items = []
+        for c in columns:
+            ctype = _c(c.get("ptpg_colmntype"))
+            chip_info = _PTPG_COLTYPE_CHIP.get(ctype)
+            chips = [{"label": chip_info[1], "cls": chip_info[0]}] if chip_info else []
+            col_items.append({
+                "name": c.get("ptpg_dscolumn", ""),
+                "label": c.get("ptpg_dscolumn", ""),
+                "chips": chips,
+                "meta": _c(c.get("ptpg_format")) or "",
+            })
+        sections.append({"id": "columns", "title": f"Data Model Columns ({counts.get('columns', len(columns))})",
+                         "items": col_items})
+
+    return sections
+
+
+def pivot_grid_payload(env, pgridname):
+    obj = pivot_grid_object(env, pgridname)
+    if obj is None:
+        return None
+    return {
+        "type": "pivot_grid",
+        "name": obj["name"],
+        "title": obj["title"],
+        "overview": {
+            "ds_type": obj.get("ds_type_label"),
+            "datasource": obj.get("datasource_name"),
+            "owner": obj.get("owner"),
+        },
+        "sections": sections_for_pivot_grid(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
+_CONQRS_STATUS_CHIP = {"A": ("chip-ok", "Active"), "I": ("chip-muted", "Inactive")}
+
+
+def connected_query_object(env, conqrsname):
+    data = psdb.get_connected_query(env, conqrsname.upper())
+    if "error" in data:
+        return None
+    defn = data.get("definition", {})
+    status = str(defn.get("pt_report_status") or "").strip()
+    return {
+        "type": "connected_query",
+        "name": defn.get("conqrsname", conqrsname),
+        "title": defn.get("descr") or conqrsname,
+        "status": status,
+        "status_label": defn.get("pt_report_status_label", ""),
+        "owner": str(defn.get("objectownerid") or "").strip() or None,
+        "_raw": data,
+        "_links": {"admin": object_url("connected_query", conqrsname.upper())},
+        "warnings": data.get("warnings", []),
+    }
+
+
+def sections_for_connected_query(obj):
+    raw = obj.get("_raw", {})
+    defn = raw.get("definition", {})
+    query_map = raw.get("query_map", [])
+    field_rels = raw.get("field_rels", [])
+    counts = raw.get("counts", {})
+    sections = []
+
+    status = str(defn.get("pt_report_status") or "").strip()
+    chip_cls, chip_lbl = _CONQRS_STATUS_CHIP.get(status, ("chip-muted", status or "Unknown"))
+
+    overview_rows = [
+        ("Name", str(defn.get("conqrsname") or "").strip() or None),
+        ("Description", str(defn.get("descr") or "").strip() or None),
+        ("Status", defn.get("pt_report_status_label") or None),
+        ("Owner", str(defn.get("objectownerid") or "").strip() or None),
+        ("Version", defn.get("version")),
+        ("Long Description", str(defn.get("descrlong") or "").strip() or None),
+        ("Last Updated", defn.get("lastupddttm")),
+        ("Last Updated By", str(defn.get("lastupdoprid") or "").strip() or None),
+    ]
+    sections.append({"id": "overview", "title": "Overview",
+                     "rows": [{"label": k, "value": v} for k, v in overview_rows if v is not None]})
+
+    if query_map:
+        qmap_items = []
+        for m in query_map:
+            parent = str(m.get("qrynameparent") or "").strip()
+            child = str(m.get("qrynamechild") or "").strip()
+            chips = [{"label": "Root", "cls": "chip-ok"}] if not parent else []
+            meta = f"← {parent}" if parent else ""
+            qmap_items.append({
+                "name": child,
+                "label": child,
+                "chips": chips,
+                "meta": meta,
+            })
+        sections.append({"id": "query_map", "title": f"Component Queries ({counts.get('sub_queries', len(query_map))})",
+                         "items": qmap_items})
+
+    if field_rels:
+        frel_items = []
+        for f in field_rels:
+            par_fld = str(f.get("qryfldnamepar") or "").strip()
+            chd_fld = str(f.get("qryfldnamechild") or "").strip()
+            frel_items.append({
+                "name": chd_fld,
+                "label": chd_fld,
+                "chips": [],
+                "meta": f"← {par_fld}" if par_fld else "",
+            })
+        sections.append({"id": "field_joins", "title": f"Field Joins ({counts.get('field_joins', len(field_rels))})",
+                         "items": frel_items})
+
+    return sections
+
+
+def connected_query_payload(env, conqrsname):
+    obj = connected_query_object(env, conqrsname)
+    if obj is None:
+        return None
+    return {
+        "type": "connected_query",
+        "name": obj["name"],
+        "title": obj["title"],
+        "overview": {
+            "status": obj.get("status_label"),
+            "owner": obj.get("owner"),
+        },
+        "sections": sections_for_connected_query(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
 def canonical_object(env, object_type, name):
     object_type = object_type.lower()
     if object_type == "component_interface":
@@ -5145,6 +5341,10 @@ def canonical_object(env, object_type, name):
         return search_category_object(env, name)
     if object_type == "drop_zone":
         return drop_zone_object(env, name)
+    if object_type == "pivot_grid":
+        return pivot_grid_object(env, name)
+    if object_type == "connected_query":
+        return connected_query_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])
