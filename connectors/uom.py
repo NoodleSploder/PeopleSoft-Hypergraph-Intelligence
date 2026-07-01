@@ -261,17 +261,23 @@ def relationship_graph(root_type, root_name, relationships, specs, root_data=Non
                     spec.get("source_node_type") or root_type
                 )
                 source_type = source_type or root_type
-                if spec.get("source_name"):
+                if spec.get("node_only"):
+                    if object_id(target_type, target_name) != object_id(root_type, root_name):
+                        add_node(nodes, graph_node(target_type, target_name, row))
+                if not spec.get("node_only") and spec.get("source_name") and not source_name:
+                    continue
+                if not spec.get("node_only") and spec.get("source_name"):
                     add_node(nodes, graph_node(source_type, source_name, row))
-                if object_id(target_type, target_name) != object_id(root_type, root_name):
+                if not spec.get("node_only") and object_id(target_type, target_name) != object_id(root_type, root_name):
                     add_node(nodes, graph_node(target_type, target_name, row))
-                edges.append(graph_edge(
-                    source_type,
-                    source_name,
-                    target_type,
-                    target_name,
-                    _relation_value(row, spec["edge"]) if spec.get("edge") else spec["default_edge"],
-                ))
+                if not spec.get("node_only"):
+                    edges.append(graph_edge(
+                        source_type,
+                        source_name,
+                        target_type,
+                        target_name,
+                        _relation_value(row, spec["edge"]) if spec.get("edge") else spec["default_edge"],
+                    ))
 
             for extra in spec.get("extra_edges", []):
                 source_name = _relation_value(row, extra["source_name"])
@@ -305,35 +311,57 @@ def limit_relationships(relationships, limits):
 def field_graph(env, field_ref, relationships=None):
     relationships = relationships or field_object(env, field_ref)["_relationships"]
     field_name = field_ref.upper()
-    nodes = {}
-    edges = []
-
-    add_node(nodes, graph_node("field", field_name))
-
-    for row in relationships.get("records", []):
-        recname = row.get("recname")
-        if recname:
-            add_node(nodes, graph_node("record", recname, row))
-            edges.append(graph_edge("record", recname, "field", field_name, "contains_field"))
-
-    for row in relationships.get("pages", []):
-        pnlname = row.get("pnlname")
-        recname = row.get("recname")
-        if pnlname:
-            add_node(nodes, graph_node("page", pnlname, row))
-            edges.append(graph_edge("page", pnlname, "field", field_name, "displays_field"))
-        if pnlname and recname:
-            add_node(nodes, graph_node("record", recname, row))
-            edges.append(graph_edge("page", pnlname, "record", recname, "uses_record"))
-
-    for row in relationships.get("components", []):
-        component = row.get("pnlgrpname")
-        page = row.get("pnlname")
-        if component:
-            add_node(nodes, graph_node("component", component, row))
-        if component and page:
-            add_node(nodes, graph_node("page", page, row))
-            edges.append(graph_edge("component", component, "page", page, "contains_page"))
+    graph = relationship_graph(
+        "field",
+        field_name,
+        relationships,
+        [
+            {
+                "relationship": "records",
+                "node_type": "record",
+                "source_node_type": "record",
+                "target_node_type": "field",
+                "source_name": lambda row: str(row.get("recname") or "").strip(),
+                "target_name": lambda row: field_name,
+                "default_edge": "contains_field",
+            },
+            {
+                "relationship": "pages",
+                "node_type": "page",
+                "source_node_type": "page",
+                "target_node_type": "field",
+                "source_name": lambda row: str(row.get("pnlname") or "").strip(),
+                "target_name": lambda row: field_name,
+                "default_edge": "displays_field",
+                "extra_edges": [
+                    {
+                        "source_node_type": "page",
+                        "target_node_type": "record",
+                        "source_name": lambda row: str(row.get("pnlname") or "").strip(),
+                        "target_name": lambda row: str(row.get("recname") or "").strip(),
+                        "edge": "uses_record",
+                    },
+                ],
+            },
+            {
+                "relationship": "components",
+                "node_type": "component",
+                "target_name": lambda row: str(row.get("pnlgrpname") or "").strip(),
+                "node_only": True,
+                "extra_edges": [
+                    {
+                        "source_node_type": "component",
+                        "target_node_type": "page",
+                        "source_name": lambda row: str(row.get("pnlgrpname") or "").strip(),
+                        "target_name": lambda row: str(row.get("pnlname") or "").strip(),
+                        "edge": "contains_page",
+                    },
+                ],
+            },
+        ],
+    )
+    nodes = {node["id"]: node for node in graph.get("nodes", [])}
+    edges = list(graph.get("edges", []))
 
     seen_security = set()
     for component_row in relationships.get("components", []):
@@ -2075,51 +2103,93 @@ def portal_registry_object(env, portal_objname):
         "access_paths": [attach_object_links(row, env) for row in (access_paths or [])],
     }
 
-    nodes = {}
-    edges = []
-    add_node(nodes, graph_node("portal_registry", portal_objname, raw))
-
     previous = None
-    for row in breadcrumbs or []:
+    breadcrumb_graph_rows = []
+    for row in relationships.get("breadcrumbs", []):
+        row = dict(row)
         name = str(row.get("portal_objname") or "").strip()
-        if not name:
-            continue
-        add_node(nodes, graph_node("portal_registry", name, row))
-        if previous and previous != name:
-            edges.append(graph_edge("portal_registry", previous, "portal_registry", name, "contains"))
-        previous = name
+        if name:
+            row["_graph_previous"] = previous if previous and previous != name else ""
+            breadcrumb_graph_rows.append(row)
+            previous = name
 
-    for row in (children or [])[:50]:
-        child_name = str(row.get("portal_objname") or "").strip()
-        if child_name:
-            add_node(nodes, graph_node("portal_registry", child_name, row))
-            edges.append(graph_edge("portal_registry", portal_objname, "portal_registry", child_name, "contains"))
-
-    for row in component_targets or []:
-        component_name = str(row.get("pnlgrpname") or "").strip()
-        if component_name:
-            add_node(nodes, graph_node("component", component_name, row))
-            edges.append(graph_edge("portal_registry", portal_objname, "component", component_name, "launches_component"))
-    for row in (permissions or [])[:60]:
+    permission_graph_rows = []
+    for row in relationships.get("permissions", [])[:60]:
         permtype = str(row.get("portal_permtype") or "").upper()
-        classid = str(row.get("classid") or "").strip()
-        rolename = str(row.get("rolename") or "").strip()
-        if permtype == "P" and classid:
-            add_node(nodes, graph_node("permissionlist", classid, row))
-            edges.append(graph_edge("permissionlist", classid, "portal_registry", portal_objname, "secures_portal"))
-        elif permtype == "R" and rolename:
-            add_node(nodes, graph_node("role", rolename, row))
-            edges.append(graph_edge("role", rolename, "portal_registry", portal_objname, "secures_portal"))
-    for row in (access_paths or [])[:80]:
-        classid = str(row.get("classid") or "").strip()
-        rolename = str(row.get("rolename") or "").strip()
-        roleuser = str(row.get("roleuser") or "").strip()
-        if classid and rolename:
-            add_node(nodes, graph_node("role", rolename, row))
-            edges.append(graph_edge("role", rolename, "permissionlist", classid, "contains_permissionlist"))
-        if roleuser and rolename:
-            add_node(nodes, graph_node("operator", roleuser, row))
-            edges.append(graph_edge("operator", roleuser, "role", rolename, "has_role"))
+        graph_row = dict(row)
+        if permtype == "P":
+            graph_row["_graph_source_type"] = "permissionlist"
+            graph_row["_graph_source_name"] = str(row.get("classid") or "").strip()
+        elif permtype == "R":
+            graph_row["_graph_source_type"] = "role"
+            graph_row["_graph_source_name"] = str(row.get("rolename") or "").strip()
+        permission_graph_rows.append(graph_row)
+
+    graph_relationships = {
+        **relationships,
+        "breadcrumb_nodes": breadcrumb_graph_rows,
+        "breadcrumb_edges": breadcrumb_graph_rows,
+        "permissions": permission_graph_rows,
+    }
+    graph = relationship_graph(
+        "portal_registry",
+        portal_objname,
+        limit_relationships(graph_relationships, {"children": 50, "access_paths": 80}),
+        [
+            {
+                "relationship": "breadcrumb_nodes",
+                "node_type": "portal_registry",
+                "target_name": lambda row: str(row.get("portal_objname") or "").strip(),
+                "node_only": True,
+            },
+            {
+                "relationship": "breadcrumb_edges",
+                "node_type": "portal_registry",
+                "source_node_type": "portal_registry",
+                "source_name": lambda row: str(row.get("_graph_previous") or "").strip(),
+                "target_name": lambda row: str(row.get("portal_objname") or "").strip(),
+                "default_edge": "contains",
+            },
+            {
+                "relationship": "children",
+                "node_type": "portal_registry",
+                "target_name": lambda row: str(row.get("portal_objname") or "").strip(),
+                "default_edge": "contains",
+            },
+            {
+                "relationship": "component_targets",
+                "node_type": "component",
+                "target_name": lambda row: str(row.get("pnlgrpname") or "").strip(),
+                "default_edge": "launches_component",
+            },
+            {
+                "relationship": "permissions",
+                "node_type": "portal_registry",
+                "source_type": lambda row: str(row.get("_graph_source_type") or "").strip(),
+                "source_name": lambda row: str(row.get("_graph_source_name") or "").strip(),
+                "target_name": lambda row: portal_objname,
+                "default_edge": "secures_portal",
+            },
+            {
+                "relationship": "access_paths",
+                "node_type": "permissionlist",
+                "source_node_type": "role",
+                "source_name": lambda row: str(row.get("rolename") or "").strip(),
+                "target_name": lambda row: str(row.get("classid") or "").strip(),
+                "default_edge": "contains_permissionlist",
+                "extra_edges": [
+                    {
+                        "source_node_type": "operator",
+                        "target_node_type": "role",
+                        "source_name": lambda row: str(row.get("roleuser") or "").strip(),
+                        "target_name": lambda row: str(row.get("rolename") or "").strip(),
+                        "edge": "has_role",
+                    },
+                ],
+            },
+        ],
+        root_data=raw,
+    )
 
     return canonical_base(
         env, "portal_registry", portal_objname,
@@ -2134,7 +2204,7 @@ def portal_registry_object(env, portal_objname):
             "compare": f"/api/envcompare/portal-object?name={portal_objname}",
         },
         _relationships=relationships,
-        _graph={"nodes": list(nodes.values()), "edges": edges},
+        _graph=graph,
         _metadata={
             "environment": env.upper(),
             "registry": ptmetadata.OBJECT_REGISTRY.get("portal_registry", {}),
@@ -2351,24 +2421,39 @@ def service_object(env, applname):
     peoplecode = pc_result.get("items", [])
     warnings.extend(w for w in pc_result.get("warnings", []) if w)
 
-    graph_nodes_map = {}
-    edges = []
-    svc_node = graph_node("service_operation", applname, item)
-    add_node(graph_nodes_map, svc_node)
-    for r in routings[:20]:
-        rn = r.get("routingdefnname")
-        if rn:
-            add_node(graph_nodes_map, graph_node("routing", rn, r))
-            edges.append(graph_edge("routing", rn, "service_operation", applname, "routes"))
-    for r in routings[:20]:
-        for side, rel in (("sendernodename", "sends"), ("receivernodename", "receives")):
-            nname = r.get(side)
-            if nname:
-                add_node(graph_nodes_map, graph_node("node", nname, {}))
-                edges.append(graph_edge("node" if rel == "sends" else "service_operation",
-                                        nname if rel == "sends" else applname,
-                                        "service_operation" if rel == "sends" else "node",
-                                        applname if rel == "sends" else nname, rel))
+    relationships = {"operations": operations, "routings": routings, "peoplecode": peoplecode}
+    graph = relationship_graph(
+        "service_operation",
+        applname,
+        limit_relationships(relationships, {"routings": 20}),
+        [
+            {
+                "relationship": "routings",
+                "node_type": "service_operation",
+                "source_node_type": "routing",
+                "source_name": lambda row: str(row.get("routingdefnname") or "").strip(),
+                "target_name": lambda row: applname,
+                "default_edge": "routes",
+                "extra_edges": [
+                    {
+                        "source_node_type": "node",
+                        "target_node_type": "service_operation",
+                        "source_name": lambda row: str(row.get("sendernodename") or "").strip(),
+                        "target_name": lambda row: applname,
+                        "edge": "sends",
+                    },
+                    {
+                        "source_node_type": "service_operation",
+                        "target_node_type": "node",
+                        "source_name": lambda row: applname,
+                        "target_name": lambda row: str(row.get("receivernodename") or "").strip(),
+                        "edge": "receives",
+                    },
+                ],
+            },
+        ],
+        root_data=item,
+    )
 
     return canonical_base(
         env, "service_operation", applname,
@@ -2377,8 +2462,8 @@ def service_object(env, applname):
         status="available" if item else "not_found",
         warnings=warnings,
         _links={**_ib_links("services", applname), "admin": object_url("service_operation", applname)},
-        _relationships={"operations": operations, "routings": routings, "peoplecode": peoplecode},
-        _graph={"nodes": list(graph_nodes_map.values()), "edges": edges},
+        _relationships=relationships,
+        _graph=graph,
         _metadata={"environment": env.upper(), "raw": item, "is_app_service": is_app_service,
                    "registry": ptmetadata.OBJECT_REGISTRY.get("service_operation", {})},
     )
@@ -2447,18 +2532,30 @@ def node_object(env, nodename):
     routings_sender   = item.pop("routings_as_sender", []) if item else []
     routings_receiver = item.pop("routings_as_receiver", []) if item else []
 
-    nodes_g = {}
-    edges = []
-    add_node(nodes_g, graph_node("node", nodename, item))
-    for r in (routings_sender + routings_receiver)[:20]:
-        rn = r.get("routingdefnname")
-        op = r.get("ib_operationname")
-        if rn:
-            add_node(nodes_g, graph_node("routing", rn, r))
-            edges.append(graph_edge("node", nodename, "routing", rn, "uses"))
-        if op:
-            add_node(nodes_g, graph_node("service_operation", op, {}))
-            edges.append(graph_edge("routing", rn, "service_operation", op, "routes"))
+    relationships = {"routings_as_sender": routings_sender, "routings_as_receiver": routings_receiver}
+    graph = relationship_graph(
+        "node",
+        nodename,
+        {"routings": (routings_sender + routings_receiver)[:20]},
+        [
+            {
+                "relationship": "routings",
+                "node_type": "routing",
+                "target_name": lambda row: str(row.get("routingdefnname") or "").strip(),
+                "default_edge": "uses",
+                "extra_edges": [
+                    {
+                        "source_node_type": "routing",
+                        "target_node_type": "service_operation",
+                        "source_name": lambda row: str(row.get("routingdefnname") or "").strip(),
+                        "target_name": lambda row: str(row.get("ib_operationname") or "").strip(),
+                        "edge": "routes",
+                    },
+                ],
+            },
+        ],
+        root_data=item,
+    )
 
     return canonical_base(
         env, "node", nodename,
@@ -2467,8 +2564,8 @@ def node_object(env, nodename):
         status="available" if item else "not_found",
         warnings=warnings,
         _links={**_ib_links("nodes", nodename), "admin": object_url("node", nodename)},
-        _relationships={"routings_as_sender": routings_sender, "routings_as_receiver": routings_receiver},
-        _graph={"nodes": list(nodes_g.values()), "edges": edges},
+        _relationships=relationships,
+        _graph=graph,
         _metadata={"environment": env.upper(), "raw": item,
                    "registry": ptmetadata.OBJECT_REGISTRY.get("node", {})},
     )
@@ -2532,7 +2629,7 @@ def queue_object(env, queuename):
         _links={**_ib_links("queues", queuename), "admin": object_url("queue", queuename)},
         _relationships={"pub_by_status": runtime.get("pub_by_status", []),
                         "sub_by_status": runtime.get("sub_by_status", [])},
-        _graph={"nodes": [], "edges": []},
+        _graph=relationship_graph("queue", queuename, {}, [], root_data=item),
         _metadata={"environment": env.upper(), "raw": item,
                    "registry": ptmetadata.OBJECT_REGISTRY.get("queue", {})},
     )
@@ -2581,21 +2678,43 @@ def routing_object(env, rtngname):
     warnings.extend(w for w in result.get("warnings", []) if w)
     sub_defs = item.pop("sub_definitions", []) if item else []
 
-    nodes_g = {}
-    edges = []
-    add_node(nodes_g, graph_node("routing", rtngname, item))
     sender   = item.get("sendernodename")
     receiver = item.get("receivernodename")
     op       = item.get("ib_operationname")
-    if sender:
-        add_node(nodes_g, graph_node("node", sender, {}))
-        edges.append(graph_edge("node", sender, "routing", rtngname, "uses"))
-    if receiver:
-        add_node(nodes_g, graph_node("node", receiver, {}))
-        edges.append(graph_edge("routing", rtngname, "node", receiver, "uses"))
-    if op:
-        add_node(nodes_g, graph_node("service_operation", op, {}))
-        edges.append(graph_edge("routing", rtngname, "service_operation", op, "routes"))
+    relationships = {
+        "sub_definitions": sub_defs,
+        "_graph_sender": [{"nodename": sender}] if sender else [],
+        "_graph_receiver": [{"nodename": receiver}] if receiver else [],
+        "_graph_operation": [{"operation": op}] if op else [],
+    }
+    graph = relationship_graph(
+        "routing",
+        rtngname,
+        relationships,
+        [
+            {
+                "relationship": "_graph_sender",
+                "node_type": "routing",
+                "source_node_type": "node",
+                "source_name": lambda row: str(row.get("nodename") or "").strip(),
+                "target_name": lambda row: rtngname,
+                "default_edge": "uses",
+            },
+            {
+                "relationship": "_graph_receiver",
+                "node_type": "node",
+                "target_name": lambda row: str(row.get("nodename") or "").strip(),
+                "default_edge": "uses",
+            },
+            {
+                "relationship": "_graph_operation",
+                "node_type": "service_operation",
+                "target_name": lambda row: str(row.get("operation") or "").strip(),
+                "default_edge": "routes",
+            },
+        ],
+        root_data=item,
+    )
 
     return canonical_base(
         env, "routing", rtngname,
@@ -2605,7 +2724,7 @@ def routing_object(env, rtngname):
         warnings=warnings,
         _links={**_ib_links("routings", rtngname), "admin": object_url("routing", rtngname)},
         _relationships={"sub_definitions": sub_defs},
-        _graph={"nodes": list(nodes_g.values()), "edges": edges},
+        _graph=graph,
         _metadata={"environment": env.upper(), "raw": item,
                    "registry": ptmetadata.OBJECT_REGISTRY.get("routing", {})},
     )
@@ -2797,9 +2916,6 @@ def sql_object(env, sql_id):
         except Exception:
             pass
 
-    nodes_g = {}
-    add_node(nodes_g, graph_node("sql_definition", sql_id, defn))
-
     return canonical_base(
         env, "sql_definition", sql_id,
         display_name=sql_id,
@@ -2815,7 +2931,7 @@ def sql_object(env, sql_id):
             "xref_ae": xref_ae,
             "xref_pc": xref_pc,
         },
-        _graph={"nodes": list(nodes_g.values()), "edges": []},
+        _graph=relationship_graph("sql_definition", sql_id, {}, [], root_data=defn),
         _metadata={
             "environment": env.upper(),
             "raw": defn,

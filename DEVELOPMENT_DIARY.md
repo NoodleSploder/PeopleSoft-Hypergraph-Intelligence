@@ -6,6 +6,94 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-06-30 — Complete UOM Graph Builder Migration
+
+Date/time: 2026-06-30 23:56 CDT
+
+Features implemented:
+- Completed the remaining in-module UOM graph-builder migration to the shared
+  `relationship_graph()` helper.
+- Migrated Field, Portal Registry, IB Service Operation, IB Node, IB Queue, IB
+  Routing, and SQL Definition graph previews.
+- Extended `relationship_graph()` with two small generic capabilities:
+  - `node_only` specs for relationship rows that should contribute nodes
+    without a primary edge.
+  - Source-required edge skipping so malformed/incomplete relationship rows do
+    not create empty source nodes.
+- Preserved Field graph security expansion by keeping the security fan-out on
+  top of the helper-generated structural graph.
+- Queue objects now receive a canonical root graph node instead of a special
+  empty graph, bringing them into the same preview model as other UOM objects.
+
+Files modified:
+- `connectors/uom.py`
+- `ARCHITECTURE.md`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Kept PeopleCode/domain-owned graph payloads delegated to their existing graph
+  providers where they own specialized traversal semantics.
+- Reframed the remaining roadmap work from "migrate UOM graph builders" to
+  reconciling route-specific graph APIs with compact UOM previews where their
+  semantics should match.
+- Preserved existing graph counts for all sampled objects except Queue, where
+  the intentional improvement is a root-only graph (`1 node / 0 edges`) rather
+  than an empty graph.
+
+Bugs fixed:
+- Removed the remaining ad hoc UOM node/edge construction loops from
+  `connectors/uom.py`.
+- Avoided empty source-node creation for source-driven specs with missing
+  source names.
+
+Technical debt:
+- Route-specific graph APIs such as some `/api/peoplesoft/graph/{type}/{name}`
+  endpoints still need one-by-one review because some are broader impact graphs
+  rather than compact UOM previews.
+- Field graph previews remain large for common fields because they intentionally
+  include record/page/component/security fan-out.
+
+Verification:
+- `rg -n "nodes = \\{}|edges = \\[]|graph_nodes_map|nodes_g|_graph=\\{\\\"nodes\\\"|_graph=\\{" connectors/uom.py`
+  now reports only the shared helper internals.
+- `python -m py_compile connectors/uom.py connectors/ptmetadata.py connectors/psdb.py routers/peoplesoft.py routers/admin.py`
+  — OK; existing unrelated `routers/admin.py` invalid escape SyntaxWarning remains.
+- `python -c "import main; print('main import ok')"` — OK.
+- Reloaded `deathstar-api.service` by terminating the current unit PID and
+  allowing systemd to restart it; service came back active on port 8088.
+- Live endpoint checks:
+  - `GET /api/peoplesoft/object/field/JOB.EMPLID?env=HCM` — OK, Graph Preview
+    returned `edge_count=13708`.
+  - `GET /api/peoplesoft/object/portal_registry/EOSD_FS_SD_RECDEFN_GBL?env=HCM`
+    — OK, Graph Preview returned `node_count=15`, `edge_count=37`.
+  - `GET /api/peoplesoft/object/node/PSFT_HR?env=HCM` — OK, Graph Preview
+    returned `edge_count=40`.
+  - `GET /api/peoplesoft/object/queue/APPMSG?env=HCM` — OK, UOM graph returned
+    `node_count=1`, `edge_count=0`.
+  - `GET /api/peoplesoft/object/sql_definition/SQLRTM_DUMMY?env=HCM` — OK,
+    UOM graph returned `node_count=1`, `edge_count=0`.
+- Direct graph-count verification:
+  - `field_object('HCM', 'JOB.EMPLID')` — 12910 nodes, 13708 edges.
+  - `field_object('HCM', 'PSOPRDEFN.OPRID')` — 5907 nodes, 6449 edges.
+  - `portal_registry_object('HCM', 'HC_HR_JOB_DATA_GBL')` — 1 node, 0 edges.
+  - `portal_registry_object('HCM', 'EOSD_FS_SD_RECDEFN_GBL')` — 15 nodes,
+    37 edges, with breadcrumb, component, and security edges present.
+  - `service_object('HCM', 'HCB_COMMON_UTIL_SVC')` — 1 node, 0 edges.
+  - `service_object('HCM', 'BEN_CHATBOT_SVC')` — 1 node, 0 edges.
+  - `node_object('HCM', 'PSFT_HR')` — 40 nodes, 40 edges.
+  - `node_object('HCM', 'LOCAL')` — 1 node, 0 edges.
+  - `routing_object('HCM', 'HRS_JOB_OPENING')` — 1 node, 0 edges.
+  - `sql_object('HCM', 'SQLRTM_DUMMY')` — 1 node, 0 edges.
+  - `queue_object('HCM', 'APPMSG')` — 1 node, 0 edges.
+
+Next recommended work:
+- Compare each route-specific Graph Explorer endpoint against the matching UOM
+  graph preview and either route it through UOM or document it as a richer
+  impact/analysis graph.
+
+------------------------------------------------------------------------
+
 ## 2026-06-30 — Security UOM Relationship Graph Extraction
 
 Date/time: 2026-06-30 23:48 CDT

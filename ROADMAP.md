@@ -211,7 +211,7 @@ Continue enriching graph relationships.
 
 ### ✅ Completed
 
-- Shared UOM relationship graph helper introduced; Tree, Component Interface, Page, Component, Record, Operator, Role, and Permission List providers use it
+- Shared UOM relationship graph helper introduced; all in-module UOM object graph previews now use it, including Field, Record, Component, Page, Portal Registry, Operator, Role, Permission List, IB Service Operation, IB Node, IB Queue, IB Routing, SQL Definition, Tree, Component Interface, and other compact UOM previews
 - Page graph API unified with UOM Page provider so Object Explorer and Graph Explorer share the same relationship model
 - Component graph API unified with UOM Component provider so Object Explorer and Graph Explorer share the same relationship model
 - CALLS, REFERENCES, USES, CONTAINS, WRAPS, SECURES edge types in active use
@@ -223,8 +223,8 @@ Continue enriching graph relationships.
 
 ### Remaining
 
-- Continue migrating mature UOM providers from ad hoc graph loops to declarative relationship specs
-- Align UOM `_relationships`, UOM `_graph`, and Knowledge Graph ingestion around one relationship vocabulary
+- Reconcile route-specific `/api/peoplesoft/graph/{type}/{name}` endpoints that still intentionally differ from compact UOM graph previews
+- Align UOM `_relationships`, UOM `_graph`, route-specific graph APIs, and Knowledge Graph ingestion around one relationship vocabulary
 - GENERATES and DEPLOYS edge types
 - Full relationship coverage examples: WRITES, READS
 
