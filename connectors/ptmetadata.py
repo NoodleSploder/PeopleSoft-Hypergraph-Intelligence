@@ -823,6 +823,33 @@ OBJECT_REGISTRY.setdefault("app_class", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("content_service", {
+    "display_title": "Content Service",
+    "icon": "layers",
+    "graph_node_type": "content_service",
+    "object_page": "/admin/contsvc",
+    "discovery": {"table": "PSPTCSSRVDEFN", "name_column": "PTCS_SERVICEID"},
+    "search": {"table": "PSPTCSSRVDEFN", "name_column": "PTCS_SERVICEID",
+               "description_columns": ["DESCR254"],
+               "extra_search_columns": ["PTCS_SERVICENAME", "OBJECTOWNERID"]},
+    "supported_versions": ["8.52", "8.53", "8.54", "8.55", "8.56",
+                           "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+OBJECT_REGISTRY.setdefault("ptf_test", {
+    "display_title": "PTF Test",
+    "icon": "check-square",
+    "graph_node_type": "ptf_test",
+    "object_page": "/admin/ptftest",
+    "discovery": {"table": "PSPTTSTDEFN", "name_column": "PTTST_NAME"},
+    "search": {"table": "PSPTTSTDEFN", "name_column": "PTTST_NAME",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["PTTST_PARENTFOLDER", "PTTST_TYPE"]},
+    "supported_versions": ["8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 for object_type in [
     "content_reference",
     "section",

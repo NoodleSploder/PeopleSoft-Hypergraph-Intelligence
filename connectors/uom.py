@@ -5975,6 +5975,10 @@ def canonical_object(env, object_type, name):
         return ib_application_object(env, name)
     if object_type == "app_class":
         return app_class_object(env, name)
+    if object_type == "content_service":
+        return content_service_object(env, name)
+    if object_type == "ptf_test":
+        return ptf_test_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])
@@ -6227,4 +6231,243 @@ def app_class_object(env, compound_key):
             "base_class": (defn.get("appclassref") or "").strip() or None,
         },
         _metadata={"environment": env.upper(), "source_table": "PSAPPCLASSDEFN"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Content Service Provider Definitions
+# ---------------------------------------------------------------------------
+
+_PTCS_URL_TYPE_LABEL = {
+    "UPGE": "Page Component",
+    "UAPC": "App Class",
+    "UTIL": "Utility",
+    "UGEN": "URL (Generic)",
+    "USCR": "URL Script",
+}
+_PTCS_SVC_TYPE_LABEL = {"S": "Service", "C": "Custom", "G": "Group"}
+
+
+def _content_service_sections(data):
+    sections = []
+    defn = data.get("definition") or {}
+    params = data.get("params") or []
+    usage = data.get("usage") or []
+    counts = data.get("counts") or {}
+
+    url_type = (defn.get("ptcs_serviceurltyp") or "").strip()
+    svc_type = (defn.get("ptcs_servicetype") or "").strip()
+    pkg = (defn.get("packageroot") or "").strip()
+    qp = (defn.get("qualifypath") or "").strip()
+    cid = (defn.get("appclassid") or "").strip()
+    menu = (defn.get("portal_menuname") or "").strip()
+    pnlgrp = (defn.get("pnlgrpname") or "").strip()
+    market = (defn.get("market") or "").strip()
+    uri = (defn.get("portal_uri_text") or "").strip()
+    qry = (defn.get("ptcs_queryname") or "").strip()
+
+    kv = [
+        {"key": "Service ID", "value": defn.get("ptcs_serviceid", "")},
+        {"key": "Service Name", "value": (defn.get("ptcs_servicename") or "").strip()},
+        {"key": "Description", "value": (defn.get("descr254") or "").strip() or "—"},
+        {"key": "URL Type", "value": _PTCS_URL_TYPE_LABEL.get(url_type, url_type or "—")},
+        {"key": "Service Type", "value": _PTCS_SVC_TYPE_LABEL.get(svc_type, svc_type or "—")},
+        {"key": "Owner", "value": (defn.get("objectownerid") or "").strip() or "—"},
+        {"key": "Node", "value": (defn.get("msgnodename") or "").strip() or "—"},
+        {"key": "Params", "value": str(counts.get("params", 0))},
+        {"key": "Where Used (Portal Objects)", "value": str(counts.get("usage", 0))},
+        {"key": "Field Mappings", "value": str(counts.get("map_fields", 0))},
+        {"key": "Last Updated", "value": str(defn.get("lastupddttm") or "")[:19]},
+        {"key": "Updated By", "value": (defn.get("lastupdoprid") or "").strip() or "—"},
+    ]
+    # Target — depends on URL type
+    if url_type == "UPGE" and menu:
+        kv.insert(4, {"key": "Target Component", "value": f"{menu}.{pnlgrp}.{market}" if pnlgrp else menu})
+    elif url_type == "UAPC" and pkg:
+        app_path = f"{pkg}:{qp}:{cid}" if (qp and qp != ":") else f"{pkg}:{cid}"
+        kv.insert(4, {"key": "Target App Class", "value": app_path})
+    elif uri:
+        kv.insert(4, {"key": "Target URI", "value": uri[:200]})
+    if qry:
+        kv.insert(5, {"key": "Query Name", "value": qry})
+    sections.append({"type": "kv", "title": "Service Overview", "rows": kv})
+
+    # Parameters
+    if params:
+        param_items = []
+        for p in params:
+            req = p.get("required_flg", "N") == "Y"
+            descr = (p.get("ptcs_descr128") or "").strip()
+            chips = [{"label": "required", "cls": "chip-red"}] if req else [{"label": "optional", "cls": "chip-gray"}]
+            param_items.append({
+                "name": p.get("ptcs_parametername", ""),
+                "chips": chips,
+                "meta": descr,
+            })
+        sections.append({"type": "items", "title": f"Parameters ({len(params)})", "items": param_items})
+
+    # Where used
+    if usage:
+        use_items = []
+        for u in usage:
+            portal = (u.get("portal_name") or "").strip()
+            obj = (u.get("portal_objname") or "").strip()
+            use_items.append({
+                "name": obj,
+                "chips": [{"label": portal, "cls": "chip-blue"}],
+                "meta": "",
+            })
+        sections.append({"type": "items", "title": f"Used In Portal Objects ({len(usage)})", "items": use_items})
+
+    return sections
+
+
+def content_service_object(env, service_id):
+    from connectors import psdb as _psdb
+    data = _psdb.get_content_service(env, service_id)
+    defn = data.get("definition") or {}
+    warnings = data.get("warnings") or []
+    counts = data.get("counts") or {}
+
+    name = (defn.get("ptcs_servicename") or "").strip() or service_id
+    descr = (defn.get("descr254") or "").strip()
+    display = name if not descr else f"{name} — {descr[:80]}"
+
+    url_type = (defn.get("ptcs_serviceurltyp") or "").strip()
+
+    sections = _content_service_sections(data)
+
+    return canonical_base(
+        env,
+        "content_service",
+        service_id.upper(),
+        display_name=display,
+        status="active",
+        warnings=warnings,
+        sections=sections,
+        overview={
+            "service_name": name,
+            "url_type": _PTCS_URL_TYPE_LABEL.get(url_type, url_type),
+            "owner": (defn.get("objectownerid") or "").strip() or None,
+            "param_count": counts.get("params", 0),
+            "usage_count": counts.get("usage", 0),
+        },
+        _metadata={"environment": env.upper(), "source_table": "PSPTCSSRVDEFN"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# PeopleTools Test Framework (PTF) Test Definitions
+# ---------------------------------------------------------------------------
+
+_PTF_TYPE_LABEL = {"S": "Script", "H": "Shell", "L": "Library"}
+_PTF_PV_ACTN = {"N": "None", "A": "Abort", "P": "Pass"}
+
+
+def _ptf_test_sections(data):
+    sections = []
+    defn = data.get("definition") or {}
+    cases = data.get("cases") or []
+    commands = data.get("commands") or []
+    counts = data.get("counts") or {}
+
+    pttst_type = (defn.get("pttst_type") or "").strip()
+    folder = (defn.get("pttst_parentfolder") or "").strip()
+    # Normalize backslash-separated folder to forward-slash display
+    folder_display = folder.replace("\\", " › ").lstrip(" › ")
+    pv_actn = (defn.get("pttst_pv_actn") or "N").strip()
+    descrlong = (defn.get("descrlong") or "").strip() if defn.get("descrlong") else ""
+
+    kv = [
+        {"key": "Test Name", "value": defn.get("pttst_name", "")},
+        {"key": "Type", "value": _PTF_TYPE_LABEL.get(pttst_type, pttst_type or "—")},
+        {"key": "Description", "value": (defn.get("descr") or "").strip() or "—"},
+        {"key": "Folder", "value": folder_display or "—"},
+        {"key": "App Version", "value": (defn.get("pttst_app_ver") or "").strip() or "—"},
+        {"key": "On Prev Failure", "value": _PTF_PV_ACTN.get(pv_actn, pv_actn or "—")},
+        {"key": "Commands", "value": str(counts.get("commands", 0))},
+        {"key": "Test Cases", "value": str(counts.get("cases", 0))},
+        {"key": "Last Updated", "value": str(defn.get("lastupddttm") or "")[:19]},
+        {"key": "Updated By", "value": (defn.get("lastupdoprid") or "").strip() or "—"},
+    ]
+    if descrlong:
+        kv.insert(3, {"key": "Notes", "value": descrlong[:400]})
+    sections.append({"type": "kv", "title": "Test Overview", "rows": kv})
+
+    # Test Cases
+    if cases:
+        case_items = []
+        for c in cases:
+            case_name = c.get("pttst_case_name", "")
+            case_descr = (c.get("descr") or "").strip()
+            case_items.append({
+                "name": case_name,
+                "chips": [],
+                "meta": case_descr,
+            })
+        sections.append({"type": "items", "title": f"Test Cases ({len(cases)})", "items": case_items})
+
+    # Commands — summarized: show page + field context
+    if commands:
+        cmd_items = []
+        for cmd in commands[:100]:
+            seq = cmd.get("seqnbr", "")
+            obj_id = (cmd.get("pttst_cmd_obj_id") or "").strip()
+            pnlgrp = (cmd.get("pnlgrpname") or "").strip()
+            pnl = (cmd.get("pnlname") or "").strip()
+            field = (cmd.get("pttst_pagefield_nm") or "").strip() or (cmd.get("fieldname") or "").strip()
+            params = (cmd.get("pttst_cmdparametrs") or "").strip()
+            status = (cmd.get("pttst_cmd_status") or "A").strip()
+            status_cls = "chip-green" if status == "A" else "chip-red"
+            chips = [{"label": status, "cls": status_cls}] if status != "A" else []
+            meta_parts = []
+            if pnlgrp and pnl:
+                meta_parts.append(f"{pnlgrp}.{pnl}")
+            elif pnlgrp:
+                meta_parts.append(pnlgrp)
+            if field:
+                meta_parts.append(f"field={field}")
+            if params and params != " ":
+                meta_parts.append(params[:60])
+            cmd_items.append({
+                "name": f"[{seq:>3}] {obj_id or '—'}",
+                "chips": chips,
+                "meta": " · ".join(meta_parts),
+            })
+        title = f"Commands ({counts.get('commands', len(commands))})"
+        if counts.get("commands", 0) > 100:
+            title += " (first 100)"
+        sections.append({"type": "items", "title": title, "items": cmd_items})
+
+    return sections
+
+
+def ptf_test_object(env, test_name):
+    from connectors import psdb as _psdb
+    data = _psdb.get_ptf_test(env, test_name)
+    defn = data.get("definition") or {}
+    warnings = data.get("warnings") or []
+    counts = data.get("counts") or {}
+
+    pttst_type = (defn.get("pttst_type") or "").strip()
+    type_label = _PTF_TYPE_LABEL.get(pttst_type, pttst_type or "Test")
+    descr = (defn.get("descr") or "").strip()
+    display = f"{test_name} — {descr}" if descr else test_name
+
+    sections = _ptf_test_sections(data)
+
+    return canonical_base(
+        env,
+        "ptf_test",
+        test_name.upper(),
+        display_name=display,
+        status="active",
+        warnings=warnings,
+        sections=sections,
+        overview={
+            "type": type_label,
+            "command_count": counts.get("commands", 0),
+            "case_count": counts.get("cases", 0),
+        },
+        _metadata={"environment": env.upper(), "source_table": "PSPTTSTDEFN"},
     )

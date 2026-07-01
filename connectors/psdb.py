@@ -6290,3 +6290,232 @@ def get_app_class(env_name, compound_key):
         },
         "warnings": warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# Content Service Provider Definitions (PSPTCSSRVDEFN)
+# ---------------------------------------------------------------------------
+
+_PTCS_URL_TYPE = {
+    "UPGE": "Page Component",
+    "UAPC": "App Class",
+    "UTIL": "Utility",
+    "UGEN": "URL (Generic)",
+    "USCR": "URL Script",
+}
+_PTCS_SVC_TYPE = {"S": "Service", "C": "Custom", "G": "Group"}
+
+
+def search_content_services(env_name, q="", owner="", limit=200):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSPTCSSRVDEFN"):
+        return []
+    where_parts = ["1=1"]
+    params = {}
+    if q:
+        where_parts.append(
+            "(UPPER(PTCS_SERVICEID) LIKE :q OR UPPER(PTCS_SERVICENAME) LIKE :q OR UPPER(DESCR254) LIKE :q)"
+        )
+        params["q"] = f"%{q.upper()}%"
+    if owner:
+        where_parts.append("UPPER(OBJECTOWNERID) = :own")
+        params["own"] = owner.upper()
+    where = "WHERE " + " AND ".join(where_parts)
+    rows = query(env_name, f"""
+        SELECT d.PTCS_SERVICEID, d.PTCS_SERVICENAME, d.DESCR254,
+               d.PTCS_SERVICEURLTYP, d.PTCS_SERVICETYPE,
+               d.PORTAL_MENUNAME, d.PNLGRPNAME, d.MARKET,
+               d.PACKAGEROOT, d.QUALIFYPATH, d.APPCLASSID,
+               d.OBJECTOWNERID, d.PTTILECATEGORY,
+               (SELECT COUNT(*) FROM SYSADM.PSPTCS_PARAMS p
+                WHERE p.PTCS_SERVICEID = d.PTCS_SERVICEID) AS PARAM_COUNT
+          FROM SYSADM.PSPTCSSRVDEFN d
+        {where}
+         ORDER BY d.PTCS_SERVICEID
+         FETCH FIRST :lim ROWS ONLY
+    """, {**params, "lim": limit})
+    results = []
+    for r in (rows or []):
+        d = dict(r)
+        d["url_type_label"] = _PTCS_URL_TYPE.get(d.get("ptcs_serviceurltyp", ""), d.get("ptcs_serviceurltyp", ""))
+        results.append(d)
+    return results
+
+
+def get_content_service(env_name, service_id):
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env_name, "PSPTCSSRVDEFN"):
+        return {"warnings": ["PSPTCSSRVDEFN table not accessible"]}
+
+    defn_rows = query(env_name, """
+        SELECT PTCS_SERVICEID, PTCS_SERVICENAME, DESCR254,
+               PTCS_SERVICEURLTYP, PTCS_SERVICETYPE, PTCS_SRVCATTR,
+               PORTAL_MENUNAME, PNLGRPNAME, MARKET, PNLNAME,
+               PORTAL_URI_TEXT, PTCS_QUERYNAME,
+               PACKAGEROOT, QUALIFYPATH, APPCLASSID,
+               OBJECTOWNERID, PTTILECATEGORY,
+               MSGNODENAME, PTCS_SECUSEEDIT, USEEDIT,
+               PTCS_BULKACTION, PTCS_ESCAPEPARAM,
+               LASTUPDDTTM, LASTUPDOPRID, VERSION
+          FROM SYSADM.PSPTCSSRVDEFN
+         WHERE PTCS_SERVICEID = :id
+    """, {"id": service_id.upper()})
+    if not defn_rows:
+        return {"warnings": [f"Content Service '{service_id}' not found"]}
+    defn = dict(defn_rows[0])
+
+    # Parameters
+    params_list = []
+    if ptmetadata.has_table(env_name, "PSPTCS_PARAMS"):
+        try:
+            p_rows = query(env_name, """
+                SELECT PTCS_PARAMETERNAME, SEQNUM, REQUIRED_FLG, PTCS_DESCR128
+                  FROM SYSADM.PSPTCS_PARAMS
+                 WHERE PTCS_SERVICEID = :id
+                 ORDER BY SEQNUM
+            """, {"id": service_id.upper()})
+            params_list = [dict(r) for r in (p_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSPTCS_PARAMS: {exc}")
+
+    # Where used — distinct portal objects referencing this service (via menu links)
+    usage = []
+    if ptmetadata.has_table(env_name, "PSPTCS_MNULINKS"):
+        try:
+            u_rows = query(env_name, """
+                SELECT DISTINCT PORTAL_NAME, PORTAL_OBJNAME
+                  FROM SYSADM.PSPTCS_MNULINKS
+                 WHERE PTCS_SERVICEID = :id
+                 ORDER BY PORTAL_OBJNAME
+                 FETCH FIRST 50 ROWS ONLY
+            """, {"id": service_id.upper()})
+            usage = [dict(r) for r in (u_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSPTCS_MNULINKS: {exc}")
+
+    # Map fields count (too granular for display, just count)
+    mapfld_count = 0
+    if ptmetadata.has_table(env_name, "PSPTCS_MAPFLDS"):
+        try:
+            mf = query(env_name, """
+                SELECT COUNT(*) CNT FROM SYSADM.PSPTCS_MAPFLDS
+                 WHERE PTCS_SERVICEID = :id
+            """, {"id": service_id.upper()})
+            mapfld_count = (mf or [{"cnt": 0}])[0].get("cnt", 0)
+        except Exception:
+            pass
+
+    return {
+        "definition": defn,
+        "params": params_list,
+        "usage": usage,
+        "counts": {
+            "params": len(params_list),
+            "usage": len(usage),
+            "map_fields": mapfld_count,
+        },
+        "warnings": warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# PeopleTools Test Framework (PTF) Definitions
+# ---------------------------------------------------------------------------
+
+_PTF_TYPE = {"S": "Script", "H": "Shell", "L": "Library"}
+
+
+def search_ptf_tests(env_name, q="", ptf_type="", limit=200):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSPTTSTDEFN"):
+        return []
+    where_parts = ["1=1"]
+    params = {}
+    if q:
+        where_parts.append(
+            "(UPPER(PTTST_NAME) LIKE :q OR UPPER(DESCR) LIKE :q OR UPPER(PTTST_PARENTFOLDER) LIKE :q)"
+        )
+        params["q"] = f"%{q.upper()}%"
+    if ptf_type:
+        where_parts.append("PTTST_TYPE = :tp")
+        params["tp"] = ptf_type.upper()
+    where = "WHERE " + " AND ".join(where_parts)
+    rows = query(env_name, f"""
+        SELECT d.PTTST_NAME, d.PTTST_PARENTFOLDER, d.PTTST_TYPE, d.DESCR,
+               d.PTTST_APP_VER, d.LASTUPDDTTM, d.LASTUPDOPRID,
+               (SELECT COUNT(*) FROM SYSADM.PSPTTSTCOMMAND c
+                WHERE c.PTTST_NAME = d.PTTST_NAME) AS CMD_COUNT
+          FROM SYSADM.PSPTTSTDEFN d
+        {where}
+         ORDER BY d.PTTST_TYPE, d.PTTST_NAME
+         FETCH FIRST :lim ROWS ONLY
+    """, {**params, "lim": limit})
+    results = []
+    for r in (rows or []):
+        d = dict(r)
+        d["type_label"] = _PTF_TYPE.get(d.get("pttst_type", ""), d.get("pttst_type", ""))
+        results.append(d)
+    return results
+
+
+def get_ptf_test(env_name, test_name):
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env_name, "PSPTTSTDEFN"):
+        return {"warnings": ["PSPTTSTDEFN table not accessible"]}
+
+    defn_rows = query(env_name, """
+        SELECT PTTST_NAME, PTTST_PARENTFOLDER, PTTST_TYPE, DESCR,
+               PTTST_APP_VER, PTTST_USE_ERROR, PTTST_PV_ACTN,
+               VERSION, LASTUPDDTTM, LASTUPDOPRID, OBJECTOWNERID, DESCRLONG
+          FROM SYSADM.PSPTTSTDEFN
+         WHERE PTTST_NAME = :id
+    """, {"id": test_name.upper()})
+    if not defn_rows:
+        return {"warnings": [f"PTF test '{test_name}' not found"]}
+    defn = dict(defn_rows[0])
+
+    # Test cases
+    cases = []
+    if ptmetadata.has_table(env_name, "PSPTTSTCASE"):
+        try:
+            c_rows = query(env_name, """
+                SELECT PTTST_CASE_NAME, DESCR, LASTUPDDTTM, LASTUPDOPRID
+                  FROM SYSADM.PSPTTSTCASE
+                 WHERE PTTST_NAME = :id
+                 ORDER BY PTTST_CASE_NAME
+            """, {"id": test_name.upper()})
+            cases = [dict(r) for r in (c_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSPTTSTCASE: {exc}")
+
+    # Commands — joined with description (first description line)
+    commands = []
+    if ptmetadata.has_table(env_name, "PSPTTSTCOMMAND"):
+        try:
+            cmd_rows = query(env_name, """
+                SELECT c.PTTST_CMD_ID, c.SEQNBR, c.PTTST_CMD_TYPE,
+                       c.PTTST_CMD_OBJ_ID, c.PTTST_CMDPARAMETRS,
+                       c.MENUNAME, c.PNLGRPNAME, c.MARKET, c.PNLNAME,
+                       c.PTTST_PAGEFIELD_NM, c.RECNAME, c.FIELDNAME,
+                       c.PTTST_CMD_STATUS
+                  FROM SYSADM.PSPTTSTCOMMAND c
+                 WHERE c.PTTST_NAME = :id AND c.PTTST_LANG_CD IN (' ', 'ENG')
+                 ORDER BY c.SEQNBR
+                 FETCH FIRST 150 ROWS ONLY
+            """, {"id": test_name.upper()})
+            commands = [dict(r) for r in (cmd_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSPTTSTCOMMAND: {exc}")
+
+    return {
+        "definition": defn,
+        "cases": cases,
+        "commands": commands,
+        "counts": {
+            "cases": len(cases),
+            "commands": len(commands),
+        },
+        "warnings": warnings,
+    }

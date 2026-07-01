@@ -385,6 +385,10 @@ def object_payload(env, object_type, object_name):
         return uom.object_payload(uom.ib_application_object(env, object_name))
     if object_type == "app_class":
         return uom.object_payload(uom.app_class_object(env, object_name))
+    if object_type == "content_service":
+        return uom.object_payload(uom.content_service_object(env, object_name))
+    if object_type == "ptf_test":
+        return uom.object_payload(uom.ptf_test_object(env, object_name))
 
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
@@ -1179,6 +1183,18 @@ def peoplesoft_ib_applications(env: str = "HCM", q: str = "", limit: int = 100):
 def peoplesoft_app_classes(env: str = "HCM", q: str = "", pkg: str = "", limit: int = 200):
     """Search Application Class definitions (PSAPPCLASSDEFN)."""
     return psdb.search_app_classes(env, q=q, pkg=pkg, limit=limit)
+
+
+@router.get("/api/peoplesoft/content-services")
+def peoplesoft_content_services(env: str = "HCM", q: str = "", owner: str = "", limit: int = 200):
+    """Search Content Service Provider definitions (PSPTCSSRVDEFN)."""
+    return psdb.search_content_services(env, q=q, owner=owner, limit=limit)
+
+
+@router.get("/api/peoplesoft/ptf-tests")
+def peoplesoft_ptf_tests(env: str = "HCM", q: str = "", ptf_type: str = "", limit: int = 200):
+    """Search PeopleTools Test Framework definitions (PSPTTSTDEFN)."""
+    return psdb.search_ptf_tests(env, q=q, ptf_type=ptf_type, limit=limit)
 
 
 @router.get("/api/peoplesoft/security/reports")

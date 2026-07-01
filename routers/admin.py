@@ -36,6 +36,8 @@ _NAV = [
     ("ibmessage",  "IB Messages",   "/admin/ibmessage"),
     ("ibapp",      "IB App Svcs",   "/admin/ibapp"),
     ("appclass",   "App Classes",   "/admin/appclass"),
+    ("contsvc",    "Content Svcs",  "/admin/contsvc"),
+    ("ptftest",    "PTF Tests",     "/admin/ptftest"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -3067,6 +3069,8 @@ const TYPE_CHIP_CFG = {
     project:                 {label:'Project',        bg:'#0a100a',border:'#55ee5544',color:'#55ee55'},
     message:                 {label:'IB Message',     bg:'#180a1a',border:'#cc44ff44',color:'#cc44ff'},
     ib_application:          {label:'IB App Svc',     bg:'#001818',border:'#00ddcc44',color:'#00ddcc'},
+    content_service:         {label:'Content Svc',    bg:'#101810',border:'#44ee8844',color:'#44ee88'},
+    ptf_test:                {label:'PTF Test',       bg:'#181008',border:'#ee880044',color:'#ee8800'},
 };
 
 function typeChipHtml(type) {
@@ -13621,6 +13625,264 @@ async function loadDetail(key) {{
   }}
 
   if (!ovSec && !sibSec) {{
+    html += '<div class="muted">No detail available.</div>';
+  }}
+  detail.innerHTML = html;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/contsvc", response_class=HTMLResponse)
+def admin_contsvc(request: Request, env: str = "HCM"):
+    nav = _nav_html("contsvc", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>Content Services</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+</head><body class="ds-body">
+{nav}
+<div class="ds-main" style="display:grid;grid-template-columns:360px 1fr;gap:0;height:calc(100vh - 48px)">
+<div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
+  <div style="margin-bottom:6px;display:flex;gap:6px">
+    <input id="q" placeholder="Search service ID, name, or desc…" oninput="doSearch()"
+      style="flex:1;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 10px;border-radius:4px;font-size:13px">
+    <input id="owner" placeholder="Owner…" oninput="doSearch()"
+      style="width:80px;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 8px;border-radius:4px;font-size:12px">
+  </div>
+  <div id="list" style="font-size:12px"></div>
+</div>
+<div id="detail" style="overflow-y:auto;padding:20px 28px;color:#c8d8e8">
+  <div class="muted">Select a Content Service to view its parameters and usage.</div>
+</div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = {repr(env)};
+let selected = null;
+
+const URL_TYPE_COLOR = {{
+  UPGE:'#22cc66', UAPC:'#aa66ff', UTIL:'#ffaa22', UGEN:'#44aaff', USCR:'#ff8844'
+}};
+const URL_TYPE_LABEL = {{
+  UPGE:'Page', UAPC:'App Class', UTIL:'Utility', UGEN:'Generic URL', USCR:'Script'
+}};
+
+async function doSearch() {{
+  const q = document.getElementById('q').value.trim();
+  const owner = document.getElementById('owner').value.trim();
+  const url = `/api/peoplesoft/content-services?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&owner=${{encodeURIComponent(owner)}}&limit=200`;
+  const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  const list = document.getElementById('list');
+  if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
+  list.innerHTML = data.map(r => {{
+    const sid = r.ptcs_serviceid || '';
+    const name = (r.ptcs_servicename || '').trim();
+    const descr = (r.descr254 || '').trim().slice(0, 70);
+    const urlType = r.ptcs_serviceurltyp || '';
+    const tc = URL_TYPE_COLOR[urlType] || '#778';
+    const tl = URL_TYPE_LABEL[urlType] || urlType;
+    const owner2 = (r.objectownerid || '').trim();
+    const paramCnt = r.param_count || 0;
+    return `<div class="list-item${{selected===sid?' selected':''}}" onclick="loadDetail('${{esc(sid)}}')"
+      style="padding:6px 10px;border-radius:4px;cursor:pointer;margin-bottom:2px;border-bottom:1px solid #0d1520">
+      <div style="font-weight:bold;color:#44ee88;font-family:monospace;font-size:11px">${{esc(sid)}}</div>
+      ${{name && name!==sid ? `<div style="color:#8ab;font-size:11px">${{esc(name)}}</div>` : ''}}
+      <div style="display:flex;gap:8px;margin-top:2px;align-items:center">
+        <span style="font-size:10px;font-weight:bold;color:${{tc}}">${{esc(tl)}}</span>
+        ${{owner2 ? `<span style="font-size:10px;color:#445">${{esc(owner2)}}</span>` : ''}}
+        ${{paramCnt ? `<span style="font-size:10px;color:#334">${{paramCnt}}p</span>` : ''}}
+      </div>
+      ${{descr ? `<div style="color:#445;font-size:10px;margin-top:1px">${{esc(descr)}}</div>` : ''}}
+    </div>`;
+  }}).join('');
+}}
+
+async function loadDetail(sid) {{
+  selected = sid;
+  document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(sid)));
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading…</div>';
+  const url = `/api/peoplesoft/object/content_service/${{encodeURIComponent(sid)}}?env=${{encodeURIComponent(ENV)}}`;
+  const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
+  if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
+
+  const uom = payload;
+  const secs = uom.sections || [];
+  const ovSec = secs.find(s=>s.title?.includes('Overview'));
+  const paramSec = secs.find(s=>s.title?.includes('Parameter'));
+  const useSec = secs.find(s=>s.title?.includes('Used'));
+
+  let html = `<h1 style="color:#44ee88;font-size:16px;margin:0 0 4px">${{esc(uom.display_name || sid)}}</h1>`;
+  html += `<div style="color:#445;font-family:monospace;font-size:11px;margin-bottom:14px">${{esc(sid)}}</div>`;
+
+  // Overview KV
+  if (ovSec?.rows?.length) {{
+    html += '<table style="border-collapse:collapse;margin-bottom:16px;font-size:13px">';
+    ovSec.rows.forEach(row => {{
+      if (!row.value || row.value === '—' || row.value === '0') return;
+      html += `<tr><td style="color:#556;padding:2px 16px 2px 0;white-space:nowrap;vertical-align:top">${{esc(row.key)}}</td>
+        <td style="color:#acd;font-family:monospace;word-break:break-all">${{esc(String(row.value))}}</td></tr>`;
+    }});
+    html += '</table>';
+  }}
+
+  // Parameters
+  if (paramSec?.items?.length) {{
+    html += `<h2 style="color:#aab;font-size:13px;margin:16px 0 6px">${{esc(paramSec.title)}}</h2>`;
+    html += paramSec.items.map(p => {{
+      const req = p.chips?.[0]?.label === 'required';
+      const rc = req ? '#ff6655' : '#445';
+      const meta = p.meta ? `<span style="color:#445;font-size:11px;margin-left:12px">${{esc(p.meta)}}</span>` : '';
+      return `<div style="padding:3px 8px;border-bottom:1px solid #0d1a2a;font-family:monospace;font-size:12px">
+        <span style="color:#44ee88">${{esc(p.name)}}</span>
+        <span style="color:${{rc}};font-size:10px;margin-left:8px">${{req?'required':'optional'}}</span>
+        ${{meta}}
+      </div>`;
+    }}).join('');
+  }}
+
+  // Where used
+  if (useSec?.items?.length) {{
+    html += `<h2 style="color:#aab;font-size:13px;margin:16px 0 6px">${{esc(useSec.title)}}</h2>`;
+    html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
+    useSec.items.forEach(u => {{
+      const portal = u.chips?.[0]?.label || '';
+      html += `<span style="display:inline-block;background:#0a1a0a;border:1px solid #1a3a1a;border-radius:3px;padding:2px 8px;font-size:11px;font-family:monospace;color:#7c9">${{esc(u.name)}}<span style="color:#334;margin-left:6px;font-size:10px">${{esc(portal)}}</span></span>`;
+    }});
+    html += '</div>';
+  }}
+
+  if (!ovSec && !paramSec) {{
+    html += '<div class="muted">No detail available.</div>';
+  }}
+  detail.innerHTML = html;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/ptftest", response_class=HTMLResponse)
+def admin_ptftest(request: Request, env: str = "HCM"):
+    nav = _nav_html("ptftest", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>PTF Tests</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+</head><body class="ds-body">
+{nav}
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
+  <div style="margin-bottom:6px;display:flex;gap:6px">
+    <input id="q" placeholder="Search test name or description…" oninput="doSearch()"
+      style="flex:1;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 10px;border-radius:4px;font-size:13px">
+    <select id="tp" onchange="doSearch()"
+      style="width:90px;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 6px;border-radius:4px;font-size:12px">
+      <option value="">All</option>
+      <option value="S">Script</option>
+      <option value="H">Shell</option>
+      <option value="L">Library</option>
+    </select>
+  </div>
+  <div id="list" style="font-size:12px"></div>
+</div>
+<div id="detail" style="overflow-y:auto;padding:20px 28px;color:#c8d8e8">
+  <div class="muted">Select a PTF test to view its cases and commands.</div>
+</div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = {repr(env)};
+let selected = null;
+
+const TYPE_COLOR = {{S:'#ee8800', H:'#44aaff', L:'#aa66ff'}};
+const TYPE_LABEL = {{S:'Script', H:'Shell', L:'Library'}};
+
+async function doSearch() {{
+  const q = document.getElementById('q').value.trim();
+  const tp = document.getElementById('tp').value;
+  const url = `/api/peoplesoft/ptf-tests?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&ptf_type=${{encodeURIComponent(tp)}}&limit=200`;
+  const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  const list = document.getElementById('list');
+  if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
+  list.innerHTML = data.map(r => {{
+    const name = r.pttst_name || '';
+    const descr = (r.descr || '').trim().slice(0, 60);
+    const tp2 = r.pttst_type || '';
+    const tc = TYPE_COLOR[tp2] || '#778';
+    const tl = TYPE_LABEL[tp2] || tp2;
+    const cmds = r.cmd_count || 0;
+    const folder = (r.pttst_parentfolder || '').split('\\\\').filter(Boolean).slice(-1)[0] || '';
+    return `<div class="list-item${{selected===name?' selected':''}}" onclick="loadDetail('${{esc(name)}}')"
+      style="padding:6px 10px;border-radius:4px;cursor:pointer;margin-bottom:2px;border-bottom:1px solid #0d1520">
+      <div style="font-weight:bold;color:#ee8800;font-family:monospace;font-size:11px">${{esc(name)}}</div>
+      <div style="display:flex;gap:8px;margin-top:2px;align-items:center">
+        <span style="font-size:10px;font-weight:bold;color:${{tc}}">${{esc(tl)}}</span>
+        ${{cmds ? `<span style="font-size:10px;color:#445">${{cmds}} cmds</span>` : ''}}
+        ${{folder ? `<span style="font-size:10px;color:#334">${{esc(folder)}}</span>` : ''}}
+      </div>
+      ${{descr ? `<div style="color:#445;font-size:10px;margin-top:1px">${{esc(descr)}}</div>` : ''}}
+    </div>`;
+  }}).join('');
+}}
+
+async function loadDetail(name) {{
+  selected = name;
+  document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading…</div>';
+  const url = `/api/peoplesoft/object/ptf_test/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
+  if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
+
+  const uom = payload;
+  const secs = uom.sections || [];
+  const ovSec = secs.find(s=>s.title?.includes('Overview'));
+  const caseSec = secs.find(s=>s.title?.includes('Cases'));
+  const cmdSec = secs.find(s=>s.title?.includes('Command'));
+
+  let html = `<h1 style="color:#ee8800;font-size:16px;margin:0 0 4px;font-family:monospace">${{esc(name)}}</h1>`;
+
+  // Overview KV
+  if (ovSec?.rows?.length) {{
+    html += '<table style="border-collapse:collapse;margin-bottom:16px;font-size:13px">';
+    ovSec.rows.forEach(row => {{
+      if (!row.value || row.value === '—' || row.value === '0') return;
+      html += `<tr><td style="color:#556;padding:2px 16px 2px 0;white-space:nowrap;vertical-align:top">${{esc(row.key)}}</td>
+        <td style="color:#acd;word-break:break-word;max-width:500px">${{esc(String(row.value))}}</td></tr>`;
+    }});
+    html += '</table>';
+  }}
+
+  // Cases
+  if (caseSec?.items?.length) {{
+    html += `<h2 style="color:#aab;font-size:13px;margin:16px 0 6px">${{esc(caseSec.title)}}</h2>`;
+    html += caseSec.items.map(c => {{
+      const meta = c.meta ? `<span style="color:#445;font-size:11px;margin-left:10px">${{esc(c.meta)}}</span>` : '';
+      return `<div style="padding:3px 8px;border-bottom:1px solid #0d1a2a;font-family:monospace;font-size:12px">
+        <span style="color:#ee8800">${{esc(c.name)}}</span>${{meta}}
+      </div>`;
+    }}).join('');
+  }}
+
+  // Commands
+  if (cmdSec?.items?.length) {{
+    html += `<h2 style="color:#aab;font-size:13px;margin:16px 0 6px">${{esc(cmdSec.title)}}</h2>`;
+    html += '<div style="font-family:monospace;font-size:11px">';
+    html += cmdSec.items.map(cmd => {{
+      const meta = cmd.meta ? `<span style="color:#334;margin-left:10px;font-size:10px">${{esc(cmd.meta)}}</span>` : '';
+      return `<div style="padding:2px 8px;border-bottom:1px solid #0d1520">
+        <span style="color:#88a;min-width:160px;display:inline-block">${{esc(cmd.name)}}</span>${{meta}}
+      </div>`;
+    }}).join('');
+    html += '</div>';
+  }}
+
+  if (!ovSec && !caseSec && !cmdSec) {{
     html += '<div class="muted">No detail available.</div>';
   }}
   detail.innerHTML = html;

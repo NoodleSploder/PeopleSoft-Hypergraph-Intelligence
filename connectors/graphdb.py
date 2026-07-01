@@ -926,6 +926,41 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "connected_query", cid, r.get("descr") or cid, r)
         return len(rows)
 
+    def ptf_tests():
+        if not ptmetadata.has_table(env, "PSPTTSTDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT PTTST_NAME, PTTST_TYPE, DESCR, PTTST_PARENTFOLDER
+              FROM SYSADM.PSPTTSTDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY PTTST_NAME
+        """) or []
+        for r in rows:
+            tid = r.get("pttst_name")
+            if not tid:
+                continue
+            label = (r.get("descr") or "").strip() or tid
+            add_node(graph, "ptf_test", tid, label, r)
+        return len(rows)
+
+    def content_services():
+        if not ptmetadata.has_table(env, "PSPTCSSRVDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT PTCS_SERVICEID, PTCS_SERVICENAME, DESCR254,
+                   PTCS_SERVICEURLTYP, OBJECTOWNERID
+              FROM SYSADM.PSPTCSSRVDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY PTCS_SERVICEID
+        """) or []
+        for r in rows:
+            sid = r.get("ptcs_serviceid")
+            if not sid:
+                continue
+            label = (r.get("ptcs_servicename") or "").strip() or sid
+            add_node(graph, "content_service", sid, label, r)
+        return len(rows)
+
     def app_classes():
         if not ptmetadata.has_table(env, "PSAPPCLASSDEFN"):
             return 0
@@ -1086,6 +1121,8 @@ def build(env="HCM", limit=50, persist=True):
         ("process_definitions", process_definitions),
         ("ib_applications", ib_applications),
         ("app_classes", app_classes),
+        ("content_services", content_services),
+        ("ptf_tests", ptf_tests),
     ):
         provider(graph, name, loader)
 

@@ -167,6 +167,8 @@ Continue expanding object coverage.
 - IB Message Definitions (added 2026-06-30; PSMSGDEFN, 4272 rows, keyed by MSGNAME; sub-tables PSMSGVER/PSMSGREC; shows versions and schema record hierarchy for each message)
 - IB Application Services (added 2026-06-30; PSIBAPPLDEFN, 13 apps, keyed by PTIBAPPLNAME; sub-tables PSIBAPPMETHOD/PSIBAPPURI/PSIBAPPTRAN/PSIBAPPLSTATES; shows REST endpoint operations with HTTP methods and URI templates; covers Chatbot, Fluid/Mobile, Payroll, Absence, Recruitment ASF services)
 - Application Class Definitions (added 2026-06-30; PSAPPCLASSDEFN, 12622 rows across 1860 packages; compound key PACKAGEROOT~QUALIFYPATH~APPCLASSID; displays full PeopleCode path, sibling classes in same sub-package, and sub-package inventory; QUALIFYPATH `:` indicates root-level class)
+- Content Service Provider Definitions (added 2026-06-30; PSPTCSSRVDEFN, 1016 rows; keyed by PTCS_SERVICEID; URL types: Page Component/App Class/Utility/Generic/Script; sub-tables PSPTCS_PARAMS (parameters) and PSPTCS_MNULINKS (where-used portal objects); powers Related Actions, WorkCenters, Fluid navigation)
+- PeopleTools Test Framework Tests (added 2026-06-30; PSPTTSTDEFN, 161 rows; keyed by PTTST_NAME; types Script/Shell/Library; sub-tables PSPTTSTCASE (test cases) and PSPTTSTCOMMAND (step-by-step commands with page/field context); NOTE: PTTST_LANG_CD is a single space for most rows — filter uses IN (' ', 'ENG') not TRIM)
 
 ### ⚠️ Stub Providers (no live backing tables found in verified HCM schema)
 
@@ -420,6 +422,8 @@ Completed in this session:
 Completed this session (2026-06-30 continued):
 - **IB Application Services** — implemented against verified `PSIBAPPLDEFN` (13 apps); exposes REST endpoint operations via PSIBAPPMETHOD/PSIBAPPURI with HTTP methods and URI templates
 - **Application Class Definitions** — implemented against verified `PSAPPCLASSDEFN` (12622 rows, 1860 packages); compound key PACKAGEROOT~QUALIFYPATH~APPCLASSID; shows full class path with sibling classes and sub-package tree
+- **Content Service Provider Definitions** — implemented against verified `PSPTCSSRVDEFN` (1016 rows); powers Related Actions, WorkCenter actions, Fluid navigation; shows parameters and where-used portal objects
+- **PeopleTools Test Framework (PTF) Tests** — implemented against verified `PSPTTSTDEFN` (161 rows); Script/Shell/Library types; shows test cases and up to 150 commands with page/field context
 
 Candidates for next session:
 - **WorkCenters** — no standalone definition header table found; EOWC tables are runtime config keyed by portal object name, not metadata definitions; deprioritized
