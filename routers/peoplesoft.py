@@ -1662,6 +1662,14 @@ def peoplesoft_graph(object_type: str, object_name: str, env: str = "HCM"):
             "edges": page_graph.get("edges", []),
         }
 
+    if object_type == "component":
+        component_graph = uom.component_object(env, object_name).get("_graph", {})
+        return {
+            "root": f"component:{object_name.upper()}",
+            "nodes": component_graph.get("nodes", []),
+            "edges": component_graph.get("edges", []),
+        }
+
     if object_type == "tree":
         tree_graph = uom.tree_object(env, object_name).get("_graph", {})
         return {
@@ -1720,27 +1728,6 @@ def peoplesoft_graph(object_type: str, object_name: str, env: str = "HCM"):
             component = row["pnlgrpname"]
             add_node(nodes, node("component", component, data=row))
             edges.append(edge("permissionlist", object_name, "component", component, "grants_component"))
-
-    elif object_type == "component":
-        for row in psdb.component_permissionlists(env, object_name):
-            classid = row["classid"]
-            add_node(nodes, node("permissionlist", classid, data=row))
-            edges.append(edge("permissionlist", classid, "component", object_name, "grants_component"))
-
-        for row in psdb.component_pages(env, object_name):
-            page = row["pnlname"]
-            add_node(nodes, node("page", page, data=row))
-            edges.append(edge("component", object_name, "page", page, "contains_page"))
-
-        component = psdb.component(env, object_name) or {}
-        for key, relationship in (
-            ("searchrecname", "uses_search_record"),
-            ("addsrchrecname", "uses_add_search_record"),
-        ):
-            record = component.get(key)
-            if record:
-                add_node(nodes, node("record", record, data={"source": key}))
-                edges.append(edge("component", object_name, "record", record, relationship))
 
     elif object_type in {"portal", "portal_registry", "content_reference"}:
         portal_graph = uom.portal_registry_object(env, object_name).get("_graph", {})

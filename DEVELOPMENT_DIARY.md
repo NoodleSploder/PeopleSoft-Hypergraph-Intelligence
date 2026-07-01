@@ -6,6 +6,63 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-06-30 — Component Graph API Uses UOM Provider
+
+Date/time: 2026-06-30 23:39 CDT
+
+Features implemented:
+- Reconciled `/api/peoplesoft/graph/component/{name}` with the Component UOM
+  provider.
+- Removed the duplicate router-local Component graph construction loop from
+  `routers/peoplesoft.py`.
+- Graph Explorer Component requests now receive the same Component relationship
+  model as Object Explorer Graph Preview.
+
+Files modified:
+- `routers/peoplesoft.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Kept the endpoint URL and response shape unchanged: `{root, nodes, edges}`.
+- Accepted the intentional content alignment: the route now returns the capped,
+  richer UOM Component graph rather than the older security/pages/search-record
+  router graph. For sampled objects this changes `JOB_DATA` from 58/287 to
+  61/194 and `USERMAINT` from 11/23 to 29/155.
+- Preserved the existing UOM Component edge labels and graph caps.
+
+Bugs fixed:
+- Removed another source of duplicated graph construction from the router layer.
+- Eliminated duplicate permission-list edges produced by the legacy component
+  graph route for some components.
+
+Technical debt:
+- Record, Operator, Role, and Permission List graph routes still contain
+  router-local graph construction.
+
+Verification:
+- `python -m py_compile routers/peoplesoft.py connectors/uom.py` — OK.
+- Direct `routers.peoplesoft.peoplesoft_graph('component', 'JOB_DATA', env='HCM')`
+  returned `component:JOB_DATA`, 61 nodes, and 194 edges.
+- Direct `routers.peoplesoft.peoplesoft_graph('component', 'USERMAINT', env='HCM')`
+  returned `component:USERMAINT`, 29 nodes, and 155 edges.
+- `python -m py_compile routers/peoplesoft.py routers/admin.py connectors/uom.py connectors/psdb.py connectors/ptmetadata.py`
+  — OK; existing unrelated `routers/admin.py` invalid escape SyntaxWarning remains.
+- `python -c "import main; print('main import ok')"` — OK.
+- Reloaded `deathstar-api.service` by terminating the current unit PID and
+  allowing systemd to restart it; service came back active on port 8088.
+- `GET /api/peoplesoft/graph/component/JOB_DATA?env=HCM` — OK, returned
+  `component:JOB_DATA`, 61 nodes, and 194 edges.
+- `GET /api/peoplesoft/graph/component/USERMAINT?env=HCM` — OK, returned
+  `component:USERMAINT`, 29 nodes, and 155 edges.
+- `GET /api/sqlws/config` — OK baseline.
+
+Next recommended work:
+- Continue reducing router-local graph construction, likely Record next after
+  comparing legacy route output with the Record UOM graph.
+
+------------------------------------------------------------------------
+
 ## 2026-06-30 — Component UOM Relationship Graph Extraction
 
 Date/time: 2026-06-30 23:34 CDT
