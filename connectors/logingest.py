@@ -20,7 +20,7 @@ from typing import Optional
 log = logging.getLogger("logingest")
 
 _WEB_TYPES = {"pia_access", "apache_access", "f5_access"}
-_APP_TYPES  = {"appsrv", "tuxedo", "pia_error", "apache_error"}
+_APP_TYPES  = {"appsrv", "tuxedo", "pia_error", "pia_servlet", "pia_weblogic", "pia_stdout", "apache_error"}
 
 
 def _load_config() -> dict:
@@ -44,7 +44,8 @@ def run_ingest():
         return
 
     logdb.init_db()
-    logdb.upsert_sources([s for s in sources if not s.get("_comment")])
+    # Skip entries that are pure comment stubs (have _comment but no name)
+    logdb.upsert_sources([s for s in sources if s.get("name")])
 
     enabled = logdb.get_sources(enabled_only=True)
     if not enabled:
@@ -69,36 +70,43 @@ def _ingest_source(src: dict, logdb, sshclient, parse_line):
         return
 
     if not files:
-        logdb.mark_ingest_done(name)
+        msg = f"No files matched pattern: {pattern}"
+        log.warning("logingest[%s]: %s", name, msg)
+        logdb.mark_ingest_done(name, error=msg)
         return
 
     offsets = logdb.get_offsets(name)
     new_offsets = dict(offsets)
+    file_errors = []
 
     for filepath in files:
-        _ingest_file(
+        err = _ingest_file(
             name, env, ssh_host, filepath, log_type,
             offsets, new_offsets, logdb, sshclient, parse_line
         )
+        if err:
+            file_errors.append(err)
 
     logdb.save_offsets(name, new_offsets)
-    logdb.mark_ingest_done(name)
+    error_summary = "; ".join(file_errors[:2]) if file_errors else None
+    logdb.mark_ingest_done(name, error=error_summary)
 
 
 def _ingest_file(source_name: str, env: str, ssh_host: str, filepath: str,
                  log_type: str, offsets: dict, new_offsets: dict,
-                 logdb, sshclient, parse_line):
-
+                 logdb, sshclient, parse_line) -> Optional[str]:
+    """Returns an error string if the file could not be read, else None."""
     offset = offsets.get(filepath, 0)
 
     try:
         raw_bytes = sshclient.read_bytes(ssh_host, filepath, offset=offset)
     except Exception as exc:
-        log.warning("logingest[%s]: read %s failed: %s", source_name, filepath, exc)
-        return
+        msg = f"read failed ({filepath}): {exc}"
+        log.warning("logingest[%s]: %s", source_name, msg)
+        return msg
 
     if not raw_bytes:
-        return
+        return None
 
     text = raw_bytes.decode("utf-8", errors="replace")
     lines = text.splitlines()
@@ -150,6 +158,7 @@ def _ingest_file(source_name: str, env: str, ssh_host: str, filepath: str,
         "logingest[%s]: %s +%d bytes → %d web, %d app, %d errors",
         source_name, filepath, consumed_bytes, len(web_rows), len(app_rows), len(error_rows)
     )
+    return None
 
 
 if __name__ == "__main__":

@@ -38,12 +38,43 @@ Guidelines:
   users with activity in the last `active_minutes` minutes (default 30). Report recently_active users \
   as "currently using the system." Signon type 1 = real SSO/browser users; type 0 = service accounts. \
   For "right now" questions use active_minutes=15; for broader "who is in today" use hours=24.
-- For log questions ("what errors are we seeing?", "what was USER doing?", "are there ORA errors?", \
-  "show me web server errors"): use log_errors for error surface questions; use log_search to filter \
-  by user/component/time; use session_log_chain to get the full web→app picture for one user in a time window. \
-  If tools return empty with a "no log sources" note, inform the user that log sources need to be configured \
-  in config.json → log_sources and enabled before data can appear.
-- Keep answers focused and technical. Use object names, table names, and field names precisely.
+## Proactive System Diagnostics (CRITICAL)
+- When the user describes or you see ANY of these symptoms: HTTP 502/503/504, \
+  ExternalApplicationException, "connection refused", IB timeout, "system unavailable", \
+  "cannot connect to node", "IB error", slow performance, no users able to log in — \
+  IMMEDIATELY call environment_health BEFORE giving any advice. Do not guess. Check first.
+- After environment_health: if oracle_db is DOWN → tell the user the DB is unreachable, nothing \
+  will work until the Oracle listener and instance are restarted.
+- If ib_dispatcher is DOWN or DEGRADED → call ib_diagnostics to find which nodes/queues are broken \
+  and what transactions are failing. Report: which nodes are inactive, which transactions failed, \
+  and tell the user to start the Integration Broker domain.
+- If process_scheduler shows OFFLINE servers → tell the user the process scheduler is down and \
+  how to start it (PIA → PeopleTools → Process Scheduler → Servers, or start server from command line).
+- If IB errors found → use ib_diagnostics with the specific node mentioned in errors (e.g. FSCMDMO, \
+  PSFT_EP) to find what is failing. Quote actual error strings from failed_transactions.
+- If environment appears fully offline (DB down + IB down + no sessions) → tell the user directly: \
+  "This environment appears to be fully offline. You need to start the App Server, Web Server, \
+  and Process Scheduler before anyone can use it."
+- Never say "it might be a network issue" or "check connectivity" without first running \
+  environment_health. Concrete data beats vague suggestions.
+
+## Log Analysis
+- For log questions ("what errors are we seeing?", "are there errors in the logs?", "are there ORA errors?"): \
+  use log_errors — it returns grouped error counts plus sample_messages for each group. \
+  ALWAYS quote actual error message text from sample_messages in your response. \
+  If error_code is null in the groups, that means PeopleSoft app/servlet errors without a specific DB code — \
+  read the sample_messages to understand and explain what the errors actually say. \
+  Then offer to show more detail or investigate a specific error.
+- For "show me", "display", "list the errors/logs" requests: use log_search with errors_only=True (or without \
+  for general log browsing). This returns individual entries with full messages. Show them as a table: \
+  timestamp, source, level, oprid, message. Truncate long messages to ~120 chars.
+- For "what was USER doing?", "trace USER's session", "walk me through what happened": \
+  use session_log_chain to get the full web→app picture for one user in a time window. \
+  Narrate the sequence chronologically: what they accessed, what the app server did, any errors.
+- If tools return empty with a "no log sources" note, inform the user that log sources need to be \
+  configured in config.json → log_sources and enabled before data can appear.
+- Keep answers focused and technical. Use object names, table names, and field names precisely. \
+  When you know something is wrong, say it plainly. When you know what to do, say it plainly.
 - If a tool returns an error or empty result, say so clearly rather than guessing.
 - Default to HCM environment unless the user specifies otherwise.
 """

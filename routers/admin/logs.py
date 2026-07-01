@@ -45,25 +45,37 @@ def logs_overview(request: Request):
         except Exception:
             file_count = 0
 
+        enabled = bool(s["enabled"])
         status_dot = (
-            '<span style="color:#00e5ff">●</span>' if s["enabled"]
-            else '<span style="color:#555">●</span>'
+            '<span style="color:#00e5ff" title="enabled">●</span>' if enabled
+            else '<span style="color:#555" title="disabled">●</span>'
         )
-        error_badge = (
-            f'<span style="color:#ff6b6b;font-size:11px">{s["error_msg"][:60]}</span>'
-            if s.get("error_msg") else ""
+        error_msg = s.get("error_msg") or ""
+        if error_msg:
+            error_badge = (
+                f'<span style="color:#ff6b6b;font-size:11px" title="{error_msg}">'
+                f'{error_msg[:80]}{"…" if len(error_msg) > 80 else ""}</span>'
+            )
+        else:
+            error_badge = ""
+
+        file_count_html = (
+            f'<span style="color:#00e5ff;font-weight:600">{file_count}</span>'
+            if file_count > 0
+            else f'<span style="color:#555" title="No files tracked yet — check path and SSH access">0</span>'
         )
+
         rows_html += f"""
         <tr>
-          <td>{status_dot} {s['name']}</td>
+          <td>{status_dot} <strong>{s['name']}</strong></td>
           <td><code>{s['type']}</code></td>
           <td>{s['env']}</td>
           <td>{s['ssh_host']}</td>
-          <td style="font-size:11px;color:#7faab2;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+          <td style="font-size:11px;color:#7faab2;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
               title="{s['path']}">{s['path']}</td>
-          <td style="text-align:center">{file_count}</td>
-          <td style="font-size:11px;color:#7faab2">{s.get('last_ingest') or '—'}</td>
-          <td>{error_badge}</td>
+          <td style="text-align:center">{file_count_html}</td>
+          <td style="font-size:11px;color:#7faab2;white-space:nowrap">{s.get('last_ingest') or '—'}</td>
+          <td style="max-width:300px">{error_badge}</td>
         </tr>"""
 
     if not sources:

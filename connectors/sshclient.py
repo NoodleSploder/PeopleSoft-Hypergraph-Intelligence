@@ -93,7 +93,10 @@ def _get_client(alias: str):
 # ---------------------------------------------------------------------------
 
 def list_files(alias: str, pattern: str) -> list[str]:
-    """Return sorted list of file paths on remote host matching glob pattern."""
+    """
+    Return sorted list of file paths on remote host matching glob pattern.
+    Raises FileNotFoundError if the directory portion of the pattern does not exist.
+    """
     if alias == "local":
         return sorted(glob.glob(os.path.expanduser(pattern)))
 
@@ -105,8 +108,10 @@ def list_files(alias: str, pattern: str) -> list[str]:
         import fnmatch
         try:
             all_files = sftp.listdir(directory)
-        except Exception:
-            return []
+        except IOError as exc:
+            raise FileNotFoundError(
+                f"Directory not found on {alias}: {directory!r}"
+            ) from exc
         matched = sorted(
             f"{directory}/{f}" for f in all_files if fnmatch.fnmatch(f, basename)
         )
@@ -119,14 +124,12 @@ def read_bytes(alias: str, path: str, offset: int = 0, max_bytes: int = 4 * 1024
     """
     Read up to max_bytes from a remote file starting at byte offset.
     Returns bytes (may be empty if offset is at/past EOF).
+    Raises PermissionError or FileNotFoundError on access failures.
     """
     if alias == "local":
-        try:
-            with open(path, "rb") as f:
-                f.seek(offset)
-                return f.read(max_bytes)
-        except FileNotFoundError:
-            return b""
+        with open(path, "rb") as f:
+            f.seek(offset)
+            return f.read(max_bytes)
 
     client = _get_client(alias)
     sftp = client.open_sftp()
@@ -134,15 +137,22 @@ def read_bytes(alias: str, path: str, offset: int = 0, max_bytes: int = 4 * 1024
         try:
             stat = sftp.stat(path)
             file_size = stat.st_size
-        except Exception:
-            return b""
+        except IOError as exc:
+            raise PermissionError(
+                f"Cannot stat {path!r} on {alias} — check file permissions for SSH user"
+            ) from exc
 
         if offset >= file_size:
             return b""
 
-        with sftp.open(path, "rb") as remote_file:
-            remote_file.seek(offset)
-            return remote_file.read(max_bytes)
+        try:
+            with sftp.open(path, "rb") as remote_file:
+                remote_file.seek(offset)
+                return remote_file.read(max_bytes)
+        except IOError as exc:
+            raise PermissionError(
+                f"Cannot read {path!r} on {alias} — check file permissions for SSH user"
+            ) from exc
     finally:
         sftp.close()
 

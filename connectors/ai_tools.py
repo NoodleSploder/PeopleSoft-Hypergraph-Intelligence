@@ -204,6 +204,65 @@ TOOLS = [
         },
     },
     {
+        "name": "environment_health",
+        "description": (
+            "Perform a live health check on a PeopleSoft environment. "
+            "ALWAYS call this first when you see connectivity errors, HTTP 502/503, "
+            "ExternalApplicationException, IB timeout errors, or any 'system unavailable' symptoms. "
+            "Returns: Oracle DB connectivity status, active user session count, "
+            "recent error spike (log errors in last hour vs last 24h), "
+            "IB domain dispatcher status, Integration Broker failed/cancelled transaction counts, "
+            "and process scheduler queue health. "
+            "This tells you if the environment is UP or DOWN before giving any advice."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string", "description": "Environment to health-check: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+            },
+            "required": ["env"],
+        },
+    },
+    {
+        "name": "ib_diagnostics",
+        "description": (
+            "Deep Integration Broker diagnostics for a specific environment. "
+            "Use when you see IB errors, message failures, node connectivity issues, "
+            "ExternalApplicationException, or when environment_health shows IB problems. "
+            "Returns: all IB node definitions (active/inactive, local/remote, target URL), "
+            "IB domain dispatcher status, failed/cancelled transaction counts by queue and status, "
+            "and recent failed transactions with error detail. "
+            "Use node_name to focus on a specific node (e.g. PSFT_EP for a remote node)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env":       {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "node_name": {"type": "string", "description": "Optional: filter to a specific IB node name (e.g. PSFT_EP, ANONYMOUS)"},
+            },
+            "required": ["env"],
+        },
+    },
+    {
+        "name": "process_scheduler_health",
+        "description": (
+            "Check Process Scheduler queue status and recent job failures. "
+            "Use when users report processes not running, stuck jobs, or scheduler unavailability. "
+            "Returns: counts by run status (running, queued, error, success), "
+            "recently failed jobs with error message, stuck/long-running jobs, "
+            "and server heartbeat (last contact from each scheduler server). "
+            "Also flags if no scheduler server has checked in recently (offline indicator)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env":   {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "hours": {"type": "integer", "description": "Hours to look back for recent jobs (default 24)"},
+            },
+            "required": ["env"],
+        },
+    },
+    {
         "name": "log_search",
         "description": (
             "Search ingested web server and application server logs. "
@@ -467,6 +526,7 @@ def _log_search(env: str, tier: str = "both", oprid: str = None,
 def _log_errors(env: str, error_code: str = None, object_ref: str = None,
                 limit: int = 50) -> dict:
     from connectors import logdb
+    from connectors.logdb import _conn
     logdb.init_db()
     groups = logdb.error_summary(env=env, limit=limit)
     if error_code:
@@ -479,6 +539,26 @@ def _log_errors(env: str, error_code: str = None, object_ref: str = None,
             "groups": [],
             "note": "No errors found. Ensure log sources are configured and ingestion is running.",
         }
+    # Enrich each group with up to 3 sample error messages so the AI can explain what's happening
+    c = _conn()
+    for g in groups[:30]:
+        ecode = g.get("error_code")
+        oref  = g.get("object_ref")
+        clauses, params = ["env=?"], [env]
+        if ecode:
+            clauses.append("error_code=?"); params.append(ecode)
+        else:
+            clauses.append("error_code IS NULL")
+        if oref:
+            clauses.append("object_ref=?"); params.append(oref)
+        else:
+            clauses.append("object_ref IS NULL")
+        rows = c.execute(
+            f"SELECT ts, oprid, source_name, level, message FROM log_errors "
+            f"WHERE {' AND '.join(clauses)} ORDER BY ts DESC LIMIT 3",
+            params
+        ).fetchall()
+        g["sample_messages"] = [dict(r) for r in rows]
     return {"env": env, "groups": groups, "count": len(groups)}
 
 
@@ -494,6 +574,298 @@ def _session_log_chain(oprid: str, start: str = None, end: str = None) -> dict:
     if not chain["web"] and not chain["app"]:
         chain["note"] = "No log entries for this OPRID in the given window. Ensure log sources are configured."
     return chain
+
+
+def _environment_health(env: str) -> dict:
+    """Live health check: DB connectivity, sessions, IB dispatcher, error spike, process queue."""
+    from connectors import ib as ib_conn, logdb
+    env = env.upper()
+    result: dict = {"env": env, "checks": []}
+
+    def check(name, status, detail=""):
+        result["checks"].append({"name": name, "status": status, "detail": detail})
+
+    # 1. Oracle DB connectivity
+    try:
+        rows = psdb.query(env, "SELECT 1 FROM DUAL")
+        check("oracle_db", "UP", "SELECT 1 FROM DUAL succeeded")
+    except Exception as exc:
+        check("oracle_db", "DOWN", f"DB connection failed: {exc}")
+        result["verdict"] = "ENVIRONMENT OFFLINE — Oracle DB unreachable"
+        result["recommendation"] = "The Oracle database is not responding. Check that the DB listener and instance are running before diagnosing further."
+        return result
+
+    # 2. Active user sessions (last 30 min)
+    try:
+        from connectors import tracing
+        sess = tracing.recent_active_operators(env, limit=100)
+        active = sess.get("items", [])
+        check("user_sessions", "OK", f"{len(active)} user(s) active in last 30 min")
+        result["active_users"] = [u.get("oprid") for u in active[:10]]
+    except Exception as exc:
+        check("user_sessions", "WARN", str(exc))
+
+    # 3. IB domain dispatcher heartbeat
+    try:
+        dom = ib_conn.domain_status(env)
+        items = dom.get("items", [])
+        if not items:
+            check("ib_dispatcher", "UNKNOWN", "No rows in PSAPMSGDOMSTAT — dispatcher may never have started")
+        else:
+            statuses = [r.get("domain_status", "") for r in items]
+            all_running = all(str(s).strip() in ("1", "A", "Running", "RUNNING") for s in statuses)
+            check("ib_dispatcher",
+                  "UP" if all_running else "DEGRADED",
+                  f"{len(items)} domain(s): {', '.join(str(s) for s in statuses)}")
+        result["ib_domains"] = items[:5]
+    except Exception as exc:
+        check("ib_dispatcher", "ERROR", str(exc))
+
+    # 4. IB transaction backlog (failed/cancelled)
+    try:
+        if ptmetadata.has_table(env, "PSAPMSGPUBHDR"):
+            rows = psdb.query(env, """
+                SELECT PUBSTATUS, COUNT(*) AS CNT
+                  FROM SYSADM.PSAPMSGPUBHDR
+                 WHERE CREATEDTTM > SYSDATE - 1
+                 GROUP BY PUBSTATUS ORDER BY PUBSTATUS
+            """)
+            status_map = {str(r.get("pubstatus")): int(r.get("cnt", 0)) for r in rows}
+            cancelled = status_map.get("3", 0) + status_map.get("6", 0)
+            failed    = status_map.get("4", 0)
+            pending   = status_map.get("1", 0)
+            check("ib_transactions",
+                  "ERROR" if (failed + cancelled) > 50 else "WARN" if (failed + cancelled) > 5 else "OK",
+                  f"Last 24h: {pending} pending, {failed} failed, {cancelled} cancelled")
+            result["ib_txn_summary"] = status_map
+    except Exception as exc:
+        check("ib_transactions", "WARN", str(exc))
+
+    # 5. Process scheduler heartbeat
+    try:
+        if ptmetadata.has_table(env, "PSPRCSRQST"):
+            rows = psdb.query(env, """
+                SELECT RUNSTATUS, COUNT(*) AS CNT
+                  FROM SYSADM.PSPRCSRQST
+                 WHERE LASTUPDDTTM > SYSDATE - 1/24
+                 GROUP BY RUNSTATUS ORDER BY RUNSTATUS
+            """)
+            status_map = {str(r.get("runstatus")): int(r.get("cnt", 0)) for r in rows}
+            running = status_map.get("7", 0)
+            errors  = status_map.get("3", 0)
+            check("process_scheduler",
+                  "OK" if running >= 0 else "WARN",
+                  f"Last hour: {running} running, {errors} error(s)")
+    except Exception as exc:
+        check("process_scheduler", "WARN", str(exc))
+
+    # 6. Log error spike (last hour vs 24h baseline)
+    try:
+        logdb.init_db()
+        from connectors.logdb import _conn
+        c = _conn()
+        recent = c.execute(
+            "SELECT count(*) FROM log_errors WHERE env=? AND ts > datetime('now','-1 hour')", (env,)
+        ).fetchone()[0]
+        daily = c.execute(
+            "SELECT count(*) FROM log_errors WHERE env=? AND ts > datetime('now','-1 day')", (env,)
+        ).fetchone()[0]
+        hourly_rate = daily / 24.0 if daily else 0
+        spike = recent > max(hourly_rate * 3, 5)
+        check("log_error_rate",
+              "SPIKE" if spike else "OK",
+              f"Last hour: {recent} errors (24h avg/hr: {hourly_rate:.1f})")
+        result["log_error_recent"] = recent
+    except Exception as exc:
+        check("log_error_rate", "UNKNOWN", str(exc))
+
+    # Overall verdict
+    statuses = [c["status"] for c in result["checks"]]
+    if "DOWN" in statuses:
+        result["verdict"] = "ENVIRONMENT OFFLINE — critical component down"
+    elif "ERROR" in statuses or "SPIKE" in statuses:
+        result["verdict"] = "ENVIRONMENT DEGRADED — errors detected"
+    elif "WARN" in statuses or "DEGRADED" in statuses:
+        result["verdict"] = "ENVIRONMENT UNHEALTHY — warnings present"
+    else:
+        result["verdict"] = "ENVIRONMENT HEALTHY"
+
+    return result
+
+
+def _ib_diagnostics(env: str, node_name: str = None) -> dict:
+    """Deep IB diagnostics: nodes, dispatcher, recent failed transactions."""
+    from connectors import ib as ib_conn
+    env = env.upper()
+    result: dict = {"env": env}
+
+    # Node definitions
+    node_q = node_name or ""
+    node_data = ib_conn.nodes(env, q=node_q, limit=50)
+    nodes = node_data.get("items", [])
+
+    if node_name:
+        # Include the specific node's full config
+        node_detail = ib_conn.node(env, node_name.upper())
+        result["node_detail"] = node_detail.get("item")
+
+    # Summarise node status
+    result["nodes"] = [
+        {
+            "name":       r.get("msgnodename"),
+            "active":     r.get("active_label"),
+            "type":       r.get("node_type_label"),
+            "local":      r.get("is_local"),
+            "default":    r.get("is_default"),
+            "target_url": r.get("ib_tgtlocation"),
+            "toolsrel":   r.get("toolsrel"),
+        }
+        for r in nodes
+    ]
+
+    # IB domain dispatcher
+    dom = ib_conn.domain_status(env)
+    result["domains"] = dom.get("items", [])
+
+    # Recent failed/cancelled transactions (last 24h)
+    if ptmetadata.has_table(env, "PSAPMSGPUBHDR"):
+        try:
+            cols = psdb.select_existing_columns(
+                env, "PSAPMSGPUBHDR",
+                ["IBTRANSACTIONID", "IBOPERATIONNAME", "QUEUENAME", "PUBNODE",
+                 "SUBNODE", "PUBSTATUS", "CREATEDTTM", "ERRORSTRING"],
+                required=["IBTRANSACTIONID"],
+            )
+            where = "WHERE PUBSTATUS IN (3,4,6) AND CREATEDTTM > SYSDATE - 1"
+            if node_name:
+                where += f" AND (upper(PUBNODE) = '{node_name.upper()}' OR upper(SUBNODE) = '{node_name.upper()}')"
+            rows = psdb.query(env, f"""
+                SELECT {', '.join(cols)} FROM SYSADM.PSAPMSGPUBHDR
+                {where}
+                ORDER BY CREATEDTTM DESC FETCH FIRST 20 ROWS ONLY
+            """)
+            result["failed_transactions"] = [
+                {
+                    "id":        r.get("ibtransactionid"),
+                    "operation": r.get("iboperationname"),
+                    "queue":     r.get("queuename"),
+                    "pub_node":  r.get("pubnode"),
+                    "sub_node":  r.get("subnode"),
+                    "status":    r.get("pubstatus"),
+                    "created":   str(r.get("createdttm") or ""),
+                    "error":     (r.get("errorstring") or "")[:200],
+                }
+                for r in rows
+            ]
+        except Exception as exc:
+            result["failed_transactions_error"] = str(exc)
+
+        # Status summary
+        try:
+            summary_rows = psdb.query(env, """
+                SELECT PUBSTATUS, COUNT(*) AS CNT
+                  FROM SYSADM.PSAPMSGPUBHDR
+                 WHERE CREATEDTTM > SYSDATE - 1
+                 GROUP BY PUBSTATUS ORDER BY CNT DESC
+            """)
+            result["txn_status_summary_24h"] = {
+                str(r.get("pubstatus")): int(r.get("cnt", 0)) for r in summary_rows
+            }
+        except Exception:
+            pass
+
+    return result
+
+
+def _process_scheduler_health(env: str, hours: int = 24) -> dict:
+    """Check process scheduler: status counts, recent failures, server heartbeat."""
+    env = env.upper()
+    hours = min(int(hours), 168)
+    result: dict = {"env": env, "hours_back": hours}
+
+    if not ptmetadata.has_table(env, "PSPRCSRQST"):
+        return {"env": env, "error": "PSPRCSRQST not accessible"}
+
+    # Status breakdown
+    try:
+        rows = psdb.query(env, f"""
+            SELECT RUNSTATUS, COUNT(*) AS CNT
+              FROM SYSADM.PSPRCSRQST
+             WHERE LASTUPDDTTM > SYSDATE - {hours}/24
+             GROUP BY RUNSTATUS ORDER BY CNT DESC
+        """)
+        RUNSTATUS = {
+            "1": "Pending", "2": "Initiated", "3": "Error", "5": "Cancelled",
+            "6": "Hold", "7": "Queued", "8": "Processing", "9": "Success",
+            "10": "Invalid", "11": "Posted", "12": "Not Posted",
+            "14": "Content", "17": "Blocked",
+        }
+        result["status_counts"] = {
+            RUNSTATUS.get(str(r.get("runstatus")), str(r.get("runstatus"))): int(r.get("cnt", 0))
+            for r in rows
+        }
+    except Exception as exc:
+        result["status_counts_error"] = str(exc)
+
+    # Recent failures
+    try:
+        fail_cols = psdb.select_existing_columns(
+            env, "PSPRCSRQST",
+            ["PRCSINSTANCE", "PRCSTYPE", "PRCSNAME", "OPRID", "RUNCNTLID",
+             "RUNSTATUS", "BEGINDTTM", "ENDDTTM", "SERVERBATCH", "MSGSETBASES", "MSGNUM"],
+            required=["PRCSINSTANCE"],
+        )
+        fail_rows = psdb.query(env, f"""
+            SELECT {', '.join(fail_cols)} FROM SYSADM.PSPRCSRQST
+             WHERE RUNSTATUS IN (3, 5, 10)
+               AND LASTUPDDTTM > SYSDATE - {hours}/24
+             ORDER BY LASTUPDDTTM DESC FETCH FIRST 10 ROWS ONLY
+        """)
+        result["recent_failures"] = [dict(r) for r in fail_rows]
+    except Exception as exc:
+        result["recent_failures_error"] = str(exc)
+
+    # Server heartbeat — when did each scheduler server last respond
+    try:
+        if ptmetadata.has_table(env, "PSPRCSSRVCL"):
+            srv_rows = psdb.query(env, """
+                SELECT SERVERNAME, SERVERTYPE,
+                       MAX(LASTUPDDTTM) AS LAST_HEARTBEAT,
+                       MAX(NUMSERVPROC) AS WORKERS
+                  FROM SYSADM.PSPRCSSRVCL
+                 GROUP BY SERVERNAME, SERVERTYPE
+                 ORDER BY LAST_HEARTBEAT DESC
+            """)
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            servers = []
+            for r in srv_rows:
+                hb = r.get("last_heartbeat")
+                minutes_ago = None
+                status = "UNKNOWN"
+                if hb:
+                    try:
+                        delta = now - hb if hasattr(hb, 'replace') else None
+                        if delta:
+                            minutes_ago = int(delta.total_seconds() / 60)
+                            status = "ONLINE" if minutes_ago < 10 else "STALE" if minutes_ago < 60 else "OFFLINE"
+                    except Exception:
+                        pass
+                servers.append({
+                    "name":        r.get("servername"),
+                    "type":        r.get("servertype"),
+                    "last_seen":   str(hb or ""),
+                    "minutes_ago": minutes_ago,
+                    "status":      status,
+                    "workers":     r.get("workers"),
+                })
+            result["scheduler_servers"] = servers
+            if servers and all(s["status"] == "OFFLINE" for s in servers):
+                result["verdict"] = "PROCESS SCHEDULER OFFLINE — all servers stopped responding"
+    except Exception as exc:
+        result["scheduler_servers_error"] = str(exc)
+
+    return result
 
 
 def _envcompare_summary(env1: str, env2: str) -> dict:
@@ -521,7 +893,10 @@ _HANDLERS = {
     "project_impact":     _project_impact,
     "active_sessions":    _active_sessions,
     "record_usage":       _record_usage,
-    "log_search":         _log_search,
-    "log_errors":         _log_errors,
-    "session_log_chain":  _session_log_chain,
+    "log_search":              _log_search,
+    "log_errors":              _log_errors,
+    "session_log_chain":       _session_log_chain,
+    "environment_health":      _environment_health,
+    "ib_diagnostics":          _ib_diagnostics,
+    "process_scheduler_health": _process_scheduler_health,
 }

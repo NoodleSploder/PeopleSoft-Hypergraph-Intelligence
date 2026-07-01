@@ -488,6 +488,18 @@ def admin_assistant():
 .tool-body.open{{display:block;}}
 .tool-json{{font-family:monospace;font-size:10px;color:#7faab2;white-space:pre-wrap;
   max-height:200px;overflow-y:auto;}}
+.tool-table{{width:100%;border-collapse:collapse;font-size:10px;margin-top:4px;}}
+.tool-table th{{color:#445;text-transform:uppercase;letter-spacing:.8px;font-size:9px;
+  border-bottom:1px solid #0a2030;padding:3px 6px;text-align:left;}}
+.tool-table td{{padding:3px 6px;border-bottom:1px solid #06111a;color:#7faab2;vertical-align:top;}}
+.tool-table tr:hover td{{background:#060f18;}}
+.tool-table td.msg-cell{{color:#c8e8f0;max-width:500px;word-break:break-word;}}
+.tool-table td.err-cell{{color:#ff8888;}}
+.tool-table td.warn-cell{{color:#ffcc66;}}
+.tool-table td.ts-cell{{color:#445;white-space:nowrap;font-family:monospace;}}
+.tool-table td.cnt-cell{{color:#00e5ff;font-weight:bold;text-align:right;}}
+.tool-summary{{font-size:10px;color:#445;padding:4px 0 2px;}}
+.tool-note{{color:#ffaa00;font-size:10px;padding:4px 0;font-style:italic;}}
 .thinking{{color:#445;font-size:11px;font-style:italic;padding:6px 14px;}}
 .chat-input-bar{{padding:12px 16px;border-top:1px solid rgba(0,229,255,.15);
   display:flex;gap:8px;align-items:flex-end;}}
@@ -546,6 +558,312 @@ function renderMarkdown(text) {{
     .replace(/[*][*](.+?)[*][*]/g,'<strong>$1</strong>')
     .replace(/`([^`]+)`/g,'<code>$1</code>')
     .split(String.fromCharCode(10)).join('<br>');
+}}
+
+// ── Tool result rendering ─────────────────────────────────────────────────────
+
+function esc(s) {{
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}}
+
+function toolSummary(tool, input, result) {{
+  if (!result) return '';
+  switch(tool) {{
+    case 'log_errors':
+      return `${{result.count || 0}} error group(s)`;
+    case 'log_search':
+      const wa = (result.web||[]).length + (result.app||[]).length;
+      return `${{wa}} entries`;
+    case 'session_log_chain':
+      return `${{(result.web||[]).length}} web · ${{(result.app||[]).length}} app`;
+    case 'active_sessions':
+      return `${{(result.recently_active||[]).length}} active · ${{(result.recent_users||[]).length}} recent`;
+    case 'search_objects':
+      return `${{result.count || 0}} result(s)`;
+    case 'environment_health': {{
+      const v = result.verdict || '';
+      return v || `${{(result.checks||[]).length}} checks`;
+    }}
+    case 'ib_diagnostics':
+      return `${{(result.nodes||[]).length}} nodes · ${{(result.failed_transactions||[]).length}} failed txn(s)`;
+    case 'process_scheduler_health': {{
+      const srvs = result.scheduler_servers || [];
+      const online = srvs.filter(s => s.status === 'ONLINE').length;
+      return `${{online}}/${{srvs.length}} servers online`;
+    }}
+    default:
+      return '';
+  }}
+}}
+
+function renderToolResult(tool, input, result) {{
+  if (!result) return '<div class="tool-note">No result</div>';
+  if (result.error) return `<div class="tool-note" style="color:#ff6666">${{esc(result.error)}}</div>`;
+  if (result.note && !result.groups && !result.web && !result.app) {{
+    return `<div class="tool-note">${{esc(result.note)}}</div>`;
+  }}
+
+  let h = '';
+
+  // ── log_errors ──────────────────────────────────────────────────────────────
+  if (tool === 'log_errors') {{
+    const groups = result.groups || [];
+    if (!groups.length) return `<div class="tool-note">${{esc(result.note || 'No errors found')}}</div>`;
+    h += `<div class="tool-summary">${{esc(result.count)}} error group(s) in ${{esc(result.env)}}</div>`;
+    h += '<table class="tool-table"><thead><tr>'
+       + '<th>#</th><th>Source</th><th>Error Code</th><th>Object</th>'
+       + '<th>Users</th><th>Last Seen</th><th>Recent Message</th></tr></thead><tbody>';
+    for (const g of groups) {{
+      const sample = (g.sample_messages || [])[0];
+      const msg = sample ? (sample.message || '').slice(0, 120) : '';
+      const levelCls = (sample && sample.level === 'ERROR') ? 'err-cell' : (sample && sample.level === 'WARNING') ? 'warn-cell' : '';
+      h += `<tr>
+        <td class="cnt-cell">${{esc(g.cnt)}}</td>
+        <td>${{esc((g.source_name || sample?.source_name || ''))}}</td>
+        <td style="font-family:monospace;color:#ffaa00">${{esc(g.error_code || '—')}}</td>
+        <td style="color:#00e5ff">${{esc(g.object_ref || '—')}}</td>
+        <td>${{esc(g.oprids_sample || '')}}</td>
+        <td class="ts-cell">${{esc((g.last_seen||'').slice(0,16))}}</td>
+        <td class="msg-cell ${{levelCls}}">${{esc(msg)}}</td>
+      </tr>`;
+      // Show remaining sample messages as sub-rows
+      for (const sm of (g.sample_messages || []).slice(1)) {{
+        const smMsg = (sm.message || '').slice(0, 120);
+        h += `<tr style="opacity:.6"><td colspan="6" style="padding-left:24px;font-size:9px;color:#334">${{esc(sm.ts||'').slice(0,16)}} · ${{esc(sm.oprid||'')}}</td>`
+           + `<td class="msg-cell">${{esc(smMsg)}}</td></tr>`;
+      }}
+    }}
+    h += '</tbody></table>';
+    return h;
+  }}
+
+  // ── log_search ──────────────────────────────────────────────────────────────
+  if (tool === 'log_search') {{
+    const rows = [...(result.web||[]), ...(result.app||[])].sort((a,b) => (b.ts||'') < (a.ts||'') ? -1 : 1);
+    if (!rows.length) return `<div class="tool-note">${{esc(result.note || 'No log entries found')}}</div>`;
+    h += `<div class="tool-summary">${{rows.length}} entries</div>`;
+    h += '<table class="tool-table"><thead><tr><th>Time</th><th>Level</th><th>Source</th><th>OPRID</th><th>Message</th></tr></thead><tbody>';
+    for (const r of rows.slice(0, 50)) {{
+      const lev = (r.level || '').toUpperCase();
+      const levCls = lev === 'ERROR' || lev === 'SEVERE' ? 'err-cell' : lev === 'WARNING' || lev === 'WARN' ? 'warn-cell' : '';
+      h += `<tr>
+        <td class="ts-cell">${{esc((r.ts||'').slice(0,16))}}</td>
+        <td class="${{levCls}}">${{esc(lev || r.status || '')}}</td>
+        <td style="font-size:9px">${{esc(r.source_name||'')}}</td>
+        <td style="color:#00e5ff">${{esc(r.oprid||'')}}</td>
+        <td class="msg-cell">${{esc((r.message||r.url||r.raw||'').slice(0,140))}}</td>
+      </tr>`;
+    }}
+    if (rows.length > 50) h += `<tr><td colspan="5" class="tool-note">… ${{rows.length - 50}} more rows</td></tr>`;
+    h += '</tbody></table>';
+    return h;
+  }}
+
+  // ── session_log_chain ───────────────────────────────────────────────────────
+  if (tool === 'session_log_chain') {{
+    const all = [
+      ...(result.web||[]).map(r => ({{...r, _tier:'web'}})),
+      ...(result.app||[]).map(r => ({{...r, _tier:'app'}})),
+    ].sort((a,b) => (b.ts||'') < (a.ts||'') ? -1 : 1);
+    if (!all.length) return `<div class="tool-note">${{esc(result.note || 'No entries found')}}</div>`;
+    h += `<div class="tool-summary">Session chain for ${{esc(result.oprid)}} · ${{all.length}} entries</div>`;
+    h += '<table class="tool-table"><thead><tr><th>Time</th><th>Tier</th><th>Level</th><th>Message</th></tr></thead><tbody>';
+    for (const r of all.slice(0, 60)) {{
+      const lev = (r.level || '').toUpperCase();
+      const levCls = lev === 'ERROR' || lev === 'SEVERE' ? 'err-cell' : lev === 'WARNING' ? 'warn-cell' : '';
+      h += `<tr>
+        <td class="ts-cell">${{esc((r.ts||'').slice(0,16))}}</td>
+        <td style="color:#556;font-size:9px">${{r._tier === 'web' ? 'WEB' : 'APP'}}</td>
+        <td class="${{levCls}}">${{esc(lev)}}</td>
+        <td class="msg-cell ${{levCls}}">${{esc((r.message||r.url||r.raw||'').slice(0,160))}}</td>
+      </tr>`;
+    }}
+    h += '</tbody></table>';
+    return h;
+  }}
+
+  // ── active_sessions ─────────────────────────────────────────────────────────
+  if (tool === 'active_sessions') {{
+    const active  = result.recently_active || [];
+    const recent  = result.recent_users    || [];
+    if (active.length) {{
+      h += `<div class="tool-summary" style="color:#00cc66">${{active.length}} user(s) active now</div>`;
+      h += '<table class="tool-table"><thead><tr><th>OPRID</th><th>Last Request</th><th>Page</th></tr></thead><tbody>';
+      for (const u of active) {{
+        h += `<tr>
+          <td style="color:#00cc66;font-weight:bold">${{esc(u.oprid)}}</td>
+          <td class="ts-cell">${{esc((u.logindttm||u.last_login||'').slice(0,16))}}</td>
+          <td style="font-size:9px">${{esc(u.pnlgrpname||'')}}</td>
+        </tr>`;
+      }}
+      h += '</tbody></table>';
+    }}
+    if (recent.length) {{
+      h += `<div class="tool-summary" style="margin-top:6px">${{recent.length}} recent user(s)</div>`;
+      h += '<table class="tool-table"><thead><tr><th>OPRID</th><th>Sessions</th><th>Last Seen</th></tr></thead><tbody>';
+      for (const u of recent.slice(0,20)) {{
+        h += `<tr>
+          <td style="color:#7faab2">${{esc(u.oprid)}}</td>
+          <td class="cnt-cell">${{esc(u.session_count)}}</td>
+          <td class="ts-cell">${{esc((u.last_login||'').slice(0,16))}}</td>
+        </tr>`;
+      }}
+      h += '</tbody></table>';
+    }}
+    if (!active.length && !recent.length) return '<div class="tool-note">No active sessions</div>';
+    return h;
+  }}
+
+  // ── search_objects ───────────────────────────────────────────────────────────
+  if (tool === 'search_objects') {{
+    const results = result.results || [];
+    if (!results.length) return '<div class="tool-note">No objects found</div>';
+    h += '<table class="tool-table"><thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead><tbody>';
+    for (const r of results.slice(0,20)) {{
+      h += `<tr>
+        <td style="color:#00e5ff;font-family:monospace">${{esc(r.name||r.id)}}</td>
+        <td style="color:#556">${{esc(r.type||'')}}</td>
+        <td class="msg-cell">${{esc((r.descr||r.description||r.label||'').slice(0,80))}}</td>
+      </tr>`;
+    }}
+    h += '</tbody></table>';
+    return h;
+  }}
+
+  // ── environment_health ──────────────────────────────────────────────────────
+  if (tool === 'environment_health') {{
+    const checks = result.checks || [];
+    const verdict = result.verdict || '';
+    const verdictColor = verdict.includes('OFFLINE') ? '#ff4444'
+                       : verdict.includes('DEGRADED') || verdict.includes('UNHEALTHY') ? '#ffaa00'
+                       : '#00cc66';
+    h += `<div class="tool-summary" style="color:${{verdictColor}};font-weight:bold">${{esc(verdict)}}</div>`;
+    if (checks.length) {{
+      h += '<table class="tool-table"><thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead><tbody>';
+      for (const c of checks) {{
+        const sc = c.status === 'UP' || c.status === 'OK' ? '#00cc66'
+                 : c.status === 'DOWN' || c.status === 'ERROR' ? '#ff4444'
+                 : c.status === 'SPIKE' || c.status === 'DEGRADED' ? '#ff8800'
+                 : '#ffaa00';
+        h += `<tr>
+          <td style="font-family:monospace;color:#7faab2">${{esc(c.name)}}</td>
+          <td style="color:${{sc}};font-weight:bold">${{esc(c.status)}}</td>
+          <td class="msg-cell">${{esc(c.detail||'')}}</td>
+        </tr>`;
+      }}
+      h += '</tbody></table>';
+    }}
+    if (result.active_users && result.active_users.length) {{
+      h += `<div class="tool-note" style="margin-top:4px">Active users: ${{esc(result.active_users.join(', '))}}</div>`;
+    }}
+    if (result.recommendation) {{
+      h += `<div class="tool-note" style="color:#ffaa00;margin-top:4px">⚠ ${{esc(result.recommendation)}}</div>`;
+    }}
+    return h;
+  }}
+
+  // ── ib_diagnostics ──────────────────────────────────────────────────────────
+  if (tool === 'ib_diagnostics') {{
+    const nodes = result.nodes || [];
+    const domains = result.domains || [];
+    const txns = result.failed_transactions || [];
+    if (nodes.length) {{
+      h += `<div class="tool-summary">IB Nodes (${{nodes.length}})</div>`;
+      h += '<table class="tool-table"><thead><tr><th>Node</th><th>Active</th><th>Type</th><th>Local</th><th>URL</th></tr></thead><tbody>';
+      for (const n of nodes) {{
+        const ac = (n.active||'').toLowerCase();
+        const acColor = ac === 'active' || ac === 'yes' || ac === '1' ? '#00cc66' : '#ff6666';
+        h += `<tr>
+          <td style="color:#00e5ff;font-family:monospace">${{esc(n.name||'')}}</td>
+          <td style="color:${{acColor}}">${{esc(n.active||'')}}</td>
+          <td style="font-size:9px">${{esc(n.type||'')}}</td>
+          <td style="color:#556">${{esc(n.local||'')}}</td>
+          <td class="msg-cell" style="font-size:9px">${{esc((n.target_url||'').slice(0,60))}}</td>
+        </tr>`;
+      }}
+      h += '</tbody></table>';
+    }}
+    if (domains.length) {{
+      h += `<div class="tool-summary" style="margin-top:6px">IB Domains</div>`;
+      h += '<table class="tool-table"><thead><tr><th>Domain</th><th>Status</th><th>Detail</th></tr></thead><tbody>';
+      for (const d of domains) {{
+        h += `<tr>
+          <td style="color:#7faab2">${{esc(d.msgnodename||d.ibnodename||d.domain_name||JSON.stringify(d))}}</td>
+          <td>${{esc(d.domain_status||'')}}</td>
+          <td class="msg-cell" style="font-size:9px">${{esc(d.status_description||d.remarks||'')}}</td>
+        </tr>`;
+      }}
+      h += '</tbody></table>';
+    }}
+    if (txns.length) {{
+      h += `<div class="tool-summary" style="margin-top:6px;color:#ff8800">${{txns.length}} Failed Transaction(s)</div>`;
+      h += '<table class="tool-table"><thead><tr><th>Operation</th><th>Pub→Sub</th><th>Status</th><th>Error</th></tr></thead><tbody>';
+      for (const t2 of txns.slice(0, 15)) {{
+        h += `<tr>
+          <td style="font-family:monospace;font-size:9px">${{esc(t2.operation||'')}}</td>
+          <td style="font-size:9px">${{esc(t2.pub_node||'')}} → ${{esc(t2.sub_node||'')}}</td>
+          <td style="color:#ff6666">${{esc(String(t2.status||''))}}</td>
+          <td class="msg-cell err-cell">${{esc((t2.error||'').slice(0,120))}}</td>
+        </tr>`;
+      }}
+      h += '</tbody></table>';
+    }}
+    if (!nodes.length && !domains.length && !txns.length) return '<div class="tool-note">No IB data returned</div>';
+    return h;
+  }}
+
+  // ── process_scheduler_health ─────────────────────────────────────────────────
+  if (tool === 'process_scheduler_health') {{
+    const counts = result.status_counts || {{}};
+    const servers = result.scheduler_servers || [];
+    const failures = result.recent_failures || [];
+    if (result.verdict) {{
+      const vc = result.verdict.includes('OFFLINE') ? '#ff4444' : '#ffaa00';
+      h += `<div class="tool-summary" style="color:${{vc}};font-weight:bold">${{esc(result.verdict)}}</div>`;
+    }}
+    if (Object.keys(counts).length) {{
+      h += '<table class="tool-table"><thead><tr><th>Status</th><th>Count</th></tr></thead><tbody>';
+      for (const [st, cnt] of Object.entries(counts)) {{
+        const sc = st === 'Error' ? 'err-cell' : st === 'Cancelled' || st === 'Hold' ? 'warn-cell' : '';
+        h += `<tr><td class="${{sc}}">${{esc(st)}}</td><td class="cnt-cell">${{esc(cnt)}}</td></tr>`;
+      }}
+      h += '</tbody></table>';
+    }}
+    if (servers.length) {{
+      h += `<div class="tool-summary" style="margin-top:6px">Scheduler Servers</div>`;
+      h += '<table class="tool-table"><thead><tr><th>Server</th><th>Status</th><th>Last Seen</th><th>Workers</th></tr></thead><tbody>';
+      for (const s of servers) {{
+        const sc2 = s.status === 'ONLINE' ? '#00cc66' : s.status === 'STALE' ? '#ffaa00' : '#ff4444';
+        const ago = s.minutes_ago != null ? `${{s.minutes_ago}}m ago` : s.last_seen || '';
+        h += `<tr>
+          <td style="font-family:monospace">${{esc(s.name||'')}}</td>
+          <td style="color:${{sc2}};font-weight:bold">${{esc(s.status||'')}}</td>
+          <td class="ts-cell">${{esc(ago)}}</td>
+          <td class="cnt-cell">${{esc(s.workers||'')}}</td>
+        </tr>`;
+      }}
+      h += '</tbody></table>';
+    }}
+    if (failures.length) {{
+      h += `<div class="tool-summary" style="margin-top:6px;color:#ff8800">${{failures.length}} Recent Failure(s)</div>`;
+      h += '<table class="tool-table"><thead><tr><th>Instance</th><th>Process</th><th>OPRID</th><th>End Time</th></tr></thead><tbody>';
+      for (const f of failures.slice(0,10)) {{
+        h += `<tr>
+          <td class="cnt-cell">${{esc(f.prcsinstance||'')}}</td>
+          <td style="font-family:monospace;font-size:9px">${{esc(f.prcsname||'')}}</td>
+          <td style="color:#00e5ff">${{esc(f.oprid||'')}}</td>
+          <td class="ts-cell">${{esc(String(f.enddttm||f.begindttm||'').slice(0,16))}}</td>
+        </tr>`;
+      }}
+      h += '</tbody></table>';
+    }}
+    if (!Object.keys(counts).length && !servers.length) return '<div class="tool-note">No scheduler data returned</div>';
+    return h;
+  }}
+
+  // ── fallback: collapsible JSON ───────────────────────────────────────────────
+  return `<div class="tool-json">${{esc(JSON.stringify({{input, result}}, null, 2))}}</div>`;
 }}
 
 // ── Link map builder — extracts named objects from tool_log ──────────────────
@@ -658,6 +976,51 @@ function buildLinkMap(toolLog) {{
           if (obj.name && obj.type) addObj(obj.name, obj.type, env);
         }}
         break;
+
+      case 'log_errors':
+        for (const g of (res.groups||[])) {{
+          for (const sm of (g.sample_messages||[])) {{
+            if (sm.oprid) addOprid(sm.oprid, env);
+          }}
+          if (g.oprids_sample) {{
+            String(g.oprids_sample).split(',').forEach(op => addOprid(op.trim(), env));
+          }}
+        }}
+        break;
+
+      case 'log_search':
+        for (const r of [...(res.web||[]), ...(res.app||[])]) {{
+          if (r.oprid) addOprid(r.oprid, env);
+          if (r.component) addComponent(r.component, env);
+        }}
+        break;
+
+      case 'session_log_chain':
+        if (t.input && t.input.oprid) addOprid(t.input.oprid, env);
+        for (const r of [...(res.web||[]), ...(res.app||[])]) {{
+          if (r.component) addComponent(r.component, env);
+        }}
+        break;
+
+      case 'environment_health':
+        for (const u of (res.active_users||[])) addOprid(u, env);
+        break;
+
+      case 'ib_diagnostics':
+        for (const n of (res.nodes||[])) {{
+          if (n.name) links[n.name] = {{ url: `/admin/ib/node/${{n.name}}?env=${{env}}`, title: 'IB Node' }};
+        }}
+        for (const tx of (res.failed_transactions||[])) {{
+          if (tx.pub_node) links[tx.pub_node] = {{ url: `/admin/ib/node/${{tx.pub_node}}?env=${{env}}`, title: 'IB Node' }};
+          if (tx.sub_node) links[tx.sub_node] = {{ url: `/admin/ib/node/${{tx.sub_node}}?env=${{env}}`, title: 'IB Node' }};
+        }}
+        break;
+
+      case 'process_scheduler_health':
+        for (const f of (res.recent_failures||[])) {{
+          if (f.oprid) addOprid(f.oprid, env);
+        }}
+        break;
     }}
   }}
   return links;
@@ -754,10 +1117,13 @@ function appendMsg(role, content, toolLog) {{
       blk.className = 'tool-block';
       const head = document.createElement('div');
       head.className = 'tool-head';
-      head.innerHTML = `<span>&#9654;</span><span class="tool-name">${{t.tool}}</span><span style="margin-left:auto;font-size:9px">click to expand</span>`;
+      const summary = toolSummary(t.tool, t.input, t.result);
+      head.innerHTML = `<span>&#9654;</span><span class="tool-name">${{t.tool}}</span>`
+        + (summary ? `<span style="margin-left:8px;color:#556;font-size:9px">${{summary}}</span>` : '')
+        + `<span style="margin-left:auto;font-size:9px;color:#334">expand</span>`;
       const body = document.createElement('div');
       body.className = 'tool-body';
-      body.innerHTML = `<div class="tool-json">${{JSON.stringify({{input:t.input, result:t.result}}, null, 2)}}</div>`;
+      body.innerHTML = renderToolResult(t.tool, t.input, t.result);
       head.onclick = () => body.classList.toggle('open');
       blk.appendChild(head);
       blk.appendChild(body);
