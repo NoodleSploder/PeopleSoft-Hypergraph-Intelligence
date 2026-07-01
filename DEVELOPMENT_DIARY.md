@@ -6,6 +6,65 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — Tracing Web Log Visibility
+
+Date/time: 2026-07-01 14:18 CDT
+
+Features implemented:
+- Updated Transaction Tracing log rendering so correlated web-tier app log rows
+  are explicitly counted and filterable as Web Logs.
+- Added separate Web Logs and App Logs summary cards on `/admin/tracing`.
+- Added Web Logs and App Logs filter buttons in the tracing timeline.
+- Relabeled PIA servlet log events as `Web Servlet` and preserved WebLogic,
+  Web Error, JVM, and Web Access labels.
+- Added a warning when the session API returns no true access-log rows but does
+  return correlated web-tier servlet/WebLogic rows.
+
+Files modified:
+- `routers/admin/runtime.py`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Did not fabricate web access events. The configured remote
+  `PIA_access.log` currently exists but is 0 bytes, so `web_entries` correctly
+  has no rows for the selected session.
+- Classified app-table rows from sources such as `HCMDMO_WEB_SERVLET` as
+  web-tier events for UI purposes while leaving the backend `session_chain`
+  response shape unchanged.
+
+Bugs fixed:
+- Web-tier servlet/WebLogic rows were easy to miss in tracing because they were
+  only part of the generic log timeline. They now surface as Web Logs.
+- Fixed the embedded JavaScript whitespace regex so `py_compile` no longer
+  emits a Python invalid-escape warning for that line.
+
+Technical debt:
+- True PIA access-log ingestion still depends on the remote access log being
+  populated. Current remote source `HCMDMO_WEB_ACCESS` points at
+  `PIA_access.log`, which is 0 bytes.
+- Broader uncommitted Claude-era work remains in AI/log/runtime files and local
+  SQLite data files.
+
+Verification:
+- `python -m py_compile routers/admin/runtime.py routers/logs.py connectors/logdb.py connectors/logparser.py connectors/logingest.py`
+  — OK.
+- `python -c "import main; print('main import ok')"` — OK.
+- Direct `logdb.session_chain('GUACUSER', last_24h)` returned 0 `web` rows,
+  41 `app` rows, and 10 web-tier app rows from `HCMDMO_WEB_SERVLET`.
+- Remote `PIA_access.log` size via `sshclient.file_size(...)` is 0 bytes.
+- Reloaded `deathstar-api.service` by terminating the current unit PID and
+  allowing systemd to restart it; service came back active on port 8088.
+- `GET /admin/tracing` — OK and contains the new Web Logs UI strings.
+- `GET /api/logs/session/GUACUSER?...` — OK, returned 0 web rows, 41 app rows,
+  and 10 app rows from web-tier sources.
+
+Next recommended work:
+- Confirm whether WebLogic access logging is disabled or writing to a different
+  path on the PIA host; update `config.json` once the real access-log source is
+  identified.
+
+------------------------------------------------------------------------
+
 ## 2026-06-30 — Complete UOM Graph Builder Migration
 
 Date/time: 2026-06-30 23:56 CDT
@@ -3123,4 +3182,3 @@ Verification:
 - Live connector calls: compare_menus (20 diffs), compare_trees (OK), compare_ib_routings (OK), compare_ib_messages (OK)
 - HTTP endpoints all returned 200 after service restart
 - `/admin/envcompare` page confirmed 44,822 bytes; Menus/Trees/IB Routings tabs present
-

@@ -1979,6 +1979,8 @@ button.sec:hover{background:#00e5ff11;}
 .s-proc{color:#00e5ff;}
 .s-sess{color:#00cc66;}
 .s-ib{color:#ffaa00;}
+.s-log{color:#9d5fff;}
+.s-web{color:#00e5cc;}
 /* Timeline */
 .timeline{position:relative;padding-left:28px;}
 .timeline::before{content:'';position:absolute;left:10px;top:0;bottom:0;width:1px;background:#0a2030;}
@@ -1987,10 +1989,16 @@ button.sec:hover{background:#00e5ff11;}
 .tl-card{border:1px solid #0a2030;padding:7px 10px;background:#06121a;cursor:pointer;transition:border-color .1s;}
 .tl-card:hover{border-color:#00e5ff33;}
 .tl-card.open{border-color:#00e5ff44;background:#081820;}
-.tl-type{font-size:9px;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:2px;}
+.tl-card.log-err{background:#1a0000;border-color:#ff444466;}
+.tl-card.log-err:hover{border-color:#ff4444;}
+.tl-card.log-err.open{background:#200000;border-color:#ff4444;}
+.tl-card.log-warn{background:#120a00;border-color:#ffaa0055;}
+.tl-card.log-warn:hover{border-color:#ffaa00;}
+.tl-card.log-warn.open{background:#1a1000;border-color:#ffaa00;}
+.tl-type{display:inline-block;font-size:9px;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:3px;padding:1px 7px;border-radius:3px;border:1px solid;}
 .tl-title{font-size:12px;color:#d7faff;}
 .tl-sub{font-size:10px;color:#556;margin-top:1px;}
-.tl-ts{font-size:10px;color:#334;float:right;font-family:monospace;}
+.tl-ts{font-size:11px;color:#7faab2;font-family:monospace;letter-spacing:.5px;white-space:nowrap;}
 .tl-detail{display:none;margin-top:6px;border-top:1px solid #0a2030;padding-top:6px;}
 .tl-card.open .tl-detail{display:block;}
 .kv-grid{display:grid;grid-template-columns:130px 1fr;gap:1px 10px;font-size:10px;}
@@ -2154,6 +2162,16 @@ function quickTrace(oprid) {
   runTrace();
 }
 
+// ─── Trace state ──────────────────────────────────────────────────────────
+let _lastTraceData = null;
+let _lastLogData   = null;
+let _sortAsc       = false;  // default: newest first
+
+function toggleSort() {
+  _sortAsc = !_sortAsc;
+  if (_lastTraceData) renderTrace(_lastTraceData, _lastLogData);
+}
+
 // ─── Main trace ────────────────────────────────────────────────────────────
 async function runTrace() {
   const oprid = $('opridInput').value.trim();
@@ -2163,22 +2181,45 @@ async function runTrace() {
   $('traceBtn').disabled = true;
   $('contentArea').innerHTML = `<div style="color:#334;padding:10px;">Tracing ${esc(oprid)}…</div>`;
 
-  let url = `/api/tracing/trace?env=${env()}&oprid=${encodeURIComponent(oprid)}&hours=${hours()}`;
+  let traceUrl = `/api/tracing/trace?env=${env()}&oprid=${encodeURIComponent(oprid)}&hours=${hours()}`;
   const dbv = db();
-  if (dbv) url += `&db=${encodeURIComponent(dbv)}`;
+  if (dbv) traceUrl += `&db=${encodeURIComponent(dbv)}`;
 
-  const d = await api(url);
+  const now  = new Date();
+  const startDt = new Date(now - hours() * 3600000);
+  const fmtIso  = dt => dt.toISOString().slice(0, 19);
+  const logUrl = `/api/logs/session/${encodeURIComponent(oprid)}?start=${fmtIso(startDt)}&end=${fmtIso(now)}&limit=500`;
+
+  const [traceData, logData] = await Promise.all([
+    api(traceUrl),
+    api(logUrl).catch(() => null),
+  ]);
   $('spin').classList.remove('on');
   $('traceBtn').disabled = false;
 
-  renderTrace(d);
+  renderTrace(traceData, logData);
 }
 
-function renderTrace(d) {
+function renderTrace(d, logData) {
+  _lastTraceData = d;
+  _lastLogData   = logData;
+
   const oprid   = d.oprid || '?';
   const summary = d.summary || {};
-  const events  = d.timeline || [];
   const warns   = d.warnings || [];
+
+  // Merge log events into the timeline
+  const logEvents = logToEvents(logData);
+  const events = [...(d.timeline || []), ...logEvents]
+    .sort((a, b) => {
+      const cmp = (a.ts || '') < (b.ts || '') ? -1 : (a.ts || '') > (b.ts || '') ? 1 : 0;
+      return _sortAsc ? cmp : -cmp;
+    });
+
+  const logTotal  = logEvents.length;
+  const logErrors = logEvents.filter(e => e.status === 'error').length;
+  const webLogs   = logEvents.filter(e => e.logTier === 'web').length;
+  const appLogs   = logEvents.filter(e => e.logTier === 'app').length;
 
   let h = `<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;">
     <span style="font-family:monospace;font-size:15px;color:#00e5ff;">${esc(oprid)}</span>
@@ -2201,7 +2242,15 @@ function renderTrace(d) {
     ${sBox(summary.error_count, 'Errors', 's-err')}
     ${sBox(summary.oracle_count, 'Oracle Sessions', '')}
     ${sBox(summary.ib_count, 'IB Txns', 's-ib')}
+    ${sBox(logTotal, 'Log Events', 's-log')}
+    ${webLogs ? sBox(webLogs, 'Web Logs', 's-web') : ''}
+    ${appLogs ? sBox(appLogs, 'App Logs', 's-log') : ''}
+    ${logErrors ? sBox(logErrors, 'Log Errors', 's-err') : ''}
   </div>`;
+
+  if (logData && !(logData.web || []).length && webLogs) {
+    h += `<div class="warn-msg">Web access log rows are empty for this window; showing correlated web-tier servlet/WebLogic logs instead.</div>`;
+  }
 
   if (!events.length) {
     h += `<div class="empty">No activity found for ${esc(oprid)} in the last ${d.hours_back} hours.</div>`;
@@ -2216,8 +2265,17 @@ function renderTrace(d) {
     <button class="sec" style="font-size:10px;" onclick="filterEvents('process')">Processes</button>
     <button class="sec" style="font-size:10px;" onclick="filterEvents('oracle')">Oracle</button>
     <button class="sec" style="font-size:10px;" onclick="filterEvents('ib')">IB</button>
-    <button class="sec" style="font-size:10px;float:right;" onclick="expandAll()">Expand All</button>
-    <button class="sec" style="font-size:10px;" onclick="collapseAll()">Collapse</button>
+    ${logTotal ? `<button class="sec" style="font-size:10px;color:#9d5fff;border-color:#9d5fff44;" onclick="filterEvents('log')">Logs (${logTotal})</button>` : ''}
+    ${webLogs ? `<button class="sec" style="font-size:10px;color:#00e5cc;border-color:#00e5cc44;" onclick="filterEvents('web_log')">Web Logs (${webLogs})</button>` : ''}
+    ${appLogs ? `<button class="sec" style="font-size:10px;color:#9d5fff;border-color:#9d5fff44;" onclick="filterEvents('app_log')">App Logs (${appLogs})</button>` : ''}
+    <span style="margin-left:auto;display:flex;gap:4px;align-items:center;">
+      <button class="sec" style="font-size:10px;font-family:monospace;letter-spacing:.5px;"
+              onclick="toggleSort()" title="Toggle sort order">
+        ${_sortAsc ? '↑ Oldest first' : '↓ Newest first'}
+      </button>
+      <button class="sec" style="font-size:10px;" onclick="expandAll()">Expand All</button>
+      <button class="sec" style="font-size:10px;" onclick="collapseAll()">Collapse</button>
+    </span>
   </div>`;
 
   // Timeline.
@@ -2225,19 +2283,25 @@ function renderTrace(d) {
   events.forEach((ev, i) => {
     const meta    = ev.meta || {};
     const color   = meta.color || '#556';
-    const typeKey = ev.type || 'info';
-    const tsStr   = (ev.ts || '').replace('T', ' ').substring(0, 19);
-    const statusCls = ev.status === 'error' ? 'chip-err' : ev.status === 'warn' ? 'chip-warn' : ev.status === 'ok' ? 'chip-ok' : 'chip-info';
+    const typeKey  = ev.type || 'info';
+    const cat      = ev.category || typeKey;
+    const tsStr    = (ev.ts || '').replace('T', ' ').substring(0, 19);
+    const isLogErr = cat === 'log' && ev.status === 'error';
+    const isLogWrn = cat === 'log' && ev.status === 'warn';
+    const cardCls  = isLogErr ? 'tl-card log-err' : isLogWrn ? 'tl-card log-warn' : 'tl-card';
+    // Error log entries: force red dot and title color
+    const dotColor   = isLogErr ? '#ff4444' : isLogWrn ? '#ffaa00' : color;
+    const titleColor = isLogErr ? '#ff8888' : isLogWrn ? '#ffcc66' : '';
 
-    h += `<div class="tl-event" data-type="${esc(typeKey)}">
-      <div class="tl-dot" style="border-color:${color};background:${color}33;"></div>
-      <div class="tl-card" onclick="toggleEvent(this)">
-        <div>
+    h += `<div class="tl-event" data-type="${esc(cat)}" data-log-tier="${esc(ev.logTier || '')}">
+      <div class="tl-dot" style="border-color:${dotColor};background:${dotColor}33;"></div>
+      <div class="${cardCls}" onclick="toggleEvent(this)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
+          <span class="tl-type" style="color:${dotColor};border-color:${dotColor}55;background:${dotColor}18;">${esc(meta.label || typeKey)}</span>
           <span class="tl-ts">${esc(tsStr)}</span>
-          <span class="tl-type" style="color:${color};">${esc(meta.label || typeKey)}</span>
         </div>
-        <div class="tl-title">${esc(ev.title)}</div>
-        ${ev.subtitle ? `<div class="tl-sub">${esc(ev.subtitle)}</div>` : ''}
+        <div class="tl-title"${titleColor ? ` style="color:${titleColor}"` : ''}>${esc(ev.title)}</div>
+        ${ev.subtitle ? `<div class="tl-sub"${isLogErr ? ' style="color:#ff666688"' : isLogWrn ? ' style="color:#ffaa0088"' : ''}>${esc(ev.subtitle)}</div>` : ''}
         <div class="tl-detail">${buildDetail(ev)}</div>
       </div>
     </div>`;
@@ -2245,6 +2309,74 @@ function renderTrace(d) {
   h += '</div>';
 
   $('contentArea').innerHTML = h;
+}
+
+// ─── Log session chain → timeline events ──────────────────────────────────
+const LOG_TYPE_META = {
+  appsrv:       { label: 'App Server',  color: '#9d5fff' },
+  pia_servlet:  { label: 'Web Servlet', color: '#00e5cc' },
+  pia_weblogic: { label: 'WebLogic',    color: '#4488bb' },
+  pia_error:    { label: 'Web Error',   color: '#ff4444' },
+  pia_stdout:   { label: 'JVM',         color: '#556677' },
+  pia_access:   { label: 'Web Access',  color: '#447799' },
+  apache_access:{ label: 'Web Access',  color: '#447799' },
+  tuxedo:       { label: 'Tuxedo',      color: '#dd9900' },
+};
+
+function classifyLogSource(sourceName) {
+  const src = (sourceName || '').toLowerCase();
+  const isWeb = src.includes('_web') || src.includes('web_') || src.includes('servlet') || src.includes('weblogic') || src.includes('stdout');
+  const type = src.includes('servlet')  ? 'pia_servlet'
+             : src.includes('weblogic') ? 'pia_weblogic'
+             : src.includes('error') && isWeb ? 'pia_error'
+             : src.includes('stdout')   ? 'pia_stdout'
+             : src.includes('tux')      ? 'tuxedo'
+             : src.includes('app')      ? 'appsrv'
+             : 'appsrv';
+  return { type, tier: isWeb ? 'web' : 'app' };
+}
+
+function logToEvents(logData) {
+  if (!logData) return [];
+  const events = [];
+
+  (logData.app || []).forEach(r => {
+    const cls = classifyLogSource(r.source_name);
+    const ltype = cls.type;
+    const meta  = LOG_TYPE_META[ltype] || { label: ltype, color: '#556' };
+    const isErr = r.is_error || r.level === 'SEVERE' || r.level === 'ERROR';
+    const msg   = (r.message || r.raw || '').replace(/\\s+/g, ' ');
+    events.push({
+      type:     ltype,
+      category: 'log',
+      logTier:  cls.tier,
+      ts:       r.ts,
+      title:    msg.slice(0, 100) || '—',
+      subtitle: `${r.source_name} · ${r.level || 'INFO'}`,
+      status:   isErr ? 'error' : (r.level === 'WARNING' || r.level === 'WARN' ? 'warn' : 'ok'),
+      meta,
+      detail:   r,
+    });
+  });
+
+  (logData.web || []).forEach(r => {
+    const meta  = LOG_TYPE_META['pia_access'];
+    const isErr = r.is_error || r.status >= 500;
+    const url   = (r.url || '').slice(0, 80);
+    events.push({
+      type:     'pia_access',
+      category: 'log',
+      logTier:  'web',
+      ts:       r.ts,
+      title:    `${r.method || 'GET'} ${url}`,
+      subtitle: `${r.status || ''} · ${r.component || ''}${r.ms ? ' · ' + r.ms + 'ms' : ''}`,
+      status:   isErr ? 'error' : 'ok',
+      meta,
+      detail:   r,
+    });
+  });
+
+  return events;
 }
 
 function buildDetail(ev) {
@@ -2269,6 +2401,19 @@ function buildDetail(ev) {
   } else if (type === 'ib') {
     h += kv('Txn ID', d.ibtransactionid) + kv('Operation', d.ib_operationname) + kv('Queue', d.queuename)
        + kv('Pub Node', d.pubnode) + kv('Status', d.pubstatus) + kv('Created', d.createdttm);
+  } else if (ev.category === 'log') {
+    if (type === 'pia_access') {
+      h += kv('IP', d.ip) + kv('Method', d.method) + kv('URL', d.url)
+         + kv('Status', d.status) + kv('Component', d.component) + kv('Page', d.page)
+         + kv('Response Time', d.ms != null ? d.ms + ' ms' : null) + kv('User Agent', d.useragent);
+    } else {
+      h += kv('Tier', ev.logTier === 'web' ? 'Web' : 'App') + kv('Source', d.source_name) + kv('Level', d.level) + kv('OPRID', d.oprid)
+         + kv('Object', d.object_ref) + kv('Process', d.process)
+         + kv('Error Codes', (d.error_codes && d.error_codes !== '[]') ? d.error_codes : null);
+      if (d.raw && d.raw !== d.message) {
+        h += `</div><div class="sql-block">${esc((d.raw||'').slice(0,800))}</div><div class="kv-grid">`;
+      }
+    }
   }
 
   h += '</div>';
@@ -2295,7 +2440,14 @@ function toggleEvent(card) {
 
 function filterEvents(type) {
   document.querySelectorAll('.tl-event').forEach(el => {
-    el.style.display = (type === 'all' || el.dataset.type === type) ? '' : 'none';
+    const t = el.dataset.type;
+    const tier = el.dataset.logTier;
+    el.style.display = (
+      type === 'all' ||
+      t === type ||
+      (type === 'web_log' && t === 'log' && tier === 'web') ||
+      (type === 'app_log' && t === 'log' && tier === 'app')
+    ) ? '' : 'none';
   });
 }
 
@@ -2905,4 +3057,3 @@ async function loadPromos(){{
 
 loadPromos();
 </script>""")
-
