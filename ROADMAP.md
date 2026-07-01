@@ -320,9 +320,26 @@ Maintain historical snapshots.
 - Point-in-time runtime snapshots: every drift cycle stores a full count snapshot in `drift.db` (16 object types per environment pair, timestamped)
 - Temporal history of security and metadata changes: drift history API returns per-type time series; Drift History admin page visualizes trends with delta sparklines
 
-### Remaining
+### ✅ Completed (Phase 1 — 2026-07-01)
 
-- Promotion history tracking across environments (DEV → TEST → UAT → PROD) — needs design; would require detecting when project objects appear in a target environment, or a manual promotion event record
+- Promotion event log: `connectors/promotiondb.py` SQLite store + `routers/promotions.py` REST API
+  - `POST /api/promotions` — record an event (pillar, project, from_env, to_env, date, by, notes, ticket_ref)
+  - `GET /api/promotions` — list events with pillar/project/env filters
+  - `GET /api/promotions/timeline` — chronological view for a single project
+  - `GET /api/promotions/summary` — per-project latest promotion summary for a pillar
+  - `DELETE /api/promotions/{id}` — remove a record
+  - `/admin/promotions` — log form + filterable timeline table; env suggestions (DV/TST/UAT/CRP/PAR/PER/PRD)
+  - Phase 1 note displayed in UI; "Promotions" added to Runtime nav group
+
+### Remaining (Phase 2 — Future)
+
+- **Auto-detection from PSPROJECTDEFN**: when DV/TST/UAT/PRD Oracle DB connections are added to
+  `config.json`, snapshot `PSPROJECTDEFN.LASTUPDDTTM` per environment, detect when a project's
+  timestamp in the target env advances to match the source env — automatically record a promotion event.
+  The Phase 1 SQLite schema and API are already designed to accommodate this without structural changes.
+- **Lab context**: this system is a development lab. Promotion-chain environments (DV/TST/UAT/PRD)
+  do not exist yet. HCM and FSCM are separate application pillars and are NOT in a promotion chain
+  with each other. Phase 2 implementation begins when real promotion-chain DB connections are available.
 
 ---
 

@@ -2701,3 +2701,208 @@ function renderSummary(latest,history){
 loadDrift();
 </script>""")
 
+
+@router.get("/promotions", response_class=HTMLResponse)
+def admin_promotions():
+    from connectors.promotiondb import ENV_SUGGESTIONS
+    env_opts = "".join(f'<option value="{e}">' for e in ENV_SUGGESTIONS)
+    return _shell("Promotion History", "promotions", env=False, content=f"""\
+<style>
+*{{box-sizing:border-box;}}
+.ctrl{{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;}}
+label{{font-size:11px;color:#7faab2;}}
+input,select,textarea{{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
+  padding:4px 8px;font-size:12px;}}
+input[type=date]{{color-scheme:dark;}}
+textarea{{width:100%;resize:vertical;min-height:50px;font-size:11px;}}
+button{{background:#00e5ff;border:none;padding:4px 14px;cursor:pointer;
+  font-size:11px;color:#000;font-weight:bold;}}
+button:hover{{background:#33eeff;}}
+button.del{{background:#ff4444;color:#fff;padding:2px 8px;font-size:10px;}}
+button.del:hover{{background:#ff6666;}}
+.section-head{{font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;
+  color:#00e5ff;margin:18px 0 8px;border-bottom:1px solid #00e5ff22;padding-bottom:4px;}}
+table{{border-collapse:collapse;width:100%;font-size:11px;}}
+th{{border-bottom:1px solid #00e5ff33;padding:4px 8px;text-align:left;color:#00e5ff;
+  font-size:10px;text-transform:uppercase;letter-spacing:1px;}}
+td{{border-bottom:1px solid #0e2030;padding:5px 8px;vertical-align:top;}}
+tr:hover td{{background:rgba(0,229,255,.04);}}
+.mono{{font-family:monospace;font-size:11px;}}
+.pill{{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;
+  font-weight:bold;border:1px solid;}}
+.pill-hcm{{color:#00e5ff;border-color:#00e5ff44;background:rgba(0,229,255,.08);}}
+.pill-fscm{{color:#aa77ff;border-color:#aa77ff44;background:rgba(170,119,255,.08);}}
+.pill-env{{color:#aaffcc;border-color:#aaffcc44;background:rgba(170,255,200,.06);}}
+.arrow{{color:#00e5ff;font-size:13px;padding:0 4px;}}
+.empty{{color:#445;font-style:italic;font-size:12px;padding:10px 0;}}
+.err-msg{{color:#ff6666;font-size:11px;padding:3px 8px;background:#1a0000;
+  border-left:2px solid #ff4444;margin:4px 0;}}
+.ok-msg{{color:#00cc66;font-size:11px;padding:3px 8px;background:#001a00;
+  border-left:2px solid #00cc66;margin:4px 0;}}
+.form-grid{{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}}
+.form-col{{display:flex;flex-direction:column;gap:4px;}}
+.phase-note{{font-size:10px;color:#556;background:#0a1a24;border:1px solid #00e5ff18;
+  padding:8px 12px;margin-bottom:14px;line-height:1.5;}}
+</style>
+
+<datalist id="envList">{env_opts}</datalist>
+
+<div style="padding:16px;">
+
+<div class="phase-note">
+  <strong style="color:#7faab2">Phase 1 — Manual Event Log.</strong>
+  Record project promotions as they happen. Auto-detection from PSPROJECTDEFN will be added
+  in Phase 2 when DV/TST/UAT/PRD database connections are available.
+</div>
+
+<!-- Log New Promotion -->
+<div class="section-head">Log Promotion Event</div>
+<div class="form-grid">
+  <div class="form-col">
+    <label>Pillar</label>
+    <select id="fPillar"><option>HCM</option><option>FSCM</option></select>
+  </div>
+  <div class="form-col">
+    <label>Project Name</label>
+    <input id="fProject" type="text" placeholder="e.g. GPIT_HR92_OBJECTS" style="width:100%">
+  </div>
+  <div class="form-col">
+    <label>From Env</label>
+    <input id="fFrom" type="text" placeholder="DV" list="envList" style="width:100%">
+  </div>
+  <div class="form-col">
+    <label>To Env</label>
+    <input id="fTo" type="text" placeholder="TST" list="envList" style="width:100%">
+  </div>
+  <div class="form-col">
+    <label>Promoted On</label>
+    <input id="fDate" type="date" style="width:100%">
+  </div>
+  <div class="form-col">
+    <label>Promoted By</label>
+    <input id="fBy" type="text" placeholder="OPRID or name" style="width:100%">
+  </div>
+  <div class="form-col">
+    <label>Ticket / Ref</label>
+    <input id="fTicket" type="text" placeholder="JIRA-1234" style="width:100%">
+  </div>
+  <div class="form-col">
+    <label>Notes</label>
+    <textarea id="fNotes" placeholder="Optional notes"></textarea>
+  </div>
+</div>
+<button onclick="logPromotion()">Record Promotion</button>
+<div id="logMsg"></div>
+
+<!-- Filters + Timeline -->
+<div class="section-head" style="margin-top:24px">Promotion Timeline</div>
+<div class="ctrl">
+  <label>Pillar</label>
+  <select id="fltPillar" onchange="loadPromos()">
+    <option value="">All</option><option>HCM</option><option>FSCM</option>
+  </select>
+  <label>Project</label>
+  <input id="fltProject" type="text" placeholder="filter…" style="width:180px"
+         oninput="loadPromos()">
+  <label>Env</label>
+  <input id="fltEnv" type="text" placeholder="DV / TST / …" style="width:80px"
+         list="envList" oninput="loadPromos()">
+</div>
+<div id="promoTable"></div>
+
+</div>
+<script>
+const $ = id => document.getElementById(id);
+function esc(s){{return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}}
+
+// Set today's date as default
+(function(){{
+  const d=new Date();
+  const iso=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  $('fDate').value=iso;
+}})();
+
+function pillCls(p){{
+  if(!p)return'';
+  return p.toUpperCase()==='HCM'?'pill pill-hcm':'pill pill-fscm';
+}}
+
+async function logPromotion(){{
+  const pillar=$('fPillar').value;
+  const project=($('fProject').value||'').trim().toUpperCase();
+  const from_env=($('fFrom').value||'').trim().toUpperCase();
+  const to_env=($('fTo').value||'').trim().toUpperCase();
+  const promoted_at=$('fDate').value;
+  if(!project||!from_env||!to_env||!promoted_at){{
+    $('logMsg').innerHTML='<div class="err-msg">Project, From, To, and Date are required.</div>';
+    return;
+  }}
+  if(from_env===to_env){{
+    $('logMsg').innerHTML='<div class="err-msg">From and To environments must differ.</div>';
+    return;
+  }}
+  $('logMsg').innerHTML='';
+  try{{
+    const r=await fetch('/api/promotions',{{
+      method:'POST',
+      headers:{{'Content-Type':'application/json'}},
+      body:JSON.stringify({{
+        pillar, project, from_env, to_env, promoted_at,
+        promoted_by:($('fBy').value||'').trim()||null,
+        notes:($('fNotes').value||'').trim()||null,
+        ticket_ref:($('fTicket').value||'').trim()||null,
+      }})
+    }});
+    if(!r.ok){{const e=await r.json();throw new Error(e.detail||r.statusText);}}
+    $('logMsg').innerHTML='<div class="ok-msg">&#10003; Promotion recorded.</div>';
+    $('fProject').value='';$('fFrom').value='';$('fTo').value='';
+    $('fBy').value='';$('fNotes').value='';$('fTicket').value='';
+    loadPromos();
+  }}catch(e){{
+    $('logMsg').innerHTML=`<div class="err-msg">${{esc(String(e))}}</div>`;
+  }}
+}}
+
+async function deletePromo(id){{
+  if(!confirm('Delete this promotion record?'))return;
+  await fetch(`/api/promotions/${{id}}`,{{method:'DELETE'}});
+  loadPromos();
+}}
+
+async function loadPromos(){{
+  const params=new URLSearchParams();
+  const p=$('fltPillar').value; if(p)params.set('pillar',p);
+  const proj=($('fltProject').value||'').trim(); if(proj)params.set('project',proj);
+  const env=($('fltEnv').value||'').trim(); if(env)params.set('env',env);
+  const r=await fetch('/api/promotions?'+params);
+  const d=await r.json();
+  const rows=d.promotions||[];
+  if(!rows.length){{
+    $('promoTable').innerHTML='<div class="empty">No promotion events recorded yet.</div>';
+    return;
+  }}
+  let h='<table><tr><th>Date</th><th>Pillar</th><th>Project</th><th>Path</th>'
+      +'<th>By</th><th>Ticket</th><th>Notes</th><th></th></tr>';
+  rows.forEach(r=>{{
+    h+=`<tr>
+      <td class="mono">${{esc(r.promoted_at)}}</td>
+      <td><span class="${{pillCls(r.pillar)}}">${{esc(r.pillar)}}</span></td>
+      <td class="mono">${{esc(r.project)}}</td>
+      <td>
+        <span class="pill pill-env">${{esc(r.from_env)}}</span>
+        <span class="arrow">&#8594;</span>
+        <span class="pill pill-env">${{esc(r.to_env)}}</span>
+      </td>
+      <td>${{esc(r.promoted_by||'—')}}</td>
+      <td>${{r.ticket_ref?`<span class="mono">${{esc(r.ticket_ref)}}</span>`:'—'}}</td>
+      <td style="max-width:220px;white-space:pre-wrap">${{esc(r.notes||'')}}</td>
+      <td><button class="del" onclick="deletePromo(${{r.id}})">&#10005;</button></td>
+    </tr>`;
+  }});
+  h+='</table>';
+  $('promoTable').innerHTML=h;
+}}
+
+loadPromos();
+</script>""")
+

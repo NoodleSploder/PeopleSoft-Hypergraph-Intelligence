@@ -16,7 +16,8 @@ _NAV_GROUPS = [
         ("infra",      "Infra",         "/admin/infra"),
         ("tracing",    "Tracing",       "/admin/tracing"),
         ("envcompare", "Env Compare",   "/admin/envcompare"),
-        ("drift",      "Drift History", "/admin/drift"),
+        ("drift",       "Drift History",  "/admin/drift"),
+        ("promotions",  "Promotions",     "/admin/promotions"),
     ]),
     ("Data", [
         ("sqlws",  "SQL Workspace",  "/admin/sqlws"),
