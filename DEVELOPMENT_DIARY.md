@@ -6,6 +6,80 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — Knowledge Graph AE READS/WRITES Edges
+
+Date/time: 2026-07-01 16:25 CDT
+
+Features implemented:
+- Added conservative SQL record-access extraction to `connectors/graphdb.py`.
+- Knowledge Graph Application Engine ingestion now parses AE SQL step text and
+  emits:
+  - `READS` edges from Application Engine programs to records found in
+    `FROM`, `JOIN`, and `USING` clauses.
+  - `WRITES` edges from Application Engine programs to records found in
+    `INSERT INTO`, `UPDATE`, `DELETE FROM`, `MERGE INTO`, `%TruncateTable`,
+    and `%InsertSelect` targets.
+- READS/WRITES edge metadata includes AE section, AE step, statement type, and
+  `source: ae_sql_step_text`.
+- Preserved existing AE state-record `USES` and process-definition
+  `GENERATES` edges.
+
+Files modified:
+- `connectors/graphdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Kept extraction conservative and read-only. Dynamic PeopleTools meta-SQL such
+  as `%Table(%Bind(...))` is intentionally skipped when the target record cannot
+  be resolved safely.
+- Normalized physical PeopleSoft tables named `PS_<RECNAME>` to canonical
+  record names, while preserving record names that naturally begin with `PS`
+  such as `PSOPRDEFN`.
+- Added READS/WRITES only to persisted Knowledge Graph ingestion. Existing AE
+  domain graph and UOM object graph previews remain unchanged.
+
+Bugs fixed:
+- The Knowledge Graph had reserved READS/WRITES edge types but did not emit
+  concrete examples. AE SQL steps now provide live examples from existing
+  PeopleSoft metadata.
+
+Technical debt:
+- SQL extraction is intentionally heuristic. It does not parse every Oracle SQL
+  construct, nested dynamic SQL, or fully dynamic PeopleTools meta-SQL.
+- READS/WRITES still need expansion beyond AE SQL steps, especially PeopleCode
+  dynamic SQL and SQL Definition bodies where metadata grants permit.
+- Existing SQL Definition and PM Transaction graph providers contain unrelated
+  duplicate `SELECT` text in their SQL strings and should be cleaned up in a
+  separate slice.
+
+Verification:
+- `python -m py_compile connectors/graphdb.py` — OK.
+- Parser checks:
+  - `SELECT ... FROM SYSADM.PS_JOB JOIN PS_NAMES` -> READS `JOB`, `NAMES`.
+  - `UPDATE SYSADM.PSOPRDEFN` -> WRITES `PSOPRDEFN`.
+  - `%InsertSelect(BP_COMPENSATION, COMPENSATION ...) FROM PS_COMPENSATION`
+    -> READS `COMPENSATION`, WRITES `BP_COMPENSATION`.
+  - `%TruncateTable(PS_FT_JOB)` -> WRITES `FT_JOB`.
+  - `MERGE INTO SYSADM.PS_FOO USING PS_BAR` -> READS `BAR`, WRITES `FOO`.
+- Direct AE SQL text checks found SQL-bearing steps in `BEN_SRCH_JOB`,
+  `BPJBCPY`, `FT_JOB`, `FT_JOB_PRCS`, and `BAS_CONFSTMT`.
+- Non-persisted `graphdb.build('HCM', limit=10, persist=False)` completed in
+  67.908s and produced 1051 nodes / 1014 edges, including 124 `READS` edges
+  and 52 `WRITES` edges.
+- Restarted `deathstar-api.service`; service returned active on
+  `127.0.0.1:8088`.
+- `GET /admin/graph` — 200.
+- `GET /api/graph/stats?env=HCM` — 200.
+
+Next recommended work:
+- Clean up the duplicate `SELECT` SQL strings in the SQL Definition and PM
+  Transaction graph providers.
+- Continue Knowledge Graph vocabulary alignment, especially DEPLOYS and broader
+  READS/WRITES sources.
+
+------------------------------------------------------------------------
+
 ## 2026-07-01 — Domain Graph Vocabulary Bridge
 
 Date/time: 2026-07-01 16:15 CDT

@@ -233,14 +233,16 @@ Continue enriching graph relationships.
 - Component security graph edges through Permission Lists → Roles → Operators
 - Menu → Component CONTAINS edges
 - CI → Component WRAPS edges
+- Application Engine → Process Definition GENERATES edges in persisted Knowledge Graph ingestion
+- Application Engine SQL step READS/WRITES edges in persisted Knowledge Graph ingestion, with AE section/step metadata
 - Tree → Record USES edges
 - Impact analysis (forward and reverse dependency traversal with depth control)
 
 ### Remaining
 
 - Align persisted Knowledge Graph ingestion with UOM `_relationships`, UOM `_graph`, and domain graph vocabulary metadata
-- GENERATES and DEPLOYS edge types
-- Full relationship coverage examples: WRITES, READS
+- DEPLOYS edge type
+- Broader READS/WRITES coverage outside Application Engine SQL steps
 
 ---
 

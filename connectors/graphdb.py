@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from collections import defaultdict, deque
 from pathlib import Path
@@ -33,6 +34,24 @@ EDGE_TYPES.add("WRAPS")
 
 DEPENDENCY_EDGES = {"USES", "CONTAINS", "REFERENCES", "DEPENDS_ON", "CALLS", "READS", "WRITES", "SECURES", "EXPOSES", "ROUTES", "WRAPS"}
 
+_SQL_COMMENT_RE = re.compile(r"/\*.*?\*/|--[^\n\r]*", re.S)
+_SQL_STRING_RE = re.compile(r"'(?:''|[^'])*'")
+_WRITE_PATTERNS = [
+    re.compile(r"\bINSERT\s+INTO\s+(?:TABLE\s+)?([A-Z0-9_$#.]+|\%TABLE\s*\(\s*[A-Z0-9_]+\s*\))", re.I),
+    re.compile(r"\bUPDATE\s+(?:TABLE\s+)?([A-Z0-9_$#.]+|\%TABLE\s*\(\s*[A-Z0-9_]+\s*\))", re.I),
+    re.compile(r"\bDELETE\s+FROM\s+(?:TABLE\s+)?([A-Z0-9_$#.]+|\%TABLE\s*\(\s*[A-Z0-9_]+\s*\))", re.I),
+    re.compile(r"\bMERGE\s+INTO\s+(?:TABLE\s+)?([A-Z0-9_$#.]+|\%TABLE\s*\(\s*[A-Z0-9_]+\s*\))", re.I),
+]
+_READ_PATTERNS = [
+    re.compile(r"\bFROM\s+(?:TABLE\s+)?([A-Z0-9_$#.]+|\%TABLE\s*\(\s*[A-Z0-9_]+\s*\))", re.I),
+    re.compile(r"\bJOIN\s+(?:TABLE\s+)?([A-Z0-9_$#.]+|\%TABLE\s*\(\s*[A-Z0-9_]+\s*\))", re.I),
+    re.compile(r"\bUSING\s+(?:TABLE\s+)?([A-Z0-9_$#.]+|\%TABLE\s*\(\s*[A-Z0-9_]+\s*\))", re.I),
+]
+_META_WRITE_PATTERNS = [
+    re.compile(r"%TRUNCATETABLE\s*\(\s*([A-Z0-9_$#.]+)\s*\)", re.I),
+]
+_META_INSERT_SELECT_RE = re.compile(r"%INSERTSELECT\s*\(\s*([A-Z0-9_$#.]+)\s*,\s*([A-Z0-9_$#.]+)", re.I)
+
 
 def empty_graph(env="HCM"):
     return {
@@ -45,6 +64,69 @@ def empty_graph(env="HCM"):
         "build_seconds": 0,
         "providers": [],
     }
+
+
+def _strip_sql_for_table_scan(sql_text):
+    text = _SQL_COMMENT_RE.sub(" ", sql_text or "")
+    text = _SQL_STRING_RE.sub(" ", text)
+    return text
+
+
+def _normalize_peopletools_table_name(raw_name):
+    name = str(raw_name or "").strip().upper()
+    if not name:
+        return ""
+
+    table_macro = re.match(r"%TABLE\s*\(\s*([A-Z0-9_]+)\s*\)", name, re.I)
+    if table_macro:
+        return table_macro.group(1).upper()
+
+    # Remove owner/database qualifiers and common quoting.
+    name = name.split("@", 1)[0]
+    name = name.split(".")[-1]
+    name = name.strip('"')
+
+    if name.startswith("SYSADM."):
+        name = name[7:]
+    if name.startswith("PS_"):
+        name = name[3:]
+
+    if not re.match(r"^[A-Z][A-Z0-9_#$]*$", name):
+        return ""
+    return name
+
+
+def sql_record_access(sql_text):
+    """Extract conservative PeopleSoft record READS/WRITES from SQL text."""
+    text = _strip_sql_for_table_scan(sql_text)
+    writes = {
+        rec
+        for pattern in _WRITE_PATTERNS
+        for rec in (_normalize_peopletools_table_name(m.group(1)) for m in pattern.finditer(text))
+        if rec
+    }
+    writes.update(
+        rec
+        for pattern in _META_WRITE_PATTERNS
+        for rec in (_normalize_peopletools_table_name(m.group(1)) for m in pattern.finditer(text))
+        if rec
+    )
+    reads = {
+        rec
+        for pattern in _READ_PATTERNS
+        for rec in (_normalize_peopletools_table_name(m.group(1)) for m in pattern.finditer(text))
+        if rec
+    }
+    for match in _META_INSERT_SELECT_RE.finditer(text):
+        target = _normalize_peopletools_table_name(match.group(1))
+        source = _normalize_peopletools_table_name(match.group(2))
+        if target:
+            writes.add(target)
+        if source:
+            reads.add(source)
+    # INSERT INTO target also appears in some FROM-like constructs; write wins.
+    reads -= writes
+    return {"reads": sorted(reads), "writes": sorted(writes)}
 
 
 def graph_path(env):
@@ -535,6 +617,26 @@ def build(env="HCM", limit=50, persist=True):
                 if recname:
                     add_node(graph, "record", recname, recname, state)
                     add_edge(graph, "application_engine", applid, "record", recname, "USES", state)
+
+            sql_text_map, sql_warnings = ae.ae_sql_step_text(env, applid)
+            for warning in sql_warnings:
+                if warning:
+                    graph["warnings"].append(warning)
+            for (section_name, step_name), statements in sql_text_map.items():
+                for statement in statements:
+                    access = sql_record_access(statement.get("sql_text", ""))
+                    edge_meta = {
+                        "ae_section": section_name,
+                        "ae_step": step_name,
+                        "stmt_type": statement.get("stmt_type"),
+                        "source": "ae_sql_step_text",
+                    }
+                    for recname in access["reads"]:
+                        add_node(graph, "record", recname, recname, edge_meta)
+                        add_edge(graph, "application_engine", applid, "record", recname, "READS", edge_meta)
+                    for recname in access["writes"]:
+                        add_node(graph, "record", recname, recname, edge_meta)
+                        add_edge(graph, "application_engine", applid, "record", recname, "WRITES", edge_meta)
 
             proc_result = ae.process_definitions(env, applid)
             for proc in proc_result["items"]:
