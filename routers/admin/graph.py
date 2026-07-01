@@ -768,6 +768,109 @@ def object_explorer_page(object_type="", object_name=""):
             align-items: start;
         }
 
+        .object-shell {
+            display: grid;
+            grid-template-columns: minmax(190px, 240px) 1fr;
+            gap: 16px;
+            align-items: start;
+        }
+
+        .object-rail {
+            position: sticky;
+            top: 82px;
+            border: 1px solid rgba(0,229,255,.24);
+            background: rgba(0, 14, 22, .88);
+            box-shadow: 0 0 10px rgba(0,229,255,.12);
+            padding: 12px;
+            margin-top: 16px;
+        }
+
+        .object-rail-title {
+            color: #00e5ff;
+            font-size: 11px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin: 0 0 10px;
+        }
+
+        .object-rail-summary {
+            display: grid;
+            gap: 6px;
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(0,229,255,.14);
+        }
+
+        .summary-pill {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 6px 8px;
+            border: 1px solid rgba(0,229,255,.16);
+            background: rgba(0,229,255,.04);
+            color: #7faab2;
+            font-size: 11px;
+        }
+
+        .summary-pill strong {
+            color: #d7faff;
+        }
+
+        .section-nav {
+            display: grid;
+            gap: 5px;
+        }
+
+        .section-link {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 8px;
+            border-left: 2px solid rgba(0,229,255,.22);
+            color: #7faab2;
+            font-size: 12px;
+            text-decoration: none;
+            background: rgba(0,229,255,.025);
+        }
+
+        .section-link:hover {
+            border-left-color: #00e5ff;
+            background: rgba(0,229,255,.08);
+            text-decoration: none;
+        }
+
+        .section-link.warn {
+            border-left-color: #ffaa00;
+            color: #ffaa00;
+        }
+
+        .section-link.graph {
+            border-left-color: #aa66ff;
+            color: #cba6ff;
+        }
+
+        .section-link.security {
+            border-left-color: #ff5577;
+            color: #ff9aaa;
+        }
+
+        .section-link.empty {
+            opacity: .55;
+        }
+
+        .section-count {
+            flex-shrink: 0;
+            min-width: 18px;
+            text-align: center;
+            padding: 1px 6px;
+            border: 1px solid rgba(0,229,255,.16);
+            border-radius: 10px;
+            color: #7faab2;
+            font-size: 10px;
+        }
+
         .sections {
             display: grid;
             grid-template-columns: repeat(2, minmax(260px, 1fr));
@@ -871,6 +974,25 @@ def object_explorer_page(object_type="", object_name=""):
         .section-wide { grid-column: 1 / -1; }
         .section-warn { border-color:#ffaa00 !important; box-shadow:0 0 8px rgba(255,170,0,.15) !important; }
         .section-warn h2 { color:#ffaa00 !important; }
+        .section-graph { border-color:#aa66ff66 !important; box-shadow:0 0 8px rgba(170,102,255,.12) !important; }
+        .section-graph h2 { color:#cba6ff !important; }
+        .section-security { border-color:#ff557766 !important; box-shadow:0 0 8px rgba(255,85,119,.12) !important; }
+        .section-security h2 { color:#ff9aaa !important; }
+        .section-empty { opacity:.76; }
+        .section-summary {
+            display:flex;
+            flex-wrap:wrap;
+            gap:6px;
+            margin:0 0 10px;
+        }
+        .section-summary span {
+            font-size:10px;
+            color:#7faab2;
+            border:1px solid rgba(0,229,255,.14);
+            background:rgba(0,229,255,.035);
+            padding:2px 7px;
+            border-radius:10px;
+        }
         .section-meta { font-size:10px; color:#446; margin-top:4px; }
 
         /* ── Row improvements ────────────────────────────────────────── */
@@ -887,8 +1009,11 @@ def object_explorer_page(object_type="", object_name=""):
         }
 
         @media (max-width: 1000px) {
-            .layout, .sections {
+            .layout, .object-shell, .sections {
                 grid-template-columns: 1fr;
+            }
+            .object-rail {
+                position: static;
             }
         }
 </style>
@@ -961,7 +1086,10 @@ def object_explorer_page(object_type="", object_name=""):
                 <div id="objectMeta" class="muted" style="font-size:11px;margin-top:6px">Load an object to view canonical sections.</div>
             </div>
 
-            <div id="sections" class="sections"></div>
+            <div class="object-shell">
+                <aside id="sectionRail" class="object-rail" style="display:none"></aside>
+                <div id="sections" class="sections"></div>
+            </div>
         </div>
     </div>
 
@@ -1319,6 +1447,126 @@ function buildBreadcrumbs(type, name) {
     return parts.join(sep);
 }
 
+function sectionTitle(section) {
+    return section.name || section.title || section.id || 'Section';
+}
+
+function sectionData(section) {
+    return section.data || {};
+}
+
+function sectionItems(section) {
+    return section.items || section.rows || [];
+}
+
+function isPresentValue(value) {
+    return value !== null && value !== undefined && value !== '' && value !== ' ';
+}
+
+function sectionFacts(section) {
+    const data = sectionData(section);
+    const items = sectionItems(section);
+    const hasDDL = !!data.ddl;
+    const hasSrc = !!data.source;
+    const dataKeys = Object.keys(data).filter(k => k !== 'ddl' && k !== 'source' && !k.startsWith('_'));
+    const hasData = dataKeys.some(k => isPresentValue(data[k]));
+    const dataCount = dataKeys.filter(k => isPresentValue(data[k])).length;
+    const explicitCount = Number(section.count || section.total || section.total_count || 0) || 0;
+    const count = items.length || explicitCount || dataCount || (hasDDL || hasSrc ? 1 : 0);
+    return {
+        items,
+        data,
+        dataKeys,
+        hasDDL,
+        hasSrc,
+        hasData,
+        dataCount,
+        count,
+        empty: !items.length && !hasDDL && !hasSrc && !hasData
+    };
+}
+
+function sectionKind(title) {
+    const t = String(title || '').toLowerCase();
+    if (t.includes('warning') || t.includes('error')) return 'warn';
+    if (t.includes('graph') || t.includes('edge') || t.includes('node')) return 'graph';
+    if (t.includes('security') || t.includes('access') || t.includes('permission') || t.includes('role')) return 'security';
+    return 'normal';
+}
+
+function sectionId(index, title) {
+    const slug = String(title || 'section').toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'section';
+    return `section-${index}-${slug}`;
+}
+
+function oeEscHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function renderSectionRail(object, sections, sectionInfos) {
+    const rail = document.getElementById('sectionRail');
+    if (!sections.length) {
+        rail.innerHTML = '';
+        rail.style.display = 'none';
+        return;
+    }
+
+    const warnCount = sectionInfos.filter(info => info.kind === 'warn').length;
+    const totalItems = sectionInfos.reduce((sum, info) => sum + (info.facts.items || []).length, 0);
+    const graphInfo = sectionInfos.find(info => info.kind === 'graph');
+    const graphCount = graphInfo ? graphInfo.facts.count : 0;
+
+    const summary = [
+        ['Sections', sections.length],
+        ['Rows', totalItems],
+    ];
+    if (warnCount) summary.push(['Warnings', warnCount]);
+    if (graphCount) summary.push(['Graph', graphCount]);
+
+    const summaryHtml = summary.map(([label, value]) =>
+        `<div class="summary-pill"><span>${oeEscHtml(label)}</span><strong>${oeEscHtml(value)}</strong></div>`
+    ).join('');
+
+    const linksHtml = sectionInfos.map(info => {
+        const classes = ['section-link', info.kind];
+        if (info.facts.empty) classes.push('empty');
+        const count = info.facts.count ? `<span class="section-count">${oeEscHtml(info.facts.count)}</span>` : '';
+        return `<a class="${classes.join(' ')}" href="#${oeEscHtml(info.id)}"><span>${oeEscHtml(info.title)}</span>${count}</a>`;
+    }).join('');
+
+    rail.innerHTML = `
+        <div class="object-rail-title">Object Map</div>
+        <div class="object-rail-summary">${summaryHtml}</div>
+        <nav class="section-nav">${linksHtml}</nav>
+    `;
+    rail.style.display = '';
+}
+
+function renderSectionSummary(card, section, facts, kind) {
+    const bits = [];
+    if (facts.items.length) bits.push(`${facts.items.length} item${facts.items.length === 1 ? '' : 's'}`);
+    if (facts.dataCount) bits.push(`${facts.dataCount} field${facts.dataCount === 1 ? '' : 's'}`);
+    if (facts.hasDDL) bits.push('DDL');
+    if (facts.hasSrc) bits.push('source');
+    if (kind === 'warn') bits.push('attention');
+    if (!bits.length) return;
+
+    const div = document.createElement('div');
+    div.className = 'section-summary';
+    bits.forEach(bit => {
+        const span = document.createElement('span');
+        span.textContent = bit;
+        div.appendChild(span);
+    });
+    card.appendChild(div);
+}
+
 function renderObject(object) {
     // ── Object header ──────────────────────────────────────────────────────
     const chip = document.getElementById('objectTypeChip');
@@ -1357,8 +1605,9 @@ function renderObject(object) {
     actEl.style.display = linkKeys.length ? '' : 'none';
 
     const metaEl = document.getElementById('objectMeta');
-    metaEl.style.display = object.sections.length ? '' : 'none';
-    metaEl.textContent = `${object.sections.length} sections`;
+    const objectSections = object.sections || [];
+    metaEl.style.display = objectSections.length ? '' : 'none';
+    metaEl.textContent = `${objectSections.length} sections`;
 
     // Breadcrumbs
     const bc = document.getElementById('breadcrumb');
@@ -1369,57 +1618,77 @@ function renderObject(object) {
     const sections = document.getElementById('sections');
     sections.innerHTML = '';
 
-    object.sections.forEach(section => {
-        const hasDDL = !!(section.data && section.data.ddl);
-        const hasSrc = !!(section.data && section.data.source);
-        const itemCount = (section.items || []).length;
-        const dataKeys = Object.keys(section.data || {}).filter(k => k !== 'ddl' && k !== 'source' && !k.startsWith('_'));
-        const hasData  = dataKeys.some(k => section.data[k] !== null && section.data[k] !== undefined && section.data[k] !== '' && section.data[k] !== ' ');
-        const isEmpty  = !itemCount && !hasDDL && !hasSrc && !hasData;
-        const isWarn   = section.name === 'Warnings';
-        const isWide   = hasDDL || hasSrc;
+    const sectionInfos = objectSections.map((section, index) => {
+        const title = sectionTitle(section);
+        return {
+            section,
+            title,
+            id: sectionId(index, title),
+            kind: sectionKind(title),
+            facts: sectionFacts(section),
+        };
+    });
+    renderSectionRail(object, objectSections, sectionInfos);
+
+    sectionInfos.forEach(info => {
+        const section = info.section;
+        const facts = info.facts;
+        const hasDDL = facts.hasDDL;
+        const hasSrc = facts.hasSrc;
+        const itemCount = facts.items.length;
+        const hasData = facts.hasData;
+        const isEmpty = facts.empty;
+        const isWarn = info.kind === 'warn';
+        const isGraph = info.kind === 'graph';
+        const isSecurity = info.kind === 'security';
+        const isWide = hasDDL || hasSrc || isGraph;
 
         const card = document.createElement('div');
         let cls = 'card';
         if (isWide) cls += ' section-wide';
         if (isWarn) cls += ' section-warn';
+        if (isGraph) cls += ' section-graph';
+        if (isSecurity) cls += ' section-security';
+        if (isEmpty) cls += ' section-empty';
         card.className = cls;
+        card.id = info.id;
 
         // Section header with count badge
         const h = document.createElement('h2');
         h.style.cssText = 'display:flex;align-items:center;margin:0 0 8px';
         const nameSpan = document.createElement('span');
-        nameSpan.textContent = section.name;
+        nameSpan.textContent = info.title;
         h.appendChild(nameSpan);
-        if (itemCount > 0) {
+        if (facts.count > 0) {
             const badge = document.createElement('span');
             badge.className = 'count-badge';
-            badge.textContent = itemCount;
+            badge.textContent = facts.count;
             h.appendChild(badge);
         }
         card.appendChild(h);
+        renderSectionSummary(card, section, facts, info.kind);
 
         if (hasData) {
             const dataDiv = document.createElement('div');
-            renderKeyValues(dataDiv, section.data);
+            renderKeyValues(dataDiv, facts.data);
             card.appendChild(dataDiv);
         }
 
         if (hasDDL) {
             const pre = document.createElement('pre');
-            pre.innerHTML = highlightSQL(section.data.ddl);
+            pre.innerHTML = highlightSQL(facts.data.ddl);
             card.appendChild(pre);
         }
 
         if (hasSrc) {
             const pre = document.createElement('pre');
-            pre.innerHTML = highlightPeopleCode(section.data.source);
+            pre.innerHTML = highlightPeopleCode(facts.data.source);
             card.appendChild(pre);
         }
 
         if (itemCount > 0) {
             const rowsDiv = document.createElement('div');
-            renderRows(rowsDiv, section.items);
+            renderRows(rowsDiv, facts.items);
             card.appendChild(rowsDiv);
         } else if (isEmpty) {
             const empty = document.createElement('div');
@@ -2866,5 +3135,3 @@ document.getElementById('searchText').addEventListener('keydown', event => {
 loadStats();
 loadSnapshots();
 </script>""")
-
-

@@ -26,6 +26,7 @@ The following major subsystems are production-ready:
 
 - Unified Object Model (UOM)
 - Object Explorer
+- Object Explorer section map and visual hierarchy for canonical UOM sections
 - Graph Explorer (List / Visual / Impact / Drift tabs)
 - Knowledge Graph with graph snapshot and drift detection
 - Environment Compare (Records, Fields, PeopleCode, SQL Definitions, PS Queries, Portals, Graph)

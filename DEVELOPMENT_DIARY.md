@@ -6,6 +6,67 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — Object Explorer Visual Hierarchy
+
+Date/time: 2026-07-01 15:25 CDT
+
+Features implemented:
+- Added an Object Map rail to Object Explorer detail pages.
+- Added per-object summary pills for section count, row count, warning count,
+  and graph count when available.
+- Added anchor links for every canonical UOM section so large objects are
+  easier to scan and navigate.
+- Added visual emphasis for warning, graph, security/access, and empty
+  sections while preserving the existing UOM payload and renderer behavior.
+- Added section-level summary chips for item counts, data fields, DDL, and
+  source-bearing sections.
+
+Files modified:
+- `routers/admin/graph.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Kept the change entirely in the admin Object Explorer UI. No backend API
+  shape, UOM provider, SQL, or route behavior changed.
+- Derived all hierarchy from existing section names, `items`/`rows`, and
+  `data` fields so providers do not need new metadata to benefit from the UI.
+- Used escaped HTML for the compact rail renderer and kept detailed section
+  bodies on the existing `textContent`/DOM-rendered paths.
+
+Bugs fixed:
+- Large UOM objects previously rendered as a flat grid of cards, making warning,
+  graph, and security sections hard to find. The new rail gives each object a
+  quick navigable outline.
+
+Technical debt:
+- The shared admin shell smoke harness still reports pre-existing active-nav
+  failures across many pages and an unrelated `/admin/reports` JavaScript
+  syntax error.
+- Object Explorer still needs deeper relationship-vocabulary reconciliation
+  between UOM `_relationships`, UOM `_graph`, route-specific graph APIs, and
+  Knowledge Graph ingestion.
+
+Verification:
+- `python -m py_compile routers/admin/graph.py routers/admin/_core.py` — OK.
+- `python -c "import main; print('main import ok')"` — OK.
+- `GET /admin/object/record/JOB` — 200; generated page contains the new
+  `sectionRail` and `object-shell` markup.
+- `GET /admin/object` — 200; generated page contains the new Object Explorer
+  structure.
+- `GET /api/peoplesoft/object/record/JOB?env=HCM` — 200; returned type
+  `record`, name `JOB`, and 16 sections.
+- `python scripts/smoke_admin_shell.py` — `/admin/object` OK; broader harness
+  still fails on pre-existing active-nav checks for multiple pages and an
+  unrelated `/admin/reports` JS syntax error.
+
+Next recommended work:
+- Continue relationship vocabulary reconciliation for Object Explorer and Graph
+  Explorer so route-specific graph endpoints and UOM graph previews converge
+  where they represent the same relationship semantics.
+
+------------------------------------------------------------------------
+
 ## 2026-07-01 — Tracing Web Log Visibility
 
 Date/time: 2026-07-01 14:18 CDT
