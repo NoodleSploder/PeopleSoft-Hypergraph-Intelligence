@@ -6,6 +6,63 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — SQL Definition READS/WRITES Graph Edges
+
+Date/time: 2026-07-01 17:33 CDT
+
+Features implemented:
+- Extended `connectors/graphdb.py` SQL Definition Knowledge Graph ingestion
+  so standalone SQL definitions can emit `READS` and `WRITES` edges to records.
+- Added grant-aware `PSSQLTEXTDEFN` lookup for SQL Definition bodies. If the
+  text table is unavailable, the provider still returns SQL Definition nodes.
+- Added Oracle literal chunking for SQLID lookups to avoid oversized `IN`
+  lists during larger graph builds.
+- Improved SQL record-access extraction to include PeopleSoft comma-style
+  joins inside `FROM` blocks while avoiding SELECT-list commas.
+
+Files modified:
+- `connectors/graphdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Reused the existing conservative SQL text extractor instead of adding a full
+  SQL parser. This keeps the graph builder lightweight and read-only.
+- Preferred Oracle-specific SQL text (`DBTYPE = '7'`) when present, falling
+  back to generic PeopleTools SQL (`DBTYPE = ' '`).
+- Kept SQL Definition edge metadata small and traceable: `sqlid`, `sqltype`,
+  `dbtype`, and `source: pssqltextdefn`.
+
+Bugs fixed:
+- Standalone SQL Definitions were represented as graph nodes but did not expose
+  their referenced records. They now participate in impact analysis when SQL
+  text grants are available.
+- Existing SQL extraction missed common PeopleSoft comma-join tables.
+
+Technical debt:
+- The SQL extractor remains intentionally heuristic. Nested dynamic SQL and
+  PeopleCode-generated SQL still need separate coverage.
+- A small non-persisted graph build surfaced pre-existing provider warnings for
+  Trees, Component Interfaces, and Message Catalog due to environment-specific
+  column assumptions; those were not part of this slice.
+
+Verification:
+- `python -m py_compile connectors/graphdb.py` — OK.
+- Parser checks:
+  - `SELECT A, B FROM PS_JOB J` -> READS `JOB`.
+  - `FROM PS_EPO_PG_HDR A, PS_EPO_PG_ITEM B` -> READS both records.
+  - `INSERT INTO PS_GPS_ORG_ACS_DTL ... FROM ps_gps_org_acs_sc, ps_gps_org_access`
+    -> WRITES `GPS_ORG_ACS_DTL`; READS `GPS_ORG_ACS_SC`, `GPS_ORG_ACCESS`.
+  - `MERGE INTO SYSADM.PS_FOO USING PS_BAR` -> WRITES `FOO`; READS `BAR`.
+- Non-persisted `graphdb.build('HCM', limit=1, persist=False)` completed and
+  emitted a SQL Definition `READS` edge:
+  `sql_definition:EODC_FORMXREF_EXIST_SEL -> record:EODC_FORM_XREF`.
+
+Next recommended work:
+- Fix the pre-existing graph provider column assumptions surfaced by the
+  non-persisted build.
+- Continue broader READS/WRITES coverage for PeopleCode dynamic SQL.
+
 ## 2026-07-01 — Knowledge Graph AE READS/WRITES Edges
 
 Date/time: 2026-07-01 16:25 CDT

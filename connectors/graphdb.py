@@ -47,6 +47,16 @@ _READ_PATTERNS = [
     re.compile(r"\bJOIN\s+(?:TABLE\s+)?([A-Z0-9_$#.]+|\%TABLE\s*\(\s*[A-Z0-9_]+\s*\))", re.I),
     re.compile(r"\bUSING\s+(?:TABLE\s+)?([A-Z0-9_$#.]+|\%TABLE\s*\(\s*[A-Z0-9_]+\s*\))", re.I),
 ]
+_FROM_BLOCK_RE = re.compile(
+    r"\bFROM\b(?P<body>.*?)(?=\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bHAVING\b|"
+    r"\bUNION\b|\bMINUS\b|\bINTERSECT\b|\bCONNECT\s+BY\b|\bSTART\s+WITH\b|$)",
+    re.I | re.S,
+)
+_COMMA_JOIN_RE = re.compile(
+    r",\s*(?:TABLE\s+)?([A-Z0-9_$#.]+|\%TABLE\s*\(\s*[A-Z0-9_]+\s*\))"
+    r"(?=\s+(?:[A-Z][A-Z0-9_$#]*|WHERE|JOIN|ON|$)|\s*,|\s*\))",
+    re.I,
+)
 _META_WRITE_PATTERNS = [
     re.compile(r"%TRUNCATETABLE\s*\(\s*([A-Z0-9_$#.]+)\s*\)", re.I),
 ]
@@ -96,6 +106,17 @@ def _normalize_peopletools_table_name(raw_name):
     return name
 
 
+def _comma_join_record_names(sql_text):
+    """Extract additional records from comma-style FROM lists."""
+    records = set()
+    for block in _FROM_BLOCK_RE.finditer(sql_text or ""):
+        for match in _COMMA_JOIN_RE.finditer(block.group("body") or ""):
+            record = _normalize_peopletools_table_name(match.group(1))
+            if record:
+                records.add(record)
+    return records
+
+
 def sql_record_access(sql_text):
     """Extract conservative PeopleSoft record READS/WRITES from SQL text."""
     text = _strip_sql_for_table_scan(sql_text)
@@ -117,6 +138,7 @@ def sql_record_access(sql_text):
         for rec in (_normalize_peopletools_table_name(m.group(1)) for m in pattern.finditer(text))
         if rec
     }
+    reads.update(_comma_join_record_names(text))
     for match in _META_INSERT_SELECT_RE.finditer(text):
         target = _normalize_peopletools_table_name(match.group(1))
         source = _normalize_peopletools_table_name(match.group(2))
@@ -805,10 +827,54 @@ def build(env="HCM", limit=50, persist=True):
                AND ROWNUM <= {limit}
              ORDER BY SQLID
         """) or []
+
+        selected_text = {}
+        selected_dbtype = {}
+        sqlids = [str(r.get("sqlid") or "").strip().upper() for r in rows if r.get("sqlid")]
+        if sqlids and ptmetadata.has_table(env, "PSSQLTEXTDEFN"):
+            text_variants = defaultdict(lambda: defaultdict(list))
+            for start in range(0, len(sqlids), 900):
+                chunk = sqlids[start:start + 900]
+                quoted = ",".join("'" + sqlid.replace("'", "''") + "'" for sqlid in chunk)
+                text_rows = psdb.query(env, f"""
+                    SELECT SQLID, SQLTYPE, DBTYPE, SEQNUM, SQLTEXT
+                      FROM SYSADM.PSSQLTEXTDEFN
+                     WHERE SQLTYPE = 0
+                       AND SQLID IN ({quoted})
+                       AND DBTYPE IN (' ', '7')
+                     ORDER BY SQLID, DBTYPE, SEQNUM
+                """) or []
+                for text_row in text_rows:
+                    sqlid = str(text_row.get("sqlid") or "").strip().upper()
+                    dbtype = str(text_row.get("dbtype") or " ").strip() or " "
+                    sqltext = text_row.get("sqltext")
+                    if sqlid and sqltext:
+                        text_variants[sqlid][dbtype].append(str(sqltext))
+
+            for sqlid, variants in text_variants.items():
+                # Prefer Oracle-specific SQL when present; fall back to generic PeopleTools SQL.
+                dbtype = "7" if variants.get("7") else " "
+                selected_text[sqlid] = "\n".join(variants.get(dbtype) or [])
+                selected_dbtype[sqlid] = dbtype
+
         for r in rows:
             sqlid = r.get("sqlid")
             if sqlid:
                 add_node(graph, "sql_definition", sqlid, sqlid, r)
+                sql_key = str(sqlid).strip().upper()
+                access = sql_record_access(selected_text.get(sql_key, ""))
+                edge_meta = {
+                    "sqlid": sql_key,
+                    "sqltype": r.get("sqltype"),
+                    "dbtype": selected_dbtype.get(sql_key),
+                    "source": "pssqltextdefn",
+                }
+                for recname in access["reads"]:
+                    add_node(graph, "record", recname, recname, edge_meta)
+                    add_edge(graph, "sql_definition", sqlid, "record", recname, "READS", edge_meta)
+                for recname in access["writes"]:
+                    add_node(graph, "record", recname, recname, edge_meta)
+                    add_edge(graph, "sql_definition", sqlid, "record", recname, "WRITES", edge_meta)
         return len(rows)
 
     def queries():
