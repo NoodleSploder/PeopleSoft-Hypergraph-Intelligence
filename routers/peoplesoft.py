@@ -88,33 +88,20 @@ def attach_links(row, env: str):
     return linked
 
 
-def node(node_type, node_id, label=None, data=None):
+def uom_graph_response(env, object_type, object_name):
+    """Return the compact UOM graph preview for a canonical object.
+
+    Graph Explorer expects a list-shaped graph response. UOM objects already
+    own the compact preview used by Object Explorer, so this helper keeps the
+    route-specific graph API aligned with the canonical object model.
+    """
+    canonical = uom.canonical_object(env, object_type, object_name)
+    graph = canonical.get("_graph") or {}
     return {
-        "id": f"{node_type}:{node_id}",
-        "type": node_type,
-        "name": node_id,
-        "label": label or node_id,
-        "data": data or {},
-    }
-
-
-def edge(source_type, source_id, target_type, target_id, relationship):
-    return {
-        "source": f"{source_type}:{source_id}",
-        "target": f"{target_type}:{target_id}",
-        "relationship": relationship,
-    }
-
-
-def add_node(nodes, item):
-    nodes[item["id"]] = item
-
-
-def graph_response(root_type, root_name, nodes, edges):
-    return {
-        "root": f"{root_type}:{root_name}",
-        "nodes": list(nodes.values()),
-        "edges": edges,
+        "root": canonical.get("id") or f"{canonical.get('type', object_type)}:{canonical.get('name', object_name)}",
+        "nodes": graph.get("nodes", []),
+        "edges": graph.get("edges", []),
+        "_source": "uom",
     }
 
 
@@ -1641,122 +1628,23 @@ def peoplesoft_page_transfers(page_name: str, env: str = "HCM"):
 
 @router.get("/api/peoplesoft/graph/{object_type}/{object_name}")
 def peoplesoft_graph(object_type: str, object_name: str, env: str = "HCM"):
-    object_type = object_type.lower()
+    object_type = normalize_object_type(object_type)
     object_name = object_name.upper()
-
-    persistent_graph = graphdb_response(env, object_type, object_name)
-    if persistent_graph:
-        return persistent_graph
 
     if object_type == "peoplecode":
         return peoplecode.graph(object_name, env)
 
-    if object_type == "field":
-        return uom.field_object(env, object_name)["_graph"]
+    if object_type == "application_engine":
+        return ae.program_graph(env, object_name)
 
-    if object_type == "page":
-        page_graph = uom.page_object(env, object_name).get("_graph", {})
-        return {
-            "root": f"page:{object_name.upper()}",
-            "nodes": page_graph.get("nodes", []),
-            "edges": page_graph.get("edges", []),
-        }
+    try:
+        return uom_graph_response(env, object_type, object_name)
+    except Exception:
+        persistent_graph = graphdb_response(env, object_type, object_name)
+        if persistent_graph:
+            return persistent_graph
 
-    if object_type == "component":
-        component_graph = uom.component_object(env, object_name).get("_graph", {})
-        return {
-            "root": f"component:{object_name.upper()}",
-            "nodes": component_graph.get("nodes", []),
-            "edges": component_graph.get("edges", []),
-        }
-
-    if object_type == "tree":
-        tree_graph = uom.tree_object(env, object_name).get("_graph", {})
-        return {
-            "root": f"tree:{object_name.upper()}",
-            "nodes": tree_graph.get("nodes", []),
-            "edges": tree_graph.get("edges", []),
-        }
-
-    if object_type in {"ci", "component_interface"}:
-        ci_graph = uom.ci_object(env, object_name).get("_graph", {})
-        return {
-            "root": f"ci:{object_name.upper()}",
-            "nodes": ci_graph.get("nodes", []),
-            "edges": ci_graph.get("edges", []),
-        }
-
-    nodes = {}
-    edges = []
-
-    add_node(nodes, node(object_type, object_name))
-
-    if object_type == "operator":
-        for row in psdb.oprid_roles(object_name, env, columns="summary"):
-            role = row["rolename"]
-            add_node(nodes, node("role", role, data=row))
-            edges.append(edge("operator", object_name, "role", role, "has_role"))
-
-        for row in psdb.operator_permissionlists(env, object_name):
-            classid = row["classid"]
-            add_node(nodes, node("permissionlist", classid, data=row))
-            edges.append(edge("role", row["rolename"], "permissionlist", classid, "contains_permissionlist"))
-
-        for row in psdb.operator_components(env, object_name):
-            component = row["pnlgrpname"]
-            add_node(nodes, node("component", component, data=row))
-            edges.append(edge("permissionlist", row["classid"], "component", component, "grants_component"))
-
-    elif object_type == "role":
-        for row in psdb.role_users(env, object_name):
-            operator = row["roleuser"]
-            add_node(nodes, node("operator", operator, data=row))
-            edges.append(edge("operator", operator, "role", object_name, "has_role"))
-
-        for row in psdb.role_permissionlists(env, object_name):
-            classid = row["classid"]
-            add_node(nodes, node("permissionlist", classid, data=row))
-            edges.append(edge("role", object_name, "permissionlist", classid, "contains_permissionlist"))
-
-    elif object_type == "permissionlist":
-        for row in psdb.permissionlist_roles(env, object_name):
-            role = row["rolename"]
-            add_node(nodes, node("role", role, data=row))
-            edges.append(edge("role", role, "permissionlist", object_name, "contains_permissionlist"))
-
-        for row in psdb.permissionlist_components(env, object_name):
-            component = row["pnlgrpname"]
-            add_node(nodes, node("component", component, data=row))
-            edges.append(edge("permissionlist", object_name, "component", component, "grants_component"))
-
-    elif object_type in {"portal", "portal_registry", "content_reference"}:
-        portal_graph = uom.portal_registry_object(env, object_name).get("_graph", {})
-        return {
-            "root": f"portal_registry:{object_name.upper()}",
-            "nodes": portal_graph.get("nodes", []),
-            "edges": portal_graph.get("edges", []),
-        }
-
-    elif object_type == "record":
-        for row in psdb.record_children(env, object_name):
-            child = row["recname"]
-            add_node(nodes, node("record", child, data=row))
-            edges.append(edge("record", object_name, "record", child, "parent_of"))
-
-        for row in psdb.record_components(env, object_name):
-            component = row["pnlgrpname"]
-            add_node(nodes, node("component", component, data=row))
-            edges.append(edge("component", component, "record", object_name, "uses_record"))
-
-        for row in psdb.record_pages(env, object_name):
-            page = row["pnlname"]
-            add_node(nodes, node("page", page, data=row))
-            edges.append(edge("page", page, "record", object_name, "uses_record"))
-
-    else:
-        raise HTTPException(status_code=400, detail="Unsupported graph object type")
-
-    return graph_response(object_type, object_name, nodes, edges)
+    raise HTTPException(status_code=400, detail="Unsupported graph object type")
 
 
 @router.get("/api/peoplesoft/debug/roleuser-count")

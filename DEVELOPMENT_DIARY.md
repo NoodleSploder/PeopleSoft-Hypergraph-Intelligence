@@ -6,6 +6,76 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — Generic Graph Route UOM Alignment
+
+Date/time: 2026-07-01 15:40 CDT
+
+Features implemented:
+- Updated generic `/api/peoplesoft/graph/{type}/{name}` to resolve canonical
+  object types through `uom.canonical_object()` and return the object's compact
+  `_graph` preview.
+- Preserved richer domain graph behavior for PeopleCode and Application Engine.
+- Preserved persisted Knowledge Graph neighborhood fallback for unsupported or
+  non-canonical graph node types.
+- Removed stale hand-built node/edge construction from the router for Operator,
+  Role, Permission List, Record, Component, Page, Portal Registry, Tree, and CI.
+
+Files modified:
+- `routers/peoplesoft.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Made UOM the first source of truth for compact object graph previews so Graph
+  Explorer and Object Explorer use the same relationship model.
+- Kept routers thin: the graph route now delegates to UOM/domain graph providers
+  instead of querying PeopleSoft metadata directly.
+- Left PeopleCode and AE graph routes as domain-owned graph providers because
+  they expose richer traversal semantics than a compact UOM preview.
+
+Bugs fixed:
+- When a persisted Knowledge Graph existed, the generic graph route could return
+  a KG neighborhood instead of the compact UOM graph preview, causing Graph
+  Explorer and Object Explorer to disagree for the same object.
+- Removed legacy router-level graph SQL/traversal logic that duplicated UOM
+  relationship graph construction.
+
+Technical debt:
+- PeopleCode and Application Engine graph vocabularies still need comparison
+  against UOM/KG edge naming before any further unification.
+- Persisted Knowledge Graph ingestion still needs a relationship vocabulary
+  audit against UOM `_relationships` and `_graph`.
+
+Verification:
+- `python -m py_compile routers/peoplesoft.py connectors/uom.py connectors/graphdb.py routers/admin/graph.py` — OK.
+- `python -c "import main; print('main import ok')"` — OK.
+- Direct route-function checks returned `_source: uom` for Operator, Role,
+  Permission List, Record, Component, Page, Portal Registry, Tree, CI, Service
+  Operation, IB Node, IB Queue, IB Routing, and SQL Definition.
+- Restarted `deathstar-api.service`. A stray user-run reload server was holding
+  port 8088; stopped it and confirmed systemd owns `127.0.0.1:8088`.
+- HTTP checks:
+  - `GET /api/peoplesoft/graph/record/JOB?env=HCM` — 200, `_source: uom`,
+    32 nodes / 31 edges.
+  - `GET /api/peoplesoft/graph/operator/PS?env=HCM` — 200, `_source: uom`,
+    37 nodes / 40 edges.
+  - `GET /api/peoplesoft/graph/permissionlist/HCCPPY1000?env=HCM` — 200,
+    `_source: uom`, 43 nodes / 42 edges.
+  - `GET /api/peoplesoft/graph/component/JOB_DATA?env=HCM` — 200,
+    `_source: uom`, 61 nodes / 194 edges.
+  - `GET /api/peoplesoft/graph/node/PSFT_HR?env=HCM` — 200, `_source: uom`,
+    40 nodes / 40 edges.
+  - `GET /admin/graph` — 200.
+  - `GET /api/peoplesoft/object/record/JOB?env=HCM` — 200.
+
+Next recommended work:
+- Compare PeopleCode and Application Engine domain graph outputs against UOM
+  object previews and document which edge types should remain domain-specific.
+- Continue relationship-vocabulary alignment between UOM and Knowledge Graph
+  ingestion.
+
+------------------------------------------------------------------------
+
 ## 2026-07-01 — Object Explorer Visual Hierarchy
 
 Date/time: 2026-07-01 15:25 CDT
