@@ -165,6 +165,7 @@ Continue expanding object coverage.
 - Translate Values (added 2026-06-30; PSXLATDEFN/PSXLATITEM, 10769 fields with 49177 values total; keyed by FIELDNAME; effective-dated; shows active/inactive value sets with long/short names)
 - App Designer Projects (added 2026-06-30; PSPROJECTDEFN, 3488 rows, keyed by PROJECTNAME; sub-table PSPROJECTITEM with 200086 object items; 40+ object type codes decoded; includes PTADS* automated delivery projects)
 - IB Message Definitions (added 2026-06-30; PSMSGDEFN, 4272 rows, keyed by MSGNAME; sub-tables PSMSGVER/PSMSGREC; shows versions and schema record hierarchy for each message)
+- IB Application Services (added 2026-06-30; PSIBAPPLDEFN, 13 apps, keyed by PTIBAPPLNAME; sub-tables PSIBAPPMETHOD/PSIBAPPURI/PSIBAPPTRAN/PSIBAPPLSTATES; shows REST endpoint operations with HTTP methods and URI templates; covers Chatbot, Fluid/Mobile, Payroll, Absence, Recruitment ASF services)
 
 ### ⚠️ Stub Providers (no live backing tables found in verified HCM schema)
 
@@ -415,9 +416,13 @@ Completed in this session:
 - **Process Definition Explorer** — implemented against verified `PS_PRCSDEFN` (2873 rows); composite key PRCSTYPE~PRCSNAME; shows run control pages and process groups
 - **File Layout Explorer** — implemented against verified `PSFLDDEFN` (533 rows); shows segments (PSFLDSEGDEFN) and fields (PSFLDFIELDDEFN); supports Fixed Width/Delimited/XML formats
 
+Completed this session (2026-06-30 continued):
+- **IB Application Services** — implemented against verified `PSIBAPPLDEFN` (13 apps); exposes REST endpoint operations via PSIBAPPMETHOD/PSIBAPPURI with HTTP methods and URI templates
+
 Candidates for next session:
 - **WorkCenters** — no standalone definition header table found; EOWC tables are runtime config keyed by portal object name, not metadata definitions; deprioritized
 - **Dashboards** — no definition tables found (PS_EOEN_DASHBRD/PS_PT_ACMDASHTBL are 0-row log/cache tables); deprioritized
 - **BI Publisher / Branding / Page Composer** — no backing definition tables found in live HCM SYSADM schema; deprioritized
 - **Activity Guide Collections** — `PS_AGC_TILE_TBL` (2 rows): too few rows to be useful
-- **Translate Values** — `PSXLATITEM` (49177 rows): valid candidate if field-level translate lookup is needed
+- **IB Service Groups** — `PSIBSRVGROUP` (456 rows, 76 groups): viable; no header description table exists, groups are self-defined by membership; could add as a grouping view on IB services
+- **Application Classes** — `PSAPPCLASSDEFN` (12622 rows): compound key PACKAGEROOT+QUALIFYPATH+APPCLASSID is unique; complements App Package Explorer with class-level detail

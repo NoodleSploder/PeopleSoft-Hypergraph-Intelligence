@@ -796,6 +796,19 @@ OBJECT_REGISTRY["message"] = {
     "relationships": [],
 }
 
+OBJECT_REGISTRY.setdefault("ib_application", {
+    "display_title": "IB Application Service",
+    "icon": "globe",
+    "graph_node_type": "ib_application",
+    "object_page": "/admin/ibapp",
+    "discovery": {"table": "PSIBAPPLDEFN", "name_column": "PTIBAPPLNAME"},
+    "search": {"table": "PSIBAPPLDEFN", "name_column": "PTIBAPPLNAME",
+               "description_columns": ["DESCRLONG"],
+               "extra_search_columns": ["PTIB_APPSRVGRP", "OBJECTOWNERID"]},
+    "supported_versions": ["8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 for object_type in [
     "content_reference",
     "section",

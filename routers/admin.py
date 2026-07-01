@@ -34,6 +34,7 @@ _NAV = [
     ("xlat",       "Translate",     "/admin/xlat"),
     ("project",    "Projects",      "/admin/project"),
     ("ibmessage",  "IB Messages",   "/admin/ibmessage"),
+    ("ibapp",      "IB App Svcs",   "/admin/ibapp"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -3063,6 +3064,7 @@ const TYPE_CHIP_CFG = {
     xlat_field:              {label:'Translate',      bg:'#100f00',border:'#ddcc0044',color:'#ddcc00'},
     project:                 {label:'Project',        bg:'#0a100a',border:'#55ee5544',color:'#55ee55'},
     message:                 {label:'IB Message',     bg:'#180a1a',border:'#cc44ff44',color:'#cc44ff'},
+    ib_application:          {label:'IB App Svc',     bg:'#001818',border:'#00ddcc44',color:'#00ddcc'},
 };
 
 function typeChipHtml(type) {
@@ -13387,6 +13389,129 @@ async function selectItem(idx, name) {{
   if (!ovRows.length && !verSec && !recSec) {{
     html += `<div class="muted">No detail available.</div>`;
   }}
+  detail.innerHTML = html;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/ibapp", response_class=HTMLResponse)
+def admin_ibapp(request: Request, env: str = "HCM"):
+    nav = _nav_html("ibapp", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>IB Application Services</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+</head><body class="ds-body">
+{nav}
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
+  <div style="margin-bottom:10px">
+    <input id="q" placeholder="Search applications…" oninput="doSearch()"
+      style="width:100%;box-sizing:border-box;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 10px;border-radius:4px;font-size:13px">
+  </div>
+  <div id="list" style="font-size:13px"></div>
+</div>
+<div id="detail" style="overflow-y:auto;padding:20px 28px;color:#c8d8e8">
+  <div class="muted">Select an IB Application Service to view its REST endpoints and operations.</div>
+</div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = {repr(env)};
+let selected = null;
+
+async function doSearch() {{
+  const q = document.getElementById('q').value.trim();
+  const url = `/api/peoplesoft/ib-applications?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&limit=100`;
+  const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  const list = document.getElementById('list');
+  if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
+  list.innerHTML = data.map(r => {{
+    const name = r.ptibapplname || '';
+    const grp = (r.ptib_appsrvgrp || '').trim();
+    const opCnt = r.op_count || 0;
+    const status = (r.status || '').trim();
+    const statusDot = status === 'A' ? '🟢' : '🔴';
+    const descr = (r.descr || '').trim().slice(0, 80);
+    return `<div class="list-item${{selected===name?' selected':''}}" onclick="loadDetail('${{esc(name)}}')"
+      style="padding:7px 10px;border-radius:4px;cursor:pointer;margin-bottom:2px;border-bottom:1px solid #111">
+      <div style="font-weight:bold;color:#00ddcc;font-family:monospace">${{esc(name)}} ${{statusDot}}</div>
+      ${{grp ? `<div style="color:#778;font-size:11px">${{esc(grp)}} · ${{opCnt}} ops</div>` : ''}}
+      ${{descr ? `<div style="color:#667;font-size:11px;margin-top:2px">${{esc(descr)}}</div>` : ''}}
+    </div>`;
+  }}).join('');
+}}
+
+const METHOD_COLOR = {{GET:'#22cc66',POST:'#4499ff',PUT:'#ddaa22',DELETE:'#ff5555',PATCH:'#ff8822'}};
+
+async function loadDetail(name) {{
+  selected = name;
+  document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading…</div>';
+  const url = `/api/peoplesoft/object/ib_application/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
+  if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
+
+  const uom = payload;
+  const secs = uom.sections || [];
+  const ovSec = secs.find(s=>s.title?.includes('Overview'));
+  const opSec = secs.find(s=>s.title?.includes('Operations'));
+  const epSec = secs.find(s=>s.title?.includes('Endpoints'));
+  const stSec = secs.find(s=>s.title?.includes('Response States'));
+
+  let html = `<h1 style="color:#00ddcc;font-size:18px;margin:0 0 4px">${{esc(uom.display_name || name)}}</h1>`;
+
+  // Overview KV
+  if (ovSec?.rows?.length) {{
+    html += '<table style="border-collapse:collapse;margin-bottom:16px;font-size:13px">';
+    ovSec.rows.forEach(row => {{
+      if (!row.value || row.value === '—') return;
+      html += `<tr><td style="color:#556;padding:2px 16px 2px 0;white-space:nowrap;vertical-align:top">${{esc(row.key)}}</td>
+        <td style="color:#acd;font-family:monospace;word-break:break-all">${{esc(String(row.value))}}</td></tr>`;
+    }});
+    html += '</table>';
+  }}
+
+  // Operations
+  if (opSec?.items?.length) {{
+    html += `<h2 style="color:#aab;font-size:14px;margin:16px 0 8px">${{esc(opSec.title)}}</h2>`;
+    html += opSec.items.map(op => {{
+      const chips = (op.chips||[]).map(ch => {{
+        const c = METHOD_COLOR[ch.label] || '#778';
+        return `<span style="display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;background:#001;border:1px solid ${{c}}44;color:${{c}};margin-right:4px">${{esc(ch.label)}}</span>`;
+      }}).join('');
+      const meta = op.meta ? `<div style="color:#445;font-size:11px;font-family:monospace;margin-top:3px">${{esc(op.meta)}}</div>` : '';
+      return `<div style="padding:6px 10px;border-left:2px solid #1a3a4a;margin-bottom:6px">
+        <div style="font-family:monospace;color:#78c;font-size:13px">${{chips}}${{esc(op.name)}}</div>
+        ${{meta}}
+      </div>`;
+    }}).join('');
+  }}
+
+  // Endpoints (detailed)
+  if (epSec?.items?.length) {{
+    html += `<h2 style="color:#aab;font-size:14px;margin:16px 0 8px">${{esc(epSec.title)}}</h2>`;
+    html += '<div style="font-family:monospace;font-size:12px">';
+    html += epSec.items.map(ep => {{
+      const method = ep.chips?.[0]?.label || '';
+      const mc = METHOD_COLOR[method] || '#778';
+      const meta = ep.meta ? `<span style="color:#445;margin-left:12px;font-family:sans-serif;font-size:11px">${{esc(ep.meta)}}</span>` : '';
+      return `<div style="padding:3px 8px;border-bottom:1px solid #0d1a2a">
+        <span style="display:inline-block;min-width:52px;color:${{mc}};font-weight:bold">${{esc(method)}}</span>
+        <span style="color:#8ac">${{esc(ep.name)}}</span>${{meta}}
+      </div>`;
+    }}).join('');
+    html += '</div>';
+  }}
+
+  if (!ovSec && !opSec && !epSec) {{
+    html += '<div class="muted">No detail available.</div>';
+  }}
+
   detail.innerHTML = html;
 }}
 

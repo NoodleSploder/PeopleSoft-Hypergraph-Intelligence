@@ -5971,6 +5971,8 @@ def canonical_object(env, object_type, name):
         return project_object(env, name)
     if object_type == "message":
         return ib_message_object(env, name)
+    if object_type == "ib_application":
+        return ib_application_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])
@@ -5982,4 +5984,144 @@ def canonical_object(env, object_type, name):
         status="resolved" if resolved.get("resolved") else "partial",
         warnings=warnings,
         _metadata={"environment": env.upper(), "resolver": resolved},
+    )
+
+
+# ---------------------------------------------------------------------------
+# IB Application Services (ASF REST API Framework)
+# ---------------------------------------------------------------------------
+
+_IB_APP_TYPE = {"M": "Main", "S": "Sub-Application", "C": "Consumer"}
+_HTTP_METHOD_CLS = {
+    "GET": "chip-green", "POST": "chip-blue", "PUT": "chip-yellow",
+    "DELETE": "chip-red", "PATCH": "chip-orange",
+}
+
+
+def _ib_application_sections(data):
+    sections = []
+    defn = data.get("definition") or {}
+    ops = data.get("operations") or []
+    states = data.get("states") or []
+
+    # Overview KV
+    ib_ssl = defn.get("ib_ssl")
+    support_xml = defn.get("ptib_support_xml")
+    kv = [
+        {"key": "Application Name", "value": defn.get("ptibapplname", "")},
+        {"key": "Service Group", "value": (defn.get("ptib_appsrvgrp") or "").strip() or "—"},
+        {"key": "App Type", "value": _IB_APP_TYPE.get(defn.get("ptibappltype", ""), defn.get("ptibappltype") or "—")},
+        {"key": "Status", "value": "Active" if (defn.get("status") or "").strip() == "A" else (defn.get("status") or "—").strip()},
+        {"key": "IB Service Name", "value": (defn.get("ib_servicename") or "").strip() or "—"},
+        {"key": "URL Param Name", "value": (defn.get("ptiburlparamname") or "").strip() or "—"},
+        {"key": "Schema Name", "value": (defn.get("ib_schemaname") or "").strip() or "—"},
+        {"key": "Schema Variant", "value": (defn.get("ib_variantname") or "").strip() or "—"},
+        {"key": "App Package", "value": (defn.get("ib_packageid") or "").strip() or "—"},
+        {"key": "Owner", "value": (defn.get("objectownerid") or "").strip() or "—"},
+        {"key": "SSL Required", "value": "Yes" if ib_ssl else "No"},
+        {"key": "Supports XML", "value": "Yes" if support_xml else "No"},
+        {"key": "Export", "value": "Yes" if (defn.get("ptib_export") or "") == "Y" else "No"},
+        {"key": "Last Updated", "value": str(defn.get("lastupddttm") or "")[:19]},
+        {"key": "Updated By", "value": (defn.get("lastupdoprid") or "").strip() or "—"},
+    ]
+    descr_long = (defn.get("descrlong") or "").strip()
+    if descr_long:
+        kv.insert(1, {"key": "Description", "value": descr_long[:500]})
+    sections.append({"type": "kv", "title": "Application Overview", "rows": kv})
+
+    # Operations grouped by operation name
+    if ops:
+        # Group by PTIBAPPLOPR
+        from collections import defaultdict
+        by_op = defaultdict(list)
+        for o in ops:
+            by_op[o.get("ptibapplopr", "")].append(o)
+
+        op_items = []
+        for opr_name, opr_rows in sorted(by_op.items()):
+            method_chips = []
+            uri_lines = []
+            for o in opr_rows:
+                method = (o.get("ib_restmethod") or "GET").strip()
+                uri = (o.get("ib_uri_template") or "").strip()
+                method_chips.append({
+                    "label": method,
+                    "cls": _HTTP_METHOD_CLS.get(method, "chip-gray"),
+                })
+                if uri:
+                    uri_lines.append(f"[{method}] /{uri}")
+
+            tran_descr = (opr_rows[0].get("tran_descr") or "").strip()
+            meta_parts = uri_lines[:4]
+            op_items.append({
+                "name": opr_name,
+                "chips": method_chips,
+                "meta": " • ".join(meta_parts) if meta_parts else tran_descr,
+            })
+        sections.append({"type": "items", "title": f"Operations ({len(by_op)})", "items": op_items})
+
+    # Endpoint table: method + URI template rows
+    if ops:
+        endpoint_items = []
+        for o in ops:
+            method = (o.get("ib_restmethod") or "").strip()
+            uri = (o.get("ib_uri_template") or "").strip()
+            tran_descr = (o.get("tran_descr") or "").strip()
+            endpoint_items.append({
+                "name": f"/{uri}" if uri else "(no URI)",
+                "chips": [{"label": method, "cls": _HTTP_METHOD_CLS.get(method, "chip-gray")}] if method else [],
+                "meta": tran_descr or (o.get("ptibapplopr") or ""),
+            })
+        sections.append({"type": "items", "title": f"Endpoints ({len(ops)})", "items": endpoint_items})
+
+    # Response states
+    if states:
+        state_items = []
+        for s in states:
+            code = s.get("ib_http_status_cd", "")
+            cat = (s.get("ptibrsltcat") or "").strip()
+            state_name = (s.get("ptibrslt_state") or "").strip()
+            method = (s.get("ib_restmethod") or "").strip()
+            cls = "chip-green" if cat == "S" else ("chip-red" if cat == "F" else "chip-gray")
+            state_items.append({
+                "name": f"{s.get('ptibapplopr', '')} — {method}",
+                "chips": [
+                    {"label": str(code), "cls": cls},
+                    {"label": state_name, "cls": cls},
+                ],
+                "meta": f"HTTP {code}",
+            })
+        sections.append({"type": "items", "title": f"Response States ({len(states)})", "items": state_items})
+
+    return sections
+
+
+def ib_application_object(env, applname):
+    from connectors import psdb as _psdb
+    data = _psdb.get_ib_application(env, applname)
+    defn = data.get("definition") or {}
+    warnings = data.get("warnings") or []
+    counts = data.get("counts") or {}
+
+    app_name = defn.get("ptibapplname") or applname
+    svc_grp = (defn.get("ptib_appsrvgrp") or "").strip()
+    display = f"{app_name}" + (f" ({svc_grp})" if svc_grp else "")
+
+    sections = _ib_application_sections(data)
+
+    return canonical_base(
+        env,
+        "ib_application",
+        applname.upper(),
+        display_name=display,
+        status="active" if (defn.get("status") or "").strip() == "A" else "inactive",
+        warnings=warnings,
+        sections=sections,
+        overview={
+            "type": _IB_APP_TYPE.get(defn.get("ptibappltype", ""), "Application"),
+            "service_group": svc_grp or None,
+            "ib_service": (defn.get("ib_servicename") or "").strip() or None,
+            "operation_count": counts.get("operations", 0),
+        },
+        _metadata={"environment": env.upper(), "source_table": "PSIBAPPLDEFN"},
     )

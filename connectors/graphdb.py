@@ -926,6 +926,25 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "connected_query", cid, r.get("descr") or cid, r)
         return len(rows)
 
+    def ib_applications():
+        if not ptmetadata.has_table(env, "PSIBAPPLDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT PTIBAPPLNAME, PTIB_APPSRVGRP, STATUS, PTIBAPPLTYPE,
+                   IB_SERVICENAME, OBJECTOWNERID
+              FROM SYSADM.PSIBAPPLDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY PTIBAPPLNAME
+        """) or []
+        for r in rows:
+            aid = r.get("ptibapplname")
+            if not aid:
+                continue
+            label = aid
+            descr_long = ""
+            add_node(graph, "ib_application", aid, label, r)
+        return len(rows)
+
     def ib_messages():
         if not ptmetadata.has_table(env, "PSMSGDEFN"):
             return 0
@@ -1041,6 +1060,7 @@ def build(env="HCM", limit=50, persist=True):
         ("xlat_fields", xlat_fields),
         ("file_layouts", file_layouts),
         ("process_definitions", process_definitions),
+        ("ib_applications", ib_applications),
     ):
         provider(graph, name, loader)
 

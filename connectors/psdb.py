@@ -6080,3 +6080,105 @@ def get_ib_message(env_name, msgname):
         },
         "warnings": warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# IB Application Services (ASF REST API Framework)
+# ---------------------------------------------------------------------------
+
+def search_ib_applications(env_name, q="", limit=100):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSIBAPPLDEFN"):
+        return []
+    where, params = "WHERE 1=1", {}
+    if q:
+        where = "WHERE UPPER(d.PTIBAPPLNAME) LIKE :q OR UPPER(d.PTIB_APPSRVGRP) LIKE :q OR UPPER(d.DESCR) LIKE :q"
+        params["q"] = f"%{q.upper()}%"
+    rows = query(env_name, f"""
+        SELECT d.PTIBAPPLNAME, d.PTIB_APPSRVGRP, d.STATUS, d.PTIBAPPLTYPE,
+               d.IB_SERVICENAME, d.PTIBURLPARAMNAME, d.OBJECTOWNERID,
+               d.DESCRLONG,
+               (SELECT COUNT(*) FROM SYSADM.PSIBAPPMETHOD m
+                WHERE m.PTIBAPPLNAME = d.PTIBAPPLNAME) AS OP_COUNT
+          FROM SYSADM.PSIBAPPLDEFN d
+        {where}
+         ORDER BY d.PTIBAPPLNAME
+         FETCH FIRST :lim ROWS ONLY
+    """, {**params, "lim": limit})
+    results = []
+    for r in (rows or []):
+        d = dict(r)
+        d["descr"] = (d.get("descrlong") or "").split("\n")[0].strip()[:120]
+        results.append(d)
+    return results
+
+
+def get_ib_application(env_name, applname):
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env_name, "PSIBAPPLDEFN"):
+        return {"warnings": ["PSIBAPPLDEFN table not accessible"]}
+
+    defn_rows = query(env_name, """
+        SELECT PTIBAPPLNAME, PTIB_APPSRVGRP, STATUS, PTIBAPPLTYPE,
+               IB_SERVICENAME, PTIBURLPARAMNAME, PTCBURLPARAMNAME,
+               IB_PACKAGEID, IB_SCHEMANAME, IB_VARIANTNAME,
+               IB_SSL, PTIB_SUPPORT_XML, PTIB_EXPORT, PTIB_EXPORT_CB,
+               OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID, DESCRLONG
+          FROM SYSADM.PSIBAPPLDEFN
+         WHERE PTIBAPPLNAME = :id
+    """, {"id": applname.upper()})
+    if not defn_rows:
+        return {"warnings": [f"Application '{applname}' not found"]}
+    defn = dict(defn_rows[0])
+
+    # Operations: join methods + URIs
+    operations = []
+    if ptmetadata.has_table(env_name, "PSIBAPPMETHOD"):
+        try:
+            op_rows = query(env_name, """
+                SELECT m.PTIBAPPLOPR, m.IB_URI_SEQ, m.IB_RESTMETHOD,
+                       m.IBTRANSACTIONID, m.PTIBCACHESUPPORT, m.IB_CACHETIME,
+                       m.PTMULTIROWINPUT, m.PTMULTIROWOUTPUT,
+                       u.IB_URI_TEMPLATE,
+                       t.DESCR100 AS TRAN_DESCR
+                  FROM SYSADM.PSIBAPPMETHOD m
+                  LEFT JOIN SYSADM.PSIBAPPURI u
+                    ON u.PTIBAPPLNAME = m.PTIBAPPLNAME
+                   AND u.PTIBAPPLOPR  = m.PTIBAPPLOPR
+                   AND u.IB_URI_SEQ   = m.IB_URI_SEQ
+                  LEFT JOIN SYSADM.PSIBAPPTRAN t
+                    ON t.PTIBAPPLNAME    = m.PTIBAPPLNAME
+                   AND t.IBTRANSACTIONID = m.IBTRANSACTIONID
+                 WHERE m.PTIBAPPLNAME = :id
+                 ORDER BY m.PTIBAPPLOPR, m.IB_URI_SEQ
+            """, {"id": applname.upper()})
+            operations = [dict(r) for r in (op_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSIBAPPMETHOD: {exc}")
+
+    # Response states
+    states = []
+    if ptmetadata.has_table(env_name, "PSIBAPPLSTATES"):
+        try:
+            st_rows = query(env_name, """
+                SELECT PTIBAPPLOPR, IB_URI_SEQ, IB_RESTMETHOD,
+                       PTIBRSLT_STATE, IB_HTTP_STATUS_CD, PTIBRSLTCAT
+                  FROM SYSADM.PSIBAPPLSTATES
+                 WHERE PTIBAPPLNAME = :id
+                 ORDER BY PTIBAPPLOPR, IB_URI_SEQ
+            """, {"id": applname.upper()})
+            states = [dict(r) for r in (st_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSIBAPPLSTATES: {exc}")
+
+    return {
+        "definition": defn,
+        "operations": operations,
+        "states": states,
+        "counts": {
+            "operations": len(operations),
+            "states": len(states),
+        },
+        "warnings": warnings,
+    }

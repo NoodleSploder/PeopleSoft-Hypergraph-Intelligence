@@ -381,6 +381,8 @@ def object_payload(env, object_type, object_name):
         return uom.project_payload(env, object_name)
     if object_type == "message":
         return uom.ib_message_payload(env, object_name)
+    if object_type == "ib_application":
+        return uom.object_payload(uom.ib_application_object(env, object_name))
 
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
@@ -1163,6 +1165,12 @@ def peoplesoft_projects(env: str = "HCM", q: str = "", limit: int = 200):
 def peoplesoft_ib_messages(env: str = "HCM", q: str = "", limit: int = 200):
     """Search IB Message definitions (PSMSGDEFN)."""
     return psdb.search_ib_messages(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/ib-applications")
+def peoplesoft_ib_applications(env: str = "HCM", q: str = "", limit: int = 100):
+    """Search IB Application Service definitions (PSIBAPPLDEFN)."""
+    return psdb.search_ib_applications(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/security/reports")
