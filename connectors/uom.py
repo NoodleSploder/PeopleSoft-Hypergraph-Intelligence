@@ -1562,39 +1562,63 @@ def component_object(env, component_name):
     users = sorted({row.get("roleuser") for row in (access_result or []) if row.get("roleuser")})
     roles = sorted({row.get("rolename") for row in (access_result or []) if row.get("rolename")})
 
-    nodes = {}
-    edges = []
-    add_node(nodes, graph_node("component", component_name, raw))
-    for page in (pages or [])[:30]:
-        page_name = str(page.get("pnlname") or "").strip()
-        if page_name:
-            add_node(nodes, graph_node("page", page_name, page))
-            edges.append(graph_edge("component", component_name, "page", page_name, "contains_page"))
-    for record in search_records[:10]:
-        recname = str(record.get("recname") or "").strip()
-        if recname:
-            add_node(nodes, graph_node("record", recname, record))
-            edges.append(graph_edge("component", component_name, "record", recname, record.get("usage") or "uses_record"))
-    for record in (page_records or [])[:30]:
-        recname = str(record.get("recname") or "").strip()
-        if recname:
-            add_node(nodes, graph_node("record", recname, record))
-            edges.append(graph_edge("component", component_name, "record", recname, "uses_page_record"))
-    for pl in (permissionlists or [])[:40]:
-        classid = pl.get("classid")
-        if classid:
-            add_node(nodes, graph_node("permissionlist", classid, pl))
-            edges.append(graph_edge("permissionlist", classid, "component", component_name, "secures_component"))
-    for row in (access_result or [])[:60]:
-        role = row.get("rolename")
-        oprid = row.get("roleuser")
-        classid = row.get("classid")
-        if role and classid:
-            add_node(nodes, graph_node("role", role, row))
-            edges.append(graph_edge("role", role, "permissionlist", classid, "contains_permissionlist"))
-        if oprid and role:
-            add_node(nodes, graph_node("operator", oprid, row))
-            edges.append(graph_edge("operator", oprid, "role", role, "has_role"))
+    graph_relationships = limit_relationships(relationships, {
+        "pages": 30,
+        "search_records": 10,
+        "page_records": 30,
+        "permissionlists": 40,
+        "security": 60,
+    })
+    graph = relationship_graph("component", component_name, graph_relationships, [
+        {
+            "relationship": "pages",
+            "node_type": "page",
+            "target_name": lambda row: str(row.get("pnlname") or "").strip(),
+            "default_edge": "contains_page",
+        },
+        {
+            "relationship": "search_records",
+            "node_type": "record",
+            "target_name": lambda row: str(row.get("recname") or "").strip(),
+            "edge": lambda row: row.get("usage") or "uses_record",
+        },
+        {
+            "relationship": "page_records",
+            "node_type": "record",
+            "target_name": lambda row: str(row.get("recname") or "").strip(),
+            "default_edge": "uses_page_record",
+        },
+        {
+            "relationship": "permissionlists",
+            "node_type": "component",
+            "source_node_type": "permissionlist",
+            "source_name": lambda row: str(row.get("classid") or "").strip(),
+            "target_name": lambda row: component_name,
+            "default_edge": "secures_component",
+        },
+        {
+            "relationship": "security",
+            "node_type": "component",
+            "target_name": lambda row: "",
+            "default_edge": "ignored",
+            "extra_edges": [
+                {
+                    "source_node_type": "role",
+                    "source_name": lambda row: str(row.get("rolename") or "").strip(),
+                    "target_node_type": "permissionlist",
+                    "target_name": lambda row: str(row.get("classid") or "").strip(),
+                    "edge": "contains_permissionlist",
+                },
+                {
+                    "source_node_type": "operator",
+                    "source_name": lambda row: str(row.get("roleuser") or "").strip(),
+                    "target_node_type": "role",
+                    "target_name": lambda row: str(row.get("rolename") or "").strip(),
+                    "edge": "has_role",
+                },
+            ],
+        },
+    ], root_data=raw)
 
     return canonical_base(
         env, "component", component_name,
@@ -1609,7 +1633,7 @@ def component_object(env, component_name):
             "security": f"/api/peoplesoft/security/components/{component_name}/access?env={env}",
         },
         _relationships=relationships,
-        _graph={"nodes": list(nodes.values()), "edges": edges},
+        _graph=graph,
         _metadata={
             "environment": env.upper(),
             "registry": ptmetadata.OBJECT_REGISTRY.get("component", {}),

@@ -211,7 +211,7 @@ Continue enriching graph relationships.
 
 ### ✅ Completed
 
-- Shared UOM relationship graph helper introduced; Tree, Component Interface, and Page providers use it
+- Shared UOM relationship graph helper introduced; Tree, Component Interface, Page, and Component providers use it
 - Page graph API unified with UOM Page provider so Object Explorer and Graph Explorer share the same relationship model
 - CALLS, REFERENCES, USES, CONTAINS, WRAPS, SECURES edge types in active use
 - Component security graph edges through Permission Lists → Roles → Operators

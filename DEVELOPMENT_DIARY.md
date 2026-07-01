@@ -6,6 +6,63 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-06-30 — Component UOM Relationship Graph Extraction
+
+Date/time: 2026-06-30 23:34 CDT
+
+Features implemented:
+- Continued the relationship-provider extraction work by moving the Component
+  UOM graph preview onto the shared `relationship_graph()` helper.
+- Preserved existing Component graph preview caps: pages 30, search records 10,
+  page records 30, permission lists 40, and security access rows 60.
+- Preserved existing Component UOM edge vocabulary:
+  `contains_page`, `searchrecname`/`addsrchrecname`, `uses_page_record`,
+  `secures_component`, `contains_permissionlist`, and `has_role`.
+
+Files modified:
+- `connectors/uom.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Migrated only the Component UOM graph builder in this slice. The legacy
+  `/api/peoplesoft/graph/component/{name}` route still has router-local graph
+  construction and should be reconciled separately after confirming the desired
+  behavior change, because its current output differs from the UOM graph.
+- Kept root Component node metadata populated from `PSPNLGRPDEFN` detail.
+
+Bugs fixed:
+- Removed another imperative graph-building loop from `connectors/uom.py`.
+
+Technical debt:
+- Component graph route duplication remains in `routers/peoplesoft.py`.
+- Record, Operator, Role, and Permission List graph routes still contain
+  router-local graph construction.
+
+Verification:
+- `python -m py_compile connectors/uom.py` — OK.
+- Direct `uom.component_object('HCM', 'JOB_DATA')['_graph']` returned 61 nodes
+  and 194 edges, matching the pre-refactor UOM graph count.
+- Direct `uom.component_object('HCM', 'USERMAINT')['_graph']` returned 29 nodes
+  and 155 edges, matching the pre-refactor UOM graph count.
+- `python -m py_compile connectors/uom.py connectors/ptmetadata.py connectors/psdb.py routers/peoplesoft.py routers/admin.py`
+  — OK; existing unrelated `routers/admin.py` invalid escape SyntaxWarning remains.
+- `python -c "import main; print('main import ok')"` — OK.
+- Reloaded `deathstar-api.service` by terminating the current unit PID and
+  allowing systemd to restart it; service came back active on port 8088.
+- `GET /api/sqlws/config` — OK baseline.
+- `GET /api/peoplesoft/object/component/JOB_DATA?env=HCM` — OK, Graph Preview
+  returned `node_count=61`, `edge_count=194`.
+- `GET /api/peoplesoft/object/component/USERMAINT?env=HCM` — OK, Graph Preview
+  returned `node_count=29`, `edge_count=155`.
+
+Next recommended work:
+- Reconcile `/api/peoplesoft/graph/component/{name}` with the Component UOM
+  provider, explicitly documenting the behavior change because the legacy route
+  returns a different, narrower graph.
+
+------------------------------------------------------------------------
+
 ## 2026-06-30 — Performance Monitor Metrics Explorer Vertical Slice
 
 Date/time: 2026-06-30 (continued)
