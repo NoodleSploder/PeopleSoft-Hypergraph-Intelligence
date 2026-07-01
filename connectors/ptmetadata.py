@@ -910,6 +910,18 @@ OBJECT_REGISTRY.setdefault("pm_event", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("ib_operation", {
+    "display_title": "IB Service Operation",
+    "icon": "zap",
+    "graph_node_type": "ib_operation",
+    "object_page": "/admin/iboper",
+    "discovery": {"table": "PSOPERATION", "name_column": "IB_OPERATIONNAME"},
+    "search": {"table": "PSOPERATION", "name_column": "IB_OPERATIONNAME",
+               "description_columns": ["DESCR", "IB_SERVICENAME"], "extra_search_columns": ["RTNGTYPE"]},
+    "supported_versions": ["8.50", "8.51", "8.52", "8.53", "8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 OBJECT_REGISTRY.setdefault("archive_object", {
     "display_title": "Archive Object",
     "icon": "archive",

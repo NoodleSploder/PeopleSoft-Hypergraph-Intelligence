@@ -2610,3 +2610,47 @@ Activity Definitions (`PSACTIVITYDEFN`, 518 rows) were also found but determined
 **`routers/admin.py`**: `("conqrs", "Conn. Queries", "/admin/conqrs")` in `_NAV`; `connected_query` chip (cyan palette `#00ccee`); `/admin/conqrs` two-panel explorer with status chip, kv overview, component queries and field joins sections.
 
 **Verification:** `python -m py_compile` all six files → ALL OK. `uom.connected_query_payload('HCM', 'HRS_SRCH_JOB_OPENING_CQY')` → 6 component queries, 5 field joins, status Active. Not-found returns `None`.
+
+---
+
+## PM Transaction and PM Event Explorer (PSPMTRANSDEFN, PSPMEVENTDEFN) — 2025-07-01
+
+Implemented the PM Transaction and PM Event vertical slices together. Both tables live in the Performance Monitor subsystem alongside the existing PM Metrics Explorer. PSPMTRANSDEFN has ~200 rows (transaction definitions tracking groups of metrics); PSPMEVENTDEFN has ~300 rows (event definitions tracking the same metrics at event boundaries).
+
+`PM_FILTER_LEVEL` shared decode: `01`=Minimal, `04`=Standard, `05`=Detailed, `06`=Diagnostic. Both tables use up to 7 metric slots (`PM_METRICID_1`–`PM_METRICID_7`) and join LEFT to `PSPMMETRICDEFN` to resolve labels. PSPMTRANSDEFN additionally has 3 context slots (`PM_CONTEXT_DEFN_ID_1`–3) joining to `PSPMCONTEXTDEFN`.
+
+**`connectors/psdb.py`**: `search_pm_transactions()`, `get_pm_transaction()` (full LEFT JOIN for 10 slots); `search_pm_events()`, `get_pm_event()` (7 metric slots).
+
+**`connectors/ptmetadata.py`**: `pm_transaction` and `pm_event` OBJECT_REGISTRY entries.
+
+**`connectors/uom.py`**: `_PM_FILTER_LEVELS` module-level dict; `pm_transaction_object()` with Context/Metric slot sections; `pm_event_object()` with Metric slot section.
+
+**`connectors/graphdb.py`**: `pm_transactions()` and `pm_events()` providers added to build loop.
+
+**`routers/peoplesoft.py`**: `GET /api/peoplesoft/pm-transactions`, `/pm-events`; dispatch for `pm_transaction`, `pm_event`.
+
+**`routers/admin.py`**: `pmtrans`/`pmevent` NAV entries; light-purple/dark-purple chips; two `/admin/pmtrans` and `/admin/pmevent` explorer pages with filter-level badges and slot-display sections.
+
+**`scripts/smoke_admin_shell.py`**: Added `/admin/pmtrans` and `/admin/pmevent` entries; all pass.
+
+---
+
+## IB Service Operations Explorer (PSOPERATION) — 2025-07-01
+
+Implemented the IB Service Operations vertical slice. PSOPERATION has 2160 rows — these are the canonical IB service operation definitions: the bridges between services and messages. They encode routing type (S=Synchronous/A=Asynchronous/R=REST), the linked IB service, the request message name, and for REST operations, the HTTP method. Routings from PSIBRTNGDEFN (up to 100) are fetched per operation, showing sender→receiver node pairs.
+
+Search supports free-text (operation name, service, description) plus routing-type filter (S/A/R). List sidebar shows Sync/Async/REST colored badges. Detail pane shows Operation Overview kv-table + Routings list with active/inactive distinction.
+
+**`connectors/psdb.py`**: `search_ib_operations(env, q, rtype, limit)` with optional `RTNGTYPE` filter; `get_ib_operation(env, op_name)` returning definition + routings with sender→receiver labels.
+
+**`connectors/ptmetadata.py`**: `ib_operation` OBJECT_REGISTRY entry (`PSOPERATION`/`IB_OPERATIONNAME`, icon `zap`).
+
+**`connectors/uom.py`**: `_IB_RTNG_TYPES`, `_IB_REST_METHODS` dicts; `ib_operation_object()` with Operation Overview + Routings sections.
+
+**`connectors/graphdb.py`**: `ib_operations()` provider added to build loop.
+
+**`routers/peoplesoft.py`**: `GET /api/peoplesoft/ib-operations` (supports `q` and `rtype` params); `ib_operation` dispatch in `object_payload()`.
+
+**`routers/admin.py`**: `("iboper", "IB Operations", "/admin/iboper")` in `_NAV`; amber/orange chip (`#ffaa44`); `/admin/iboper` two-panel explorer with Sync/Async/REST colored badges, routing type filter dropdown, and routingList renderer showing active/inactive routings.
+
+**`scripts/smoke_admin_shell.py`**: Added `/admin/iboper`; passes (28/28 OK, 2 pre-existing failures unchanged).

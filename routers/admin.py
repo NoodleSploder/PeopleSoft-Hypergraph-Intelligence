@@ -50,6 +50,7 @@ _NAV = [
     ("pmmetric",   "PM Metrics",    "/admin/pmmetric"),
     ("pmtrans",    "PM Transactions","/admin/pmtrans"),
     ("pmevent",    "PM Events",     "/admin/pmevent"),
+    ("iboper",     "IB Operations", "/admin/iboper"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -3095,6 +3096,7 @@ const TYPE_CHIP_CFG = {
     pm_metric:               {label:'PM Metric',        bg:'#0d0d18',border:'#7766ee44',color:'#9988ff'},
     pm_transaction:          {label:'PM Transaction',   bg:'#100d18',border:'#9966ff44',color:'#bb99ff'},
     pm_event:                {label:'PM Event',         bg:'#0d0d18',border:'#6655dd44',color:'#8877ee'},
+    ib_operation:            {label:'IB Operation',     bg:'#181008',border:'#ff880044',color:'#ffaa44'},
 };
 
 function typeChipHtml(type) {
@@ -15288,3 +15290,156 @@ doSearch();
 </script>""")
 
 
+
+
+@router.get("/iboper", response_class=HTMLResponse)
+def admin_iboper():
+    return _shell("IB Service Operations Explorer", "iboper", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#ffaa44;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #ffaa4433;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #ffaa4422;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:340px;min-width:240px;border-right:1px solid #ffaa4422;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input,select{background:#181008;color:#d7faff;border:1px solid #ffaa4444;padding:5px 8px;font-size:12px}
+input:focus,select:focus{outline:none;border-color:#ffaa44}
+button{background:#cc8833;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#fff;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(255,170,68,.07);border-left-color:#ffaa4455}
+.item.sel{background:rgba(255,170,68,.12);border-left-color:#ffaa44}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.muted{color:#556;font-style:italic}
+.badge-sync{display:inline-block;padding:1px 5px;border-radius:2px;font-size:10px;font-family:monospace;
+            background:#001820;border:1px solid #0099cc55;color:#44bbdd;margin-left:5px}
+.badge-async{display:inline-block;padding:1px 5px;border-radius:2px;font-size:10px;font-family:monospace;
+             background:#182000;border:1px solid #88cc0055;color:#99dd44;margin-left:5px}
+.badge-rest{display:inline-block;padding:1px 5px;border-radius:2px;font-size:10px;font-family:monospace;
+            background:#180a00;border:1px solid #ff660055;color:#ff9944;margin-left:5px}
+.badge-other{display:inline-block;padding:1px 5px;border-radius:2px;font-size:10px;font-family:monospace;
+             background:#181818;border:1px solid #55555555;color:#778;margin-left:5px}
+</style>
+<div class="topbar">
+  <input id="q" type="text" placeholder="Search operation name, service, or description..." style="width:310px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <select id="rtype" onchange="doSearch()">
+    <option value="">All Types</option>
+    <option value="S">Synchronous</option>
+    <option value="A">Asynchronous</option>
+    <option value="R">REST</option>
+  </select>
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>IB Operations</h2>
+    <div id="list" class="muted">Search to load operations.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Operation</h2>
+    <div id="detail" class="muted">Select an operation from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+let _rows = [];
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function rtypeBadge(rt, rm) {
+  if (rt === 'S') return '<span class="badge-sync">Sync</span>';
+  if (rt === 'A') return '<span class="badge-async">Async</span>';
+  if (rt === 'R') return '<span class="badge-rest">REST</span>';
+  const m = (rm || '').trim();
+  if (m) return '<span class="badge-rest">' + esc(m) + '</span>';
+  return rt ? '<span class="badge-other">' + esc(rt) + '</span>' : '';
+}
+
+async function doSearch() {
+  const q = document.getElementById('q').value.trim();
+  const rtype = document.getElementById('rtype').value;
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading\u2026</div>';
+  const params = new URLSearchParams({env: ENV, limit: 100});
+  if (q) params.set('q', q);
+  if (rtype) params.set('rtype', rtype);
+  const d = await api('/api/peoplesoft/ib-operations?' + params);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
+  _rows = Array.isArray(d) ? d : (d.items || []);
+  document.getElementById('stats').textContent = _rows.length + ' result' + (_rows.length !== 1 ? 's' : '');
+  if (!_rows.length) { list.innerHTML = '<div class="muted">No operations found.</div>'; return; }
+  list.innerHTML = _rows.map(function(r, i) {
+    const svc = (r.ib_servicename || '').trim();
+    const descr = (r.descr || '').trim();
+    let meta = '';
+    if (svc && svc !== r.ib_operationname) meta += esc(svc);
+    if (descr && descr !== r.ib_operationname) meta += (meta ? ' \u00b7 ' : '') + esc(descr.slice(0,55));
+    return '<div class="item" id="op-' + i + '" data-idx="' + i + '">' +
+      '<div class="item-name">' + esc(r.ib_operationname) + rtypeBadge(r.rtngtype, r.ib_restmethod) + '</div>' +
+      (meta ? '<div class="item-meta">' + meta + '</div>' : '') +
+      '</div>';
+  }).join('');
+  list.querySelectorAll('.item').forEach(function(el) {
+    el.addEventListener('click', function() { selectOp(+el.dataset.idx); });
+  });
+}
+
+async function selectOp(idx) {
+  const r = _rows[idx];
+  if (!r) return;
+  document.querySelectorAll('.item').forEach(function(el) { el.classList.remove('sel'); });
+  const el = document.getElementById('op-' + idx);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading\u2026</div>';
+
+  const d = await api('/api/peoplesoft/object/ib_operation/' + encodeURIComponent(r.ib_operationname) + '?env=' + ENV);
+  if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
+
+  const sections = d.sections || [];
+  const ovSec  = sections.find(function(s) { return s.title && s.title.indexOf('Overview') >= 0; });
+  const rtnSec = sections.find(function(s) { return s.title && s.title.indexOf('Routing') >= 0; });
+
+  function kvTable(sec) {
+    if (!sec || !sec.items || !sec.items.length) return '';
+    return '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px">' +
+      sec.items.map(function(item) {
+        return '<tr><td style="padding:4px 12px 4px 0;color:#778;white-space:nowrap">' + esc(item.label) + '</td>' +
+          '<td style="padding:4px 0;color:#c8d8e8;font-family:monospace;word-break:break-word">' + esc(String(item.value||'')) + '</td></tr>';
+      }).join('') + '</table>';
+  }
+
+  function routingList(sec) {
+    if (!sec || !sec.items || !sec.items.length) {
+      return '<div class="muted" style="font-size:12px">No routings defined.</div>';
+    }
+    return '<div style="margin-bottom:16px">' +
+      sec.items.map(function(it) {
+        const inactive = it.status === 'inactive';
+        return '<div style="padding:5px 0;border-bottom:1px solid #181008;font-size:12px;display:flex;gap:10px;align-items:baseline">' +
+          '<span style="font-family:monospace;min-width:220px;color:' + (inactive ? '#445' : '#ffaa44') + '">' + esc(it.label||it.id||'') + '</span>' +
+          (inactive ? '<span style="font-size:10px;color:#445">(inactive)</span>' : '') +
+          '<span style="color:#778;font-size:11px">' + esc(it.value||'') + '</span>' +
+          '</div>';
+      }).join('') + '</div>';
+  }
+
+  const ov = d.overview || {};
+  let html = '<h2 style="font-family:monospace;color:#ffaa44;font-size:14px;margin:0 0 4px">' + esc(r.ib_operationname) + '</h2>' +
+    '<div style="font-size:12px;color:#556;margin-bottom:16px">' +
+    rtypeBadge(ov.rtng_type, ov.rest_method) +
+    (ov.service && ov.service !== r.ib_operationname ? ' Service: <span style="color:#c8d8e8;font-family:monospace">' + esc(ov.service) + '</span>' : '') +
+    '</div>';
+  if (d.warnings && d.warnings.length) {
+    html += '<div style="color:#f90;font-size:11px;margin-bottom:12px">' + d.warnings.map(esc).join('<br>') + '</div>';
+  }
+  if (ovSec)  html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:0 0 6px">Overview</h3>' + kvTable(ovSec);
+  if (rtnSec) html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">' + esc(rtnSec.title) + '</h3>' + routingList(rtnSec);
+  detail.innerHTML = html;
+}
+
+doSearch();
+</script>""")

@@ -6003,6 +6003,8 @@ def canonical_object(env, object_type, name):
         return pm_transaction_object(env, name)
     if object_type == "pm_event":
         return pm_event_object(env, name)
+    if object_type == "ib_operation":
+        return ib_operation_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])
@@ -7397,4 +7399,80 @@ def pm_event_object(env, event_id):
         overview={"event_id": eid, "label": label, "filter_level": flevel,
                   "filter_label": _PM_FILTER_LEVELS.get(flevel, flevel), "sampling": sampling},
         _metadata={"environment": env.upper(), "source_table": "PSPMEVENTDEFN"},
+    )
+
+
+_IB_RTNG_TYPES = {"S": "Synchronous", "A": "Asynchronous", "R": "REST", "X": "One-Way"}
+_IB_REST_METHODS = {"GET": "GET", "POST": "POST", "PUT": "PUT", "DELETE": "DELETE",
+                    "PATCH": "PATCH", "HEAD": "HEAD"}
+
+
+def ib_operation_object(env, op_name):
+    from connectors import psdb as _psdb
+    data = _psdb.get_ib_operation(env, op_name)
+    defn = data.get("definition") or {}
+    routings = data.get("routings") or []
+    warnings = data.get("warnings") or []
+
+    name = defn.get("ib_operationname", op_name)
+    service = (defn.get("ib_servicename") or "").strip()
+    rtng = (defn.get("rtngtype") or "").strip()
+    rtng_label = _IB_RTNG_TYPES.get(rtng, rtng)
+    rest_method = (defn.get("ib_restmethod") or "").strip()
+    is_rest = defn.get("ib_rest_service") == 1
+    msgname = (defn.get("msgname") or "").strip()
+    msgver = (defn.get("ib_msgversion") or "").strip()
+    descr = (defn.get("descr") or "").strip()
+    descrlong = (defn.get("descrlong") or "").strip()
+    owner = (defn.get("objectownerid") or "").strip()
+    lastupd = str(defn.get("lastupddttm") or "")[:19]
+    lastupdby = (defn.get("lastupdoprid") or "").strip()
+    display = f"{name} \u2014 {descr}" if descr and descr != name else name
+
+    kv_items = [
+        {"label": "Operation",      "value": name},
+        {"label": "Service",        "value": service or "(none)"},
+        {"label": "Routing Type",   "value": f"{rtng_label} ({rtng})" if rtng else "(none)"},
+        {"label": "Description",    "value": descr or "(none)"},
+    ]
+    if is_rest:
+        kv_items.append({"label": "REST Method", "value": rest_method or "(none)"})
+    if msgname:
+        kv_items.append({"label": "Request Message", "value": msgver and f"{msgname} v{msgver}" or msgname})
+    if descrlong:
+        kv_items.append({"label": "Long Description", "value": descrlong[:500]})
+    if owner:
+        kv_items.append({"label": "Owner", "value": owner})
+    if lastupd:
+        kv_items.append({"label": "Last Updated", "value": f"{lastupd} by {lastupdby}" if lastupdby else lastupd})
+
+    sections = [{"title": "Operation Overview", "type": "kv", "items": kv_items}]
+
+    if routings:
+        rtn_items = []
+        for r in routings:
+            rname = r.get("routingdefnname", "")
+            sender = (r.get("sendernodename") or "").strip()
+            receiver = (r.get("receivernodename") or "").strip()
+            status = r.get("eff_status", "")
+            rdescr = (r.get("descr") or "").strip()
+            label_parts = []
+            if sender: label_parts.append(f"{sender}\u2192{receiver}" if receiver else sender)
+            if rdescr: label_parts.append(rdescr)
+            rtn_items.append({
+                "label": rname,
+                "value": " \u00b7 ".join(label_parts) if label_parts else rname,
+                "id": rname,
+                "status": "inactive" if status == "I" else "active",
+            })
+        sections.append({"title": f"Routings ({len(rtn_items)})", "type": "items", "items": rtn_items})
+
+    return canonical_base(
+        env, "ib_operation", name,
+        display_name=display, status="active", warnings=warnings,
+        sections=sections,
+        overview={"op_name": name, "service": service, "rtng_type": rtng,
+                  "rtng_label": rtng_label, "is_rest": is_rest, "rest_method": rest_method,
+                  "msgname": msgname, "descr": descr},
+        _metadata={"environment": env.upper(), "source_table": "PSOPERATION"},
     )

@@ -1108,6 +1108,23 @@ def build(env="HCM", limit=50, persist=True):
         return len(rows)
 
 
+    def ib_operations():
+        if not ptmetadata.has_table(env, "PSOPERATION"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT IB_OPERATIONNAME, IB_SERVICENAME, RTNGTYPE, DESCR
+              FROM SYSADM.PSOPERATION
+             WHERE ROWNUM <= {limit}
+             ORDER BY IB_OPERATIONNAME
+        """) or []
+        for r in rows:
+            oname = r.get("ib_operationname")
+            if not oname:
+                continue
+            label = (r.get("descr") or "").strip() or oname
+            add_node(graph, "ib_operation", oname, label, r)
+        return len(rows)
+
     def ib_routings():
         if not ptmetadata.has_table(env, "PSIBRTNGDEFN"):
             return 0
@@ -1345,6 +1362,7 @@ def build(env="HCM", limit=50, persist=True):
         ("pm_metrics", pm_metrics),
         ("pm_transactions", pm_transactions),
         ("pm_events", pm_events),
+        ("ib_operations", ib_operations),
     ):
         provider(graph, name, loader)
 

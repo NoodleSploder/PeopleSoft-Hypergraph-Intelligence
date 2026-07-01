@@ -7361,3 +7361,59 @@ def get_pm_event(env_name, event_id):
         "definition": dict(defn) if defn else {},
         "warnings": [] if defn else [f"PM Event ID {eid} not found"],
     }
+
+
+def search_ib_operations(env_name, q="", rtype="", limit=200):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSOPERATION"):
+        return []
+    clauses = []
+    params: dict = {"lim": limit}
+    if q:
+        clauses.append("(UPPER(op.IB_OPERATIONNAME) LIKE :q OR UPPER(op.IB_SERVICENAME) LIKE :q OR UPPER(op.DESCR) LIKE :q)")
+        params["q"] = f"%{q.upper()}%"
+    if rtype:
+        clauses.append("op.RTNGTYPE = :rtype")
+        params["rtype"] = rtype.upper()
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    rows = query(env_name, f"""
+        SELECT op.IB_OPERATIONNAME, op.IB_SERVICENAME, op.RTNGTYPE,
+               op.IB_RESTMETHOD, op.IB_REST_SERVICE, op.MSGNAME,
+               op.IB_MSGVERSION, op.DESCR, op.OBJECTOWNERID
+          FROM SYSADM.PSOPERATION op
+        {where}
+         ORDER BY op.IB_OPERATIONNAME
+         FETCH FIRST :lim ROWS ONLY
+    """, params)
+    return [dict(r) for r in (rows or [])]
+
+
+def get_ib_operation(env_name, op_name):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSOPERATION"):
+        return {"definition": {}, "routings": [], "warnings": ["PSOPERATION not accessible"]}
+    rows = query(env_name, """
+        SELECT IB_OPERATIONNAME, IB_SERVICENAME, RTNGTYPE, IB_RESTMETHOD,
+               IB_REST_SERVICE, MSGNAME, IB_MSGVERSION, DESCR, DESCRLONG,
+               OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PSOPERATION
+         WHERE IB_OPERATIONNAME = :id
+    """, {"id": op_name.upper()})
+    defn = rows[0] if rows else None
+    warnings_out = [] if defn else [f"IB Operation '{op_name}' not found"]
+    routings = []
+    if ptmetadata.has_table(env_name, "PSIBRTNGDEFN"):
+        routings = query(env_name, """
+            SELECT ROUTINGDEFNNAME, RTNGTYPE, EFF_STATUS,
+                   SENDERNODENAME, RECEIVERNODENAME, DESCR
+              FROM SYSADM.PSIBRTNGDEFN
+             WHERE IB_OPERATIONNAME = :id
+               AND ROUTINGDEFNNAME NOT LIKE '~%'
+             ORDER BY ROUTINGDEFNNAME
+             FETCH FIRST 100 ROWS ONLY
+        """, {"id": op_name.upper()}) or []
+    return {
+        "definition": dict(defn) if defn else {},
+        "routings": [dict(r) for r in routings],
+        "warnings": warnings_out,
+    }

@@ -58,9 +58,12 @@ The following major subsystems are production-ready:
 - Timezone Explorer
 - Locale Explorer
 - PM Metrics Explorer
+- PM Transaction Explorer
+- PM Event Explorer
+- IB Service Operations Explorer
 - Version-aware metadata adapters
 - Shared frontend shell with global navigation and environment selector
-- Admin shell smoke test harness (25+ pages; 19 new providers added in Phase 5)
+- Admin shell smoke test harness (28+ pages; 23 new providers added in Phase 5)
 - Scheduled graph snapshots with retention pruning
 
 Development focus now shifts from feature parity toward platform intelligence.
