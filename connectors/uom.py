@@ -1045,19 +1045,26 @@ def operator_object(env, oprid):
         "permissionlists": [attach_object_links(r, env) for r in (permissionlists or [])],
     }
 
-    nodes = {}
-    edges = []
-    add_node(nodes, graph_node("operator", oprid, detail or {}))
-    for r in (roles or [])[:20]:
-        rn = r.get("rolename")
-        if rn:
-            add_node(nodes, graph_node("role", rn, r))
-            edges.append(graph_edge("operator", oprid, "role", rn, "has_role"))
-    for pl in (permissionlists or [])[:20]:
-        cn = pl.get("classid")
-        if cn:
-            add_node(nodes, graph_node("permissionlist", cn, pl))
-            edges.append(graph_edge("operator", oprid, "permissionlist", cn, "has_permission"))
+    graph = relationship_graph(
+        "operator",
+        oprid,
+        limit_relationships(relationships, {"roles": 20, "permissionlists": 20}),
+        [
+            {
+                "relationship": "roles",
+                "node_type": "role",
+                "target_name": lambda row: str(row.get("rolename") or "").strip(),
+                "default_edge": "has_role",
+            },
+            {
+                "relationship": "permissionlists",
+                "node_type": "permissionlist",
+                "target_name": lambda row: str(row.get("classid") or "").strip(),
+                "default_edge": "has_permission",
+            },
+        ],
+        root_data=detail or {},
+    )
 
     return canonical_base(
         env, "operator", oprid,
@@ -1073,7 +1080,7 @@ def operator_object(env, oprid):
             "graph": graph_url("operator", oprid),
         },
         _relationships=relationships,
-        _graph={"nodes": list(nodes.values()), "edges": edges},
+        _graph=graph,
         _metadata={
             "environment": env.upper(),
             "registry": ptmetadata.OBJECT_REGISTRY.get("operator", {}),
@@ -1161,19 +1168,26 @@ def role_object(env, rolename):
         "permissionlists": [attach_object_links(r, env) for r in (permissionlists or [])],
     }
 
-    nodes = {}
-    edges = []
-    add_node(nodes, graph_node("role", resolved_name, detail or {}))
-    for m in (members or [])[:20]:
-        op = m.get("roleuser")
-        if op:
-            add_node(nodes, graph_node("operator", op, m))
-            edges.append(graph_edge("role", resolved_name, "operator", op, "has_member"))
-    for pl in (permissionlists or [])[:15]:
-        cn = pl.get("classid")
-        if cn:
-            add_node(nodes, graph_node("permissionlist", cn, pl))
-            edges.append(graph_edge("role", resolved_name, "permissionlist", cn, "grants"))
+    graph = relationship_graph(
+        "role",
+        resolved_name,
+        limit_relationships(relationships, {"members": 20, "permissionlists": 15}),
+        [
+            {
+                "relationship": "members",
+                "node_type": "operator",
+                "target_name": lambda row: str(row.get("roleuser") or "").strip(),
+                "default_edge": "has_member",
+            },
+            {
+                "relationship": "permissionlists",
+                "node_type": "permissionlist",
+                "target_name": lambda row: str(row.get("classid") or "").strip(),
+                "default_edge": "grants",
+            },
+        ],
+        root_data=detail or {},
+    )
 
     return canonical_base(
         env, "role", resolved_name,
@@ -1188,7 +1202,7 @@ def role_object(env, rolename):
             "graph": graph_url("role", resolved_name),
         },
         _relationships=relationships,
-        _graph={"nodes": list(nodes.values()), "edges": edges},
+        _graph=graph,
         _metadata={
             "environment": env.upper(),
             "registry": ptmetadata.OBJECT_REGISTRY.get("role", {}),
@@ -1335,19 +1349,29 @@ def permissionlist_object(env, classid):
         "page_grants": page_grants or [],
     }
 
-    nodes = {}
-    edges = []
-    add_node(nodes, graph_node("permissionlist", classid, detail or {}))
-    for role in (roles or [])[:25]:
-        rn = role.get("rolename")
-        if rn:
-            add_node(nodes, graph_node("role", rn, role))
-            edges.append(graph_edge("role", rn, "permissionlist", classid, "contains_permissionlist"))
-    for component in (components or [])[:40]:
-        cn = component.get("pnlgrpname")
-        if cn:
-            add_node(nodes, graph_node("component", cn, component))
-            edges.append(graph_edge("permissionlist", classid, "component", cn, "secures_component"))
+    graph = relationship_graph(
+        "permissionlist",
+        classid,
+        limit_relationships(relationships, {"roles": 25, "components": 40}),
+        [
+            {
+                "relationship": "roles",
+                "node_type": "role",
+                "source_node_type": "role",
+                "target_node_type": "permissionlist",
+                "source_name": lambda row: str(row.get("rolename") or "").strip(),
+                "target_name": lambda row: classid,
+                "default_edge": "contains_permissionlist",
+            },
+            {
+                "relationship": "components",
+                "node_type": "component",
+                "target_name": lambda row: str(row.get("pnlgrpname") or "").strip(),
+                "default_edge": "secures_component",
+            },
+        ],
+        root_data=detail or {},
+    )
 
     return canonical_base(
         env, "permissionlist", classid,
@@ -1362,7 +1386,7 @@ def permissionlist_object(env, classid):
             "graph": graph_url("permissionlist", classid),
         },
         _relationships=relationships,
-        _graph={"nodes": list(nodes.values()), "edges": edges},
+        _graph=graph,
         _metadata={
             "environment": env.upper(),
             "registry": ptmetadata.OBJECT_REGISTRY.get("permissionlist", {}),

@@ -6,6 +6,75 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-06-30 — Security UOM Relationship Graph Extraction
+
+Date/time: 2026-06-30 23:48 CDT
+
+Features implemented:
+- Continued relationship-provider extraction by moving Operator, Role, and
+  Permission List UOM graph previews onto the shared `relationship_graph()`
+  helper.
+- Preserved existing preview caps:
+  - Operator: 20 roles and 20 permission lists.
+  - Role: 20 members and 15 permission lists.
+  - Permission List: 25 roles and 40 components.
+- Preserved existing security edge vocabulary and direction:
+  `has_role`, `has_permission`, `has_member`, `grants`,
+  `contains_permissionlist`, and `secures_component`.
+
+Files modified:
+- `connectors/uom.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Kept the migration inside UOM only. The legacy graph routes for these object
+  types can be reconciled separately after comparing whether their route output
+  is compact-preview or impact-analysis semantics.
+- Used explicit `source_node_type` and `target_node_type` for inbound Permission
+  List role edges so the root remains `permissionlist:<classid>`.
+
+Bugs fixed:
+- Removed three more imperative graph-building loops from `connectors/uom.py`.
+
+Technical debt:
+- Field UOM graph construction still uses a bespoke builder because it includes
+  richer page/record/security expansion.
+- Some `/api/peoplesoft/graph/{type}/{name}` routes still have route-specific
+  graph construction and should be reconciled one by one.
+
+Verification:
+- `python -m py_compile connectors/uom.py` — OK.
+- Direct `uom.operator_object('HCM', 'PS')['_graph']` returned 37 nodes and
+  40 edges, matching the pre-refactor UOM graph count.
+- Direct `uom.operator_object('HCM', 'VP1')['_graph']` returned 38 nodes and
+  40 edges, matching the pre-refactor UOM graph count.
+- Direct `uom.role_object('HCM', 'PeopleSoft Administrator')['_graph']`
+  returned 10 nodes and 9 edges, matching the pre-refactor UOM graph count.
+- Direct `uom.role_object('HCM', 'PeopleSoft User')['_graph']` returned
+  18 nodes and 17 edges, matching the pre-refactor UOM graph count.
+- Direct `uom.permissionlist_object('HCM', 'HCCPPY1000')['_graph']` returned
+  43 nodes and 42 edges, matching the pre-refactor UOM graph count.
+- Direct `uom.permissionlist_object('HCM', 'PTPT1000')['_graph']` returned
+  37 nodes and 45 edges, matching the pre-refactor UOM graph count.
+- `python -m py_compile connectors/uom.py connectors/ptmetadata.py connectors/psdb.py routers/peoplesoft.py routers/admin.py`
+  — OK; existing unrelated `routers/admin.py` invalid escape SyntaxWarning remains.
+- `python -c "import main; print('main import ok')"` — OK.
+- Reloaded `deathstar-api.service` by terminating the current unit PID and
+  allowing systemd to restart it; service came back active on port 8088.
+- `GET /api/peoplesoft/object/operator/PS?env=HCM` — OK, Graph Preview returned
+  `node_count=37`, `edge_count=40`.
+- `GET /api/peoplesoft/object/role/PeopleSoft%20Administrator?env=HCM` — OK,
+  Graph Preview returned `node_count=10`, `edge_count=9`.
+- `GET /api/peoplesoft/object/permissionlist/HCCPPY1000?env=HCM` — OK, Graph
+  Preview returned `node_count=43`, `edge_count=42`.
+
+Next recommended work:
+- Inspect remaining bespoke graph builders and distinguish reusable compact
+  object previews from intentionally richer impact/security graph endpoints.
+
+------------------------------------------------------------------------
+
 ## 2026-06-30 — Record UOM Relationship Graph Extraction
 
 Date/time: 2026-06-30 23:44 CDT
