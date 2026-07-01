@@ -389,6 +389,20 @@ def object_payload(env, object_type, object_name):
         return uom.object_payload(uom.content_service_object(env, object_name))
     if object_type == "ptf_test":
         return uom.object_payload(uom.ptf_test_object(env, object_name))
+    if object_type == "ads_definition":
+        return uom.object_payload(uom.ads_definition_object(env, object_name))
+    if object_type == "ib_service_group":
+        return uom.object_payload(uom.ib_service_group_object(env, object_name))
+    if object_type == "url_definition":
+        return uom.object_payload(uom.url_definition_object(env, object_name))
+    if object_type == "chatbot_skill":
+        return uom.object_payload(uom.chatbot_skill_object(env, object_name))
+    if object_type == "ib_routing":
+        return uom.object_payload(uom.ib_routing_object(env, object_name))
+    if object_type == "style_sheet":
+        return uom.object_payload(uom.style_sheet_object(env, object_name))
+    if object_type == "archive_object":
+        return uom.object_payload(uom.archive_object_object(env, object_name))
 
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
@@ -1195,6 +1209,48 @@ def peoplesoft_content_services(env: str = "HCM", q: str = "", owner: str = "", 
 def peoplesoft_ptf_tests(env: str = "HCM", q: str = "", ptf_type: str = "", limit: int = 200):
     """Search PeopleTools Test Framework definitions (PSPTTSTDEFN)."""
     return psdb.search_ptf_tests(env, q=q, ptf_type=ptf_type, limit=limit)
+
+
+@router.get("/api/peoplesoft/ads-definitions")
+def peoplesoft_ads_definitions(env: str = "HCM", q: str = "", owner: str = "", limit: int = 200):
+    """Search Application Data Set definitions (PSADSDEFN)."""
+    return psdb.search_ads_definitions(env, q=q, owner=owner, limit=limit)
+
+
+@router.get("/api/peoplesoft/ib-service-groups")
+def peoplesoft_ib_service_groups(env: str = "HCM", q: str = "", owner: str = "", limit: int = 200):
+    """Search IB Service Group definitions (PSIBGROUPDEFN)."""
+    return psdb.search_ib_service_groups(env, q=q, owner=owner, limit=limit)
+
+
+@router.get("/api/peoplesoft/url-definitions")
+def peoplesoft_url_definitions(env: str = "HCM", q: str = "", limit: int = 200):
+    """Search URL definitions (PSURLDEFN)."""
+    return psdb.search_url_definitions(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/chatbot-skills")
+def peoplesoft_chatbot_skills(env: str = "HCM", q: str = "", limit: int = 200):
+    """Search Chatbot Skill definitions (PSCBAPPLDEFN)."""
+    return psdb.search_chatbot_skills(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/ib-routings")
+def peoplesoft_ib_routings(env: str = "HCM", q: str = "", rtng_type: str = "", status: str = "", limit: int = 200):
+    """Search IB Routing definitions (PSIBRTNGDEFN)."""
+    return psdb.search_ib_routings(env, q=q, rtng_type=rtng_type, status=status, limit=limit)
+
+
+@router.get("/api/peoplesoft/style-sheets")
+def peoplesoft_style_sheets(env: str = "HCM", q: str = "", ss_type: str = "", limit: int = 200):
+    """Search Style Sheet definitions (PSSTYLSHEETDEFN)."""
+    return psdb.search_style_sheets(env, q=q, ss_type=ss_type, limit=limit)
+
+
+@router.get("/api/peoplesoft/archive-objects")
+def peoplesoft_archive_objects(env: str = "HCM", q: str = "", limit: int = 200):
+    """Search Data Archive Object definitions (PSARCHOBJDEFN)."""
+    return psdb.search_archive_objects(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/security/reports")

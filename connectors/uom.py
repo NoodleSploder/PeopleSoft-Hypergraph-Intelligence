@@ -5979,6 +5979,20 @@ def canonical_object(env, object_type, name):
         return content_service_object(env, name)
     if object_type == "ptf_test":
         return ptf_test_object(env, name)
+    if object_type == "ads_definition":
+        return ads_definition_object(env, name)
+    if object_type == "ib_service_group":
+        return ib_service_group_object(env, name)
+    if object_type == "url_definition":
+        return url_definition_object(env, name)
+    if object_type == "chatbot_skill":
+        return chatbot_skill_object(env, name)
+    if object_type == "ib_routing":
+        return ib_routing_object(env, name)
+    if object_type == "style_sheet":
+        return style_sheet_object(env, name)
+    if object_type == "archive_object":
+        return archive_object_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])
@@ -6470,4 +6484,605 @@ def ptf_test_object(env, test_name):
             "case_count": counts.get("cases", 0),
         },
         _metadata={"environment": env.upper(), "source_table": "PSPTTSTDEFN"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Application Data Set (ADS) Definitions
+# ---------------------------------------------------------------------------
+
+def _ads_sections(data):
+    defn = data.get("definition") or {}
+    key_cols = data.get("key_cols") or []
+    records = data.get("records") or []
+    groups = data.get("groups") or []
+
+    sections = []
+
+    # Overview KV
+    owner = (defn.get("objectownerid") or "").strip()
+    copyable = (defn.get("ptcopyable") or "").strip()
+    comparable = (defn.get("ptcomparable") or "").strip()
+    derv_type = (defn.get("ptdervtype") or "").strip()
+    descr254 = (defn.get("descr254") or "").strip()
+
+    kv_items = [
+        ("Key Columns", ", ".join(key_cols) if key_cols else "—"),
+        ("Copyable", "Yes" if copyable == "Y" else "No"),
+        ("Comparable", "Yes" if comparable == "Y" else "No"),
+    ]
+    if derv_type:
+        kv_items.append(("Derivation Type", derv_type))
+    if owner:
+        kv_items.append(("Owner", owner))
+    if descr254:
+        kv_items.append(("Long Description", descr254))
+
+    sections.append({
+        "title": "ADS Overview",
+        "type": "kv",
+        "items": [{"label": k, "value": v} for k, v in kv_items],
+    })
+
+    # Records (PSADSDEFNITEM)
+    if records:
+        # Build parent-child hierarchy labels
+        rec_items = []
+        for r in records:
+            recname = (r.get("recname") or "").strip()
+            parent = (r.get("ptparentrecname") or "").strip()
+            if not recname:
+                continue
+            chips = []
+            if parent:
+                chips.append({"label": f"parent: {parent}", "cls": "info"})
+            rec_items.append({"name": recname, "chips": chips, "meta": ""})
+        if rec_items:
+            sections.append({
+                "title": f"Records ({len(rec_items)})",
+                "type": "items",
+                "items": rec_items,
+            })
+
+    # Groups
+    if groups:
+        grp_items = []
+        for g in groups:
+            gname = (g.get("ptgroupname") or "").strip()
+            disp = (g.get("ptgrpdispname") or "").strip()
+            fcount = g.get("field_count") or 0
+            label = disp or gname
+            chips = [{"label": f"{fcount} fields", "cls": "secondary"}]
+            grp_items.append({"name": label, "chips": chips, "meta": gname if disp else ""})
+        sections.append({
+            "title": f"Groups ({len(grp_items)})",
+            "type": "items",
+            "items": grp_items,
+        })
+
+    return sections
+
+
+def ads_definition_object(env, ads_name):
+    from connectors import psdb as _psdb
+    data = _psdb.get_ads_definition(env, ads_name)
+    defn = data.get("definition") or {}
+    warnings = data.get("warnings") or []
+    counts = data.get("counts") or {}
+    key_cols = data.get("key_cols") or []
+
+    descr = (defn.get("descr") or "").strip()
+    display = f"{ads_name} — {descr}" if descr else ads_name
+
+    sections = _ads_sections(data)
+
+    return canonical_base(
+        env,
+        "ads_definition",
+        ads_name.upper(),
+        display_name=display,
+        status="active",
+        warnings=warnings,
+        sections=sections,
+        overview={
+            "key_columns": len(key_cols),
+            "record_count": counts.get("records", 0),
+            "group_count": counts.get("groups", 0),
+        },
+        _metadata={"environment": env.upper(), "source_table": "PSADSDEFN"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# IB Service Groups
+# ---------------------------------------------------------------------------
+
+def _ib_service_group_sections(data):
+    header = data.get("header") or {}
+    members = data.get("members") or []
+
+    sections = []
+
+    descrlong = (header.get("descrlong") or "").strip()
+    owner = (header.get("objectownerid") or "").strip()
+    kv_items = []
+    if owner:
+        kv_items.append(("Owner", owner))
+    if descrlong and descrlong != (header.get("descr") or "").strip():
+        kv_items.append(("Description", descrlong))
+    kv_items.append(("Service Count", len(members)))
+
+    if kv_items:
+        sections.append({
+            "title": "Group Overview",
+            "type": "kv",
+            "items": [{"label": k, "value": v} for k, v in kv_items],
+        })
+
+    if members:
+        mem_items = []
+        for m in members:
+            svc = (m.get("ib_servicename") or "").strip()
+            if not svc:
+                continue
+            chips = []
+            status = (m.get("eff_status") or "").strip()
+            if status == "I":
+                chips.append({"label": "Inactive", "cls": "warning"})
+            op_type = (m.get("ib_operation_type") or "").strip()
+            if op_type:
+                chips.append({"label": op_type, "cls": "secondary"})
+            svc_descr = (m.get("descr") or "").strip()
+            mem_items.append({"name": svc, "chips": chips, "meta": svc_descr})
+        sections.append({
+            "title": f"Services ({len(mem_items)})",
+            "type": "items",
+            "items": mem_items,
+        })
+
+    return sections
+
+
+def ib_service_group_object(env, group_name):
+    from connectors import psdb as _psdb
+    data = _psdb.get_ib_service_group(env, group_name)
+    header = data.get("header") or {}
+    warnings = data.get("warnings") or []
+    counts = data.get("counts") or {}
+
+    descr = (header.get("descr") or "").strip()
+    display = f"{group_name} — {descr}" if descr else group_name
+
+    sections = _ib_service_group_sections(data)
+
+    return canonical_base(
+        env,
+        "ib_service_group",
+        group_name.upper(),
+        display_name=display,
+        status="active",
+        warnings=warnings,
+        sections=sections,
+        overview={
+            "service_count": counts.get("services", 0),
+        },
+        _metadata={"environment": env.upper(), "source_table": "PSIBGROUPDEFN"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# URL Definitions
+# ---------------------------------------------------------------------------
+
+_URL_CLIENT_FLAG = {"C": "Client Only", "S": "Server Only", "": "Client + Server"}
+
+
+def url_definition_object(env, url_id):
+    from connectors import psdb as _psdb
+    data = _psdb.get_url_definition(env, url_id)
+    defn = data.get("definition") or {}
+    warnings = data.get("warnings") or []
+
+    descr = (defn.get("descr") or "").strip()
+    url_val = (defn.get("url") or "").strip()
+    display = f"{url_id} — {descr}" if descr else url_id
+
+    # Determine URL type from prefix
+    url_type = "Generic"
+    if url_val.upper().startswith("RECORD://"):
+        url_type = "Record Attachment"
+    elif url_val.upper().startswith("HTTP"):
+        url_type = "HTTP"
+    elif url_val.upper().startswith("FTP"):
+        url_type = "FTP"
+    elif url_val.upper().startswith("MAILTO"):
+        url_type = "Email"
+    elif url_val.startswith("%"):
+        url_type = "Variable"
+
+    owner = (defn.get("objectownerid") or "").strip()
+    client_flag = (defn.get("iclient_serverflag") or "").strip()
+    client_label = _URL_CLIENT_FLAG.get(client_flag, client_flag or "Client + Server")
+    comments = (defn.get("comments") or "").strip()
+
+    kv_items = [
+        ("URL", url_val or "—"),
+        ("Type", url_type),
+        ("Scope", client_label),
+    ]
+    if owner:
+        kv_items.append(("Owner", owner))
+    if comments and comments != descr:
+        kv_items.append(("Comments", comments))
+
+    sections = [{
+        "title": "URL Overview",
+        "type": "kv",
+        "items": [{"label": k, "value": v} for k, v in kv_items],
+    }]
+
+    return canonical_base(
+        env,
+        "url_definition",
+        url_id.upper(),
+        display_name=display,
+        status="active",
+        warnings=warnings,
+        sections=sections,
+        overview={"url_type": url_type},
+        _metadata={"environment": env.upper(), "source_table": "PSURLDEFN"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Chatbot Skill Definitions
+# ---------------------------------------------------------------------------
+
+_CB_PARAM_TYPE_LABEL = {"IN": "Input", "OUT": "Output", "INOUT": "In/Out"}
+_CB_PARAM_DTYPE_LABEL = {
+    "STR": "String", "INT": "Integer", "NUM": "Number",
+    "DATE": "Date", "BOOL": "Boolean", "OBJ": "Object",
+}
+_CB_RSLT_CAT_LABEL = {"S": "Success", "E": "Error", "W": "Warning", "I": "Info"}
+_CB_RSLT_CAT_CLS = {"S": "success", "E": "danger", "W": "warning", "I": "info"}
+
+
+def _chatbot_skill_sections(data):
+    defn = data.get("definition") or {}
+    params_list = data.get("params") or []
+    states = data.get("states") or []
+
+    sections = []
+
+    # Build App Class path
+    pkg = (defn.get("packageroot") or "").strip()
+    qp = (defn.get("qualifypath") or "").strip()
+    cls_id = (defn.get("appclassid") or "").strip()
+    method = (defn.get("appclassmethod") or "").strip()
+    if pkg and cls_id:
+        if qp == ":" or not qp:
+            cls_path = f"{pkg}:{cls_id}.{method}" if method else f"{pkg}:{cls_id}"
+        else:
+            cls_path = f"{pkg}:{qp}:{cls_id}.{method}" if method else f"{pkg}:{qp}:{cls_id}"
+    else:
+        cls_path = ""
+
+    url_param = (defn.get("ptcburlparamname") or "").strip()
+    cache = (defn.get("ptcbcachesupport") or "").strip()
+    multi_in = (defn.get("ptmultirowinput") or "").strip()
+    multi_out = (defn.get("ptmultirowoutput") or "").strip()
+
+    kv_items = []
+    if url_param:
+        kv_items.append(("URL Parameter", url_param))
+    if cls_path:
+        kv_items.append(("App Class", cls_path))
+    kv_items.append(("Multi-Row Input", "Yes" if multi_in == "Y" else "No"))
+    kv_items.append(("Multi-Row Output", "Yes" if multi_out == "Y" else "No"))
+    if cache and cache != "NONE":
+        kv_items.append(("Cache", cache))
+
+    sections.append({
+        "title": "Skill Overview",
+        "type": "kv",
+        "items": [{"label": k, "value": v} for k, v in kv_items],
+    })
+
+    # Parameters (grouped by direction)
+    if params_list:
+        param_items = []
+        for p in params_list:
+            pname = (p.get("param_name") or "").strip()
+            ptype = (p.get("ptcbparamtype") or "").strip()
+            pdtype = (p.get("ptcbparamdtype") or "").strip()
+            pdescr = (p.get("descr60") or "").strip()
+            type_label = _CB_PARAM_TYPE_LABEL.get(ptype, ptype)
+            dtype_label = _CB_PARAM_DTYPE_LABEL.get(pdtype, pdtype)
+            chips = [
+                {"label": type_label, "cls": "primary" if ptype == "IN" else "secondary"},
+                {"label": dtype_label, "cls": "info"},
+            ]
+            param_items.append({"name": pname, "chips": chips, "meta": pdescr})
+        sections.append({
+            "title": f"Parameters ({len(param_items)})",
+            "type": "items",
+            "items": param_items,
+        })
+
+    # Result states
+    if states:
+        state_items = []
+        for s in states:
+            sname = (s.get("ptcbrslt_state") or "").strip()
+            sdescr = (s.get("descr60") or "").strip()
+            scat = (s.get("ptcbrsltcat") or "").strip()
+            cat_label = _CB_RSLT_CAT_LABEL.get(scat, scat or "State")
+            cat_cls = _CB_RSLT_CAT_CLS.get(scat, "secondary")
+            chips = [{"label": cat_label, "cls": cat_cls}]
+            state_items.append({"name": sname, "chips": chips, "meta": sdescr})
+        sections.append({
+            "title": f"Result States ({len(state_items)})",
+            "type": "items",
+            "items": state_items,
+        })
+
+    return sections
+
+
+def chatbot_skill_object(env, skill_name):
+    from connectors import psdb as _psdb
+    data = _psdb.get_chatbot_skill(env, skill_name)
+    defn = data.get("definition") or {}
+    warnings = data.get("warnings") or []
+    counts = data.get("counts") or {}
+
+    descr = (defn.get("descr50") or "").strip()
+    url_param = (defn.get("ptcburlparamname") or "").strip()
+    display = f"{skill_name} — {descr}" if descr else skill_name
+
+    sections = _chatbot_skill_sections(data)
+
+    return canonical_base(
+        env,
+        "chatbot_skill",
+        skill_name.upper(),
+        display_name=display,
+        status="active" if (defn.get("status") or "").strip() == "A" else "inactive",
+        warnings=warnings,
+        sections=sections,
+        overview={
+            "url_parameter": url_param,
+            "param_count": counts.get("params", 0),
+            "state_count": counts.get("states", 0),
+        },
+        _metadata={"environment": env.upper(), "source_table": "PSCBAPPLDEFN"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# IB Routing Definitions
+# ---------------------------------------------------------------------------
+
+_IB_RTNG_TYPE_LABEL = {"S": "Synchronous", "A": "Asynchronous", "R": "REST", "X": "Internal"}
+_IB_DIRECTION_LABEL = {"I": "Inbound", "O": "Outbound"}
+
+
+def _ib_routing_sections(data):
+    defn = data.get("definition") or {}
+    aliases = data.get("aliases") or []
+
+    sections = []
+
+    sender = (defn.get("sendernodename") or "").strip()
+    receiver = (defn.get("receivernodename") or "").strip()
+    operation = (defn.get("ib_operationname") or "").strip()
+    version = (defn.get("versionname") or "").strip()
+    rtng_type = (defn.get("rtngtype") or "").strip()
+    eff_status = (defn.get("eff_status") or "").strip()
+    deliver_mode = defn.get("ib_deliverymode")
+    owner = (defn.get("objectownerid") or "").strip()
+    snd_handler = (defn.get("onsndhdlrname") or "").strip()
+    rcv_handler = (defn.get("onrcvhdlrname") or "").strip()
+    pre_handler = (defn.get("onprehdlrname") or "").strip()
+    post_handler = (defn.get("onposthdlrname") or "").strip()
+
+    kv_items = [
+        ("Operation", f"{operation} {version}".strip() if version else operation),
+        ("Direction", f"{sender} → {receiver}"),
+        ("Type", _IB_RTNG_TYPE_LABEL.get(rtng_type, rtng_type or "—")),
+        ("Status", "Active" if eff_status == "A" else "Inactive"),
+    ]
+    if deliver_mode is not None:
+        dmap = {0: "Guaranteed", 1: "Best Effort", 2: "Unsolicited"}
+        kv_items.append(("Delivery", dmap.get(deliver_mode, str(deliver_mode))))
+    if owner:
+        kv_items.append(("Owner", owner))
+    if snd_handler:
+        kv_items.append(("On-Send Handler", snd_handler))
+    if rcv_handler:
+        kv_items.append(("On-Receive Handler", rcv_handler))
+    if pre_handler:
+        kv_items.append(("Pre Handler", pre_handler))
+    if post_handler:
+        kv_items.append(("Post Handler", post_handler))
+
+    sections.append({
+        "title": "Routing Overview",
+        "type": "kv",
+        "items": [{"label": k, "value": v} for k, v in kv_items],
+    })
+
+    if aliases:
+        alias_items = []
+        for a in aliases:
+            aname = (a.get("aliasname") or "").strip()
+            if not aname:
+                continue
+            direction = (a.get("ib_direction") or "").strip()
+            dir_label = _IB_DIRECTION_LABEL.get(direction, direction or "")
+            asender = (a.get("sendernodename") or "").strip()
+            arcvr = (a.get("receivernodename") or "").strip()
+            chips = []
+            if dir_label:
+                chips.append({"label": dir_label, "cls": "secondary"})
+            meta = f"{asender} → {arcvr}" if (asender and arcvr) else ""
+            alias_items.append({"name": aname, "chips": chips, "meta": meta})
+        if alias_items:
+            sections.append({
+                "title": f"Aliases ({len(alias_items)})",
+                "type": "items",
+                "items": alias_items,
+            })
+
+    return sections
+
+
+def ib_routing_object(env, routing_name):
+    from connectors import psdb as _psdb
+    data = _psdb.get_ib_routing(env, routing_name)
+    defn = data.get("definition") or {}
+    warnings = data.get("warnings") or []
+
+    rtng_type = (defn.get("rtngtype") or "").strip()
+    eff_status = (defn.get("eff_status") or "").strip()
+    operation = (defn.get("ib_operationname") or "").strip()
+    sender = (defn.get("sendernodename") or "").strip()
+    receiver = (defn.get("receivernodename") or "").strip()
+    display = f"{routing_name} — {operation} ({sender}→{receiver})" if operation else routing_name
+
+    sections = _ib_routing_sections(data)
+
+    return canonical_base(
+        env,
+        "ib_routing",
+        routing_name.upper(),
+        display_name=display,
+        status="active" if eff_status == "A" else "inactive",
+        warnings=warnings,
+        sections=sections,
+        overview={
+            "operation": operation,
+            "routing_type": _IB_RTNG_TYPE_LABEL.get(rtng_type, rtng_type),
+            "sender": sender,
+            "receiver": receiver,
+        },
+        _metadata={"environment": env.upper(), "source_table": "PSIBRTNGDEFN"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Style Sheet Definitions
+# ---------------------------------------------------------------------------
+
+_SS_TYPE_LABEL = {0: "Classic", 1: "Fluid Theme", 2: "Component Style"}
+
+
+def style_sheet_object(env, stylesheet_name):
+    from connectors import psdb as _psdb
+    data = _psdb.get_style_sheet(env, stylesheet_name)
+    defn = data.get("definition") or {}
+    classes = data.get("classes") or []
+    warnings = data.get("warnings") or []
+    counts = data.get("counts") or {}
+
+    descr = (defn.get("descr") or "").strip()
+    ss_type = defn.get("stylesheettype")
+    type_label = _SS_TYPE_LABEL.get(ss_type, str(ss_type) if ss_type is not None else "Unknown")
+    parent = (defn.get("parentstylename") or "").strip()
+    owner = (defn.get("objectownerid") or "").strip()
+    display = f"{stylesheet_name} — {descr}" if descr else stylesheet_name
+
+    kv_items = [
+        ("Type", type_label),
+        ("Class Count", counts.get("classes", 0)),
+    ]
+    if parent:
+        kv_items.append(("Parent", parent))
+    if owner:
+        kv_items.append(("Owner", owner))
+
+    sections = [{
+        "title": "Style Sheet Overview",
+        "type": "kv",
+        "items": [{"label": k, "value": v} for k, v in kv_items],
+    }]
+
+    if classes:
+        sections.append({
+            "title": f"CSS Classes ({len(classes)}{'+ (truncated to 300)' if len(classes) >= 300 else ''})",
+            "type": "chips",
+            "items": [{"label": c, "cls": "secondary"} for c in classes],
+        })
+
+    return canonical_base(
+        env,
+        "style_sheet",
+        stylesheet_name.upper(),
+        display_name=display,
+        status="active",
+        warnings=warnings,
+        sections=sections,
+        overview={
+            "type": type_label,
+            "class_count": counts.get("classes", 0),
+        },
+        _metadata={"environment": env.upper(), "source_table": "PSSTYLSHEETDEFN"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Data Archive Object Definitions
+# ---------------------------------------------------------------------------
+
+def archive_object_object(env, arch_name):
+    from connectors import psdb as _psdb
+    data = _psdb.get_archive_object(env, arch_name)
+    defn = data.get("definition") or {}
+    records = data.get("records") or []
+    warnings = data.get("warnings") or []
+    counts = data.get("counts") or {}
+
+    descr = (defn.get("descr") or "").strip()
+    owner = (defn.get("objectownerid") or "").strip()
+    display = f"{arch_name} — {descr}" if descr else arch_name
+
+    sections = []
+
+    kv_items = [("Record Count", counts.get("records", 0))]
+    if owner:
+        kv_items.append(("Owner", owner))
+    sections.append({
+        "title": "Archive Overview",
+        "type": "kv",
+        "items": [{"label": k, "value": v} for k, v in kv_items],
+    })
+
+    if records:
+        rec_items = []
+        for r in records:
+            recname = (r.get("recname") or "").strip()
+            hist = (r.get("hist_recname") or "").strip()
+            base = (r.get("psarch_basetable") or "").strip()
+            if not recname:
+                continue
+            chips = []
+            if base == "Y":
+                chips.append({"label": "Base Table", "cls": "primary"})
+            rec_items.append({"name": recname, "chips": chips, "meta": f"→ {hist}" if hist else ""})
+        sections.append({
+            "title": f"Records ({len(rec_items)})",
+            "type": "items",
+            "items": rec_items,
+        })
+
+    return canonical_base(
+        env,
+        "archive_object",
+        arch_name.upper(),
+        display_name=display,
+        status="active",
+        warnings=warnings,
+        sections=sections,
+        overview={"record_count": counts.get("records", 0)},
+        _metadata={"environment": env.upper(), "source_table": "PSARCHOBJDEFN"},
     )

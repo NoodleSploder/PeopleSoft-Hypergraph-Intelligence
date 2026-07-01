@@ -169,6 +169,13 @@ Continue expanding object coverage.
 - Application Class Definitions (added 2026-06-30; PSAPPCLASSDEFN, 12622 rows across 1860 packages; compound key PACKAGEROOT~QUALIFYPATH~APPCLASSID; displays full PeopleCode path, sibling classes in same sub-package, and sub-package inventory; QUALIFYPATH `:` indicates root-level class)
 - Content Service Provider Definitions (added 2026-06-30; PSPTCSSRVDEFN, 1016 rows; keyed by PTCS_SERVICEID; URL types: Page Component/App Class/Utility/Generic/Script; sub-tables PSPTCS_PARAMS (parameters) and PSPTCS_MNULINKS (where-used portal objects); powers Related Actions, WorkCenters, Fluid navigation)
 - PeopleTools Test Framework Tests (added 2026-06-30; PSPTTSTDEFN, 161 rows; keyed by PTTST_NAME; types Script/Shell/Library; sub-tables PSPTTSTCASE (test cases) and PSPTTSTCOMMAND (step-by-step commands with page/field context); NOTE: PTTST_LANG_CD is a single space for most rows — filter uses IN (' ', 'ENG') not TRIM)
+- Application Data Set Definitions (added 2026-06-30; PSADSDEFN, 309 rows; keyed by PTADSNAME; PTKEYCOL1-8 enumerate primary key columns for the managed data; sub-table PSADSDEFNITEM (1706 rows) lists the PeopleSoft records composing each ADS with parent-child hierarchy; sub-tables PSADSGROUP/PSADSGROUPMEMB show field grouping; ADS is the PeopleTools framework for migrating configuration data between environments)
+- IB Service Groups (added 2026-06-30; PSIBGROUPDEFN, 111 rows; keyed by IB_INTGROUPNAME; PSIBSRVGROUP membership table (456 rows) lists member service operations per group; groups are logical channels for IB service operation routing)
+- URL Definitions (added 2026-06-30; PSURLDEFN, 268 rows; keyed by URL_ID; stores named URL catalog entries — types include Record (record://), HTTP, FTP, Email (mailto:), and Variable (%VAR%); used by components and application classes to reference configurable external URLs)
+- Chatbot Skill Definitions (added 2026-06-30; PSCBAPPLDEFN, 60 rows; keyed by PTCBAPPLNAME; PeopleSoft Digital Assistant chatbot skill handlers backed by App Class methods; sub-tables PSCBAPPLPARAM (441 rows, typed input/output parameters with STR/INT/DATE/BOOL/OBJ types) and PSCBAPPLSTATES (200 rows, named result states with Success/Error/Warning/Info categories); all 60 skills are Active type M)
+- IB Routing Definitions (added 2026-06-30; PSIBRTNGDEFN, 546 named rows (filter NOT LIKE '~%' to exclude ~GENERATED~ and ~GEN~UPG~ rows); keyed by ROUTINGDEFNNAME; shows sender→receiver node mapping for each IB operation version; types S=Synchronous/A=Asynchronous/R=REST; sub-table PSIBRTNGSUBDEFN (559 named rows) shows aliasname entries per routing; transform handlers (ONSNDHDLRNAME/ONRCVHDLRNAME/ONPREHDLRNAME/ONPOSTHDLRNAME) shown when set)
+- Style Sheet Definitions (added 2026-06-30; PSSTYLSHEETDEFN, 602 rows; keyed by STYLESHEETNAME; types 0=Classic(53)/1=Fluid Theme(39)/2=Component Style(510); PSSTYLECLASS (3490 rows) lists CSS class names per sheet (capped at 300 per detail view); PTSTYLEDEF_TANGERINE and PTSTYLEDEF are the main Fluid themes with 300+ classes; search supports type filter)
+- Data Archive Object Definitions (added 2026-06-30; PSARCHOBJDEFN, 76 rows; keyed by PSARCH_OBJECT; PSARCHOBJREC (493 rows) shows source record → history record mapping with PSARCH_BASETABLE flag; supports PeopleSoft Data Archiver framework for compliance/housekeeping)
 
 ### ⚠️ Stub Providers (no live backing tables found in verified HCM schema)
 
@@ -426,10 +433,22 @@ Completed this session (2026-06-30 continued):
 - **PeopleTools Test Framework (PTF) Tests** — implemented against verified `PSPTTSTDEFN` (161 rows); Script/Shell/Library types; shows test cases and up to 150 commands with page/field context
 
 Candidates for next session:
-- **WorkCenters** — no standalone definition header table found; EOWC tables are runtime config keyed by portal object name, not metadata definitions; deprioritized
-- **Dashboards** — no definition tables found (PS_EOEN_DASHBRD/PS_PT_ACMDASHTBL are 0-row log/cache tables); deprioritized
-- **BI Publisher / Branding / Page Composer** — no backing definition tables found in live HCM SYSADM schema; deprioritized
-- **Activity Guide Collections** — `PS_AGC_TILE_TBL` (2 rows): too few rows to be useful
-- **IB Service Groups** — `PSIBSRVGROUP` (456 rows, 76 groups): viable; no header description table exists, groups are self-defined by membership; could add as a grouping view on IB services
-- **Fluid Homepage / Tile Definitions** — investigate PSPGEDEFN, PSFLPGCOLLECT, or similar tables for Fluid homepage configurations
-- **Chatbot Definitions** — investigate if PSIB tables cover chatbot-specific configs beyond what IB App Services exposes
+Implemented in this session:
+- ADS Definitions, IB Service Groups, URL Definitions, Chatbot Skills, IB Routings, Style Sheets, Data Archive Objects
+
+Deprioritized (no backing tables or too few rows):
+- **WorkCenters** — no standalone definition header table; EOWC tables are runtime config keyed by portal object name
+- **Dashboards** — no definition tables (PS_EOEN_DASHBRD is 0 rows)
+- **BI Publisher / Branding / Page Composer** — no backing definition tables in HCM SYSADM schema
+- **Fluid Homepage / Tile Definitions** — all tile/homepage tables (PSPGEDEFN, PSFLPGCOLLECT, PSHPDEFN, PSTILEDEFN, PS_PTTILE_*) absent or 0 rows in HCM
+- **Activity Guide Collections** — PS_AGC_TILE_TBL (2 rows): too few
+- **File Reference Definitions** — PSFILEREDEFN (19622 rows): mostly system graphics/script refs, no descriptions, marginal value
+- **Business Process Definitions** — PSBUSPROCDEFN (133 rows): legacy Workflow Navigator definitions from 2000-2002; deprecated framework
+- **IB Local Schema** — PSLSDEFN (319 rows): XML schema stored as compressed binary data; display impractical
+- **IB Service Setup** — PSIBSVCSETUP (1 row): single-row global IB gateway configuration; not a browsable catalog
+
+Candidates for future sessions:
+- **IB Schema Definitions** — PSIBSCMADATA/PSIBSCMADFN (3680/3618 rows): IB XML schema metadata; investigate if human-readable name + type columns exist for browsing
+- **Performance Monitor Metrics** — PSPMMETRICDEFN (206 rows): metric IDs and labels for PeopleSoft Performance Monitor; possible integration with runtime monitoring
+- **Locale Definitions** — PSLOCALEDEFN (191 rows) + PSLOCALEOPTNDFN (923 rows): PeopleSoft locale/i18n settings catalog
+- **Timezone Definitions** — PSTIMEZONEDEFN (61 rows) + PSTIMEZONEIANA (592 rows): timezone catalog with IANA mappings

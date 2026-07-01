@@ -38,6 +38,13 @@ _NAV = [
     ("appclass",   "App Classes",   "/admin/appclass"),
     ("contsvc",    "Content Svcs",  "/admin/contsvc"),
     ("ptftest",    "PTF Tests",     "/admin/ptftest"),
+    ("adsdef",     "ADS Defs",      "/admin/adsdef"),
+    ("ibsvcgrp",   "IB Svc Groups", "/admin/ibsvcgrp"),
+    ("urldef",     "URL Defs",      "/admin/urldef"),
+    ("cbskill",    "Chatbot Skills","/admin/cbskill"),
+    ("ibrtng",     "IB Routings",   "/admin/ibrtng"),
+    ("stylesheet", "Style Sheets",  "/admin/stylesheet"),
+    ("archobj",    "Archive Objs",  "/admin/archobj"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -3071,6 +3078,13 @@ const TYPE_CHIP_CFG = {
     ib_application:          {label:'IB App Svc',     bg:'#001818',border:'#00ddcc44',color:'#00ddcc'},
     content_service:         {label:'Content Svc',    bg:'#101810',border:'#44ee8844',color:'#44ee88'},
     ptf_test:                {label:'PTF Test',       bg:'#181008',border:'#ee880044',color:'#ee8800'},
+    ads_definition:          {label:'ADS Def',        bg:'#0a0a18',border:'#6688ff44',color:'#6688ff'},
+    ib_service_group:        {label:'IB Svc Group',   bg:'#0a1818',border:'#00ccdd44',color:'#00ccdd'},
+    url_definition:          {label:'URL Def',         bg:'#0a1208',border:'#55dd3344',color:'#55dd33'},
+    chatbot_skill:           {label:'Chatbot Skill',   bg:'#180818',border:'#dd44ff44',color:'#dd44ff'},
+    ib_routing:              {label:'IB Routing',      bg:'#0a1020',border:'#4488ff44',color:'#4488ff'},
+    style_sheet:             {label:'Style Sheet',     bg:'#181208',border:'#ffcc4444',color:'#ffcc44'},
+    archive_object:          {label:'Archive Object',  bg:'#100a18',border:'#aa66cc44',color:'#aa66cc'},
 };
 
 function typeChipHtml(type) {
@@ -13886,6 +13900,754 @@ async function loadDetail(name) {{
     html += '<div class="muted">No detail available.</div>';
   }}
   detail.innerHTML = html;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/adsdef", response_class=HTMLResponse)
+def admin_adsdef(request: Request, env: str = "HCM"):
+    nav = _nav_html("adsdef", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>ADS Definitions</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+</head><body class="ds-body">
+{nav}
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
+  <div style="margin-bottom:6px;display:flex;gap:6px">
+    <input id="q" placeholder="Search ADS name or description…" oninput="doSearch()"
+      style="flex:1;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 10px;border-radius:4px;font-size:13px">
+    <input id="own" placeholder="Owner" oninput="doSearch()"
+      style="width:80px;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 6px;border-radius:4px;font-size:12px">
+  </div>
+  <div id="list" style="font-size:12px"></div>
+</div>
+<div id="detail" style="overflow-y:auto;padding:20px 28px;color:#c8d8e8">
+  <div class="muted">Select an Application Data Set definition to view its records and groups.</div>
+</div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = {repr(env)};
+let selected = null;
+
+async function doSearch() {{
+  const q = document.getElementById('q').value.trim();
+  const own = document.getElementById('own').value.trim();
+  const url = `/api/peoplesoft/ads-definitions?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&owner=${{encodeURIComponent(own)}}&limit=200`;
+  const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  const list = document.getElementById('list');
+  if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
+  list.innerHTML = data.map(r => {{
+    const name = r.ptadsname || '';
+    const descr = (r.descr || '').trim().slice(0, 60);
+    const owner = (r.objectownerid || '').trim();
+    const recs = r.record_count || 0;
+    return `<div class="list-item${{selected===name?' selected':''}}" onclick="loadDetail('${{esc(name)}}')"
+      style="padding:6px 10px;border-radius:4px;cursor:pointer;margin-bottom:2px;border-bottom:1px solid #0d1520">
+      <div style="font-weight:bold;color:#6688ff;font-family:monospace;font-size:11px">${{esc(name)}}</div>
+      <div style="display:flex;gap:8px;margin-top:2px;align-items:center">
+        ${{recs ? `<span style="font-size:10px;color:#445">${{recs}} records</span>` : ''}}
+        ${{owner ? `<span style="font-size:10px;color:#556">${{esc(owner)}}</span>` : ''}}
+      </div>
+      ${{descr ? `<div style="color:#445;font-size:10px;margin-top:1px">${{esc(descr)}}</div>` : ''}}
+    </div>`;
+  }}).join('');
+}}
+
+async function loadDetail(name) {{
+  selected = name;
+  document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading…</div>';
+  const url = `/api/peoplesoft/object/ads_definition/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
+  if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
+
+  const uom = payload;
+  const secs = uom.sections || [];
+  const ovSec = secs.find(s=>s.title?.includes('Overview'));
+  const recSec = secs.find(s=>s.title?.includes('Records'));
+  const grpSec = secs.find(s=>s.title?.includes('Groups'));
+
+  function kvTable(sec) {{
+    if (!sec || !sec.items?.length) return '';
+    return `<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px">` +
+      sec.items.map(i=>`<tr><td style="padding:4px 12px 4px 0;color:#778;white-space:nowrap;vertical-align:top">${{esc(i.label)}}</td>
+        <td style="padding:4px 0;color:#c8d8e8">${{esc(String(i.value||''))}}</td></tr>`).join('') +
+      `</table>`;
+  }}
+
+  function itemList(sec) {{
+    if (!sec || !sec.items?.length) return '';
+    return `<div style="display:flex;flex-direction:column;gap:4px">` +
+      sec.items.map(i=>{{
+        const chips = (i.chips||[]).map(c=>`<span style="padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;background:#1a1a2a;border:1px solid #334;color:#aac">${{esc(c.label||c)}}</span>`).join(' ');
+        return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0d1520">
+          <span style="font-family:monospace;font-size:11px;color:#c8d8e8">${{esc(i.name||'')}}</span>
+          ${{chips}}
+          ${{i.meta ? `<span style="font-size:10px;color:#445">${{esc(i.meta)}}</span>` : ''}}
+        </div>`;
+      }}).join('') + `</div>`;
+  }}
+
+  const ov = uom.overview || {{}};
+  detail.innerHTML = `
+    <h2 style="font-family:monospace;color:#6688ff;font-size:14px;margin:0 0 4px">${{esc(name)}}</h2>
+    <div style="font-size:12px;color:#556;margin-bottom:16px">${{esc(uom.display_name||'')}}</div>
+    <div style="display:flex;gap:12px;margin-bottom:16px;font-size:12px;color:#778">
+      <span>Key cols: <b style="color:#aac">${{ov.key_columns||0}}</b></span>
+      <span>Records: <b style="color:#aac">${{ov.record_count||0}}</b></span>
+      <span>Groups: <b style="color:#aac">${{ov.group_count||0}}</b></span>
+    </div>
+    ${{uom.warnings?.length ? `<div style="color:#f90;font-size:11px;margin-bottom:12px">${{uom.warnings.map(w=>esc(w)).join('<br>')}}</div>` : ''}}
+    ${{ovSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:0 0 6px">Overview</h3>${{kvTable(ovSec)}}` : ''}}
+    ${{recSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">${{esc(recSec.title)}}</h3>${{itemList(recSec)}}` : ''}}
+    ${{grpSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">${{esc(grpSec.title)}}</h3>${{itemList(grpSec)}}` : ''}}
+  `;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/ibsvcgrp", response_class=HTMLResponse)
+def admin_ibsvcgrp(request: Request, env: str = "HCM"):
+    nav = _nav_html("ibsvcgrp", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>IB Service Groups</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+</head><body class="ds-body">
+{nav}
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
+  <div style="margin-bottom:6px;display:flex;gap:6px">
+    <input id="q" placeholder="Search group name or description…" oninput="doSearch()"
+      style="flex:1;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 10px;border-radius:4px;font-size:13px">
+  </div>
+  <div id="list" style="font-size:12px"></div>
+</div>
+<div id="detail" style="overflow-y:auto;padding:20px 28px;color:#c8d8e8">
+  <div class="muted">Select an IB Service Group to view its member service operations.</div>
+</div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = {repr(env)};
+let selected = null;
+
+async function doSearch() {{
+  const q = document.getElementById('q').value.trim();
+  const url = `/api/peoplesoft/ib-service-groups?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&limit=200`;
+  const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  const list = document.getElementById('list');
+  if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
+  list.innerHTML = data.map(r => {{
+    const name = r.ib_intgroupname || '';
+    const descr = (r.descr || '').trim().slice(0, 60);
+    const cnt = r.service_count || 0;
+    return `<div class="list-item${{selected===name?' selected':''}}" onclick="loadDetail('${{esc(name)}}')"
+      style="padding:6px 10px;border-radius:4px;cursor:pointer;margin-bottom:2px;border-bottom:1px solid #0d1520">
+      <div style="font-weight:bold;color:#00ccdd;font-family:monospace;font-size:11px">${{esc(name)}}</div>
+      <div style="display:flex;gap:8px;margin-top:2px;align-items:center">
+        ${{cnt ? `<span style="font-size:10px;color:#445">${{cnt}} services</span>` : ''}}
+      </div>
+      ${{descr ? `<div style="color:#445;font-size:10px;margin-top:1px">${{esc(descr)}}</div>` : ''}}
+    </div>`;
+  }}).join('');
+}}
+
+async function loadDetail(name) {{
+  selected = name;
+  document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading…</div>';
+  const url = `/api/peoplesoft/object/ib_service_group/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
+  if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
+
+  const uom = payload;
+  const secs = uom.sections || [];
+  const ovSec = secs.find(s=>s.title?.includes('Overview'));
+  const svcSec = secs.find(s=>s.title?.includes('Services'));
+
+  function kvTable(sec) {{
+    if (!sec || !sec.items?.length) return '';
+    return `<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px">` +
+      sec.items.map(i=>`<tr><td style="padding:4px 12px 4px 0;color:#778;white-space:nowrap;vertical-align:top">${{esc(i.label)}}</td>
+        <td style="padding:4px 0;color:#c8d8e8">${{esc(String(i.value||''))}}</td></tr>`).join('') +
+      `</table>`;
+  }}
+
+  function itemList(sec) {{
+    if (!sec || !sec.items?.length) return '';
+    return `<div style="display:flex;flex-direction:column;gap:4px">` +
+      sec.items.map(i=>{{
+        const chips = (i.chips||[]).map(c=>`<span style="padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;background:#1a1a2a;border:1px solid #334;color:#aac">${{esc(c.label||c)}}</span>`).join(' ');
+        return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0d1520">
+          <span style="font-family:monospace;font-size:11px;color:#00ccdd">${{esc(i.name||'')}}</span>
+          ${{chips}}
+          ${{i.meta ? `<span style="font-size:10px;color:#445">${{esc(i.meta)}}</span>` : ''}}
+        </div>`;
+      }}).join('') + `</div>`;
+  }}
+
+  const ov = uom.overview || {{}};
+  detail.innerHTML = `
+    <h2 style="font-family:monospace;color:#00ccdd;font-size:14px;margin:0 0 4px">${{esc(name)}}</h2>
+    <div style="font-size:12px;color:#556;margin-bottom:16px">${{esc(uom.display_name||'')}}</div>
+    <div style="display:flex;gap:12px;margin-bottom:16px;font-size:12px;color:#778">
+      <span>Services: <b style="color:#aac">${{ov.service_count||0}}</b></span>
+    </div>
+    ${{uom.warnings?.length ? `<div style="color:#f90;font-size:11px;margin-bottom:12px">${{uom.warnings.map(w=>esc(w)).join('<br>')}}</div>` : ''}}
+    ${{ovSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:0 0 6px">Overview</h3>${{kvTable(ovSec)}}` : ''}}
+    ${{svcSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">${{esc(svcSec.title)}}</h3>${{itemList(svcSec)}}` : ''}}
+  `;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/urldef", response_class=HTMLResponse)
+def admin_urldef(request: Request, env: str = "HCM"):
+    nav = _nav_html("urldef", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>URL Definitions</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+</head><body class="ds-body">
+{nav}
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
+  <div style="margin-bottom:6px;display:flex;gap:6px">
+    <input id="q" placeholder="Search URL ID, description, or URL…" oninput="doSearch()"
+      style="flex:1;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 10px;border-radius:4px;font-size:13px">
+  </div>
+  <div id="list" style="font-size:12px"></div>
+</div>
+<div id="detail" style="overflow-y:auto;padding:20px 28px;color:#c8d8e8">
+  <div class="muted">Select a URL definition to view its details.</div>
+</div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = {repr(env)};
+let selected = null;
+
+function urlType(url) {{
+  const u = (url||'').toUpperCase();
+  if (u.startsWith('RECORD://')) return 'Record';
+  if (u.startsWith('HTTP')) return 'HTTP';
+  if (u.startsWith('FTP')) return 'FTP';
+  if (u.startsWith('MAILTO')) return 'Email';
+  if (u.startsWith('%')) return 'Variable';
+  return 'Generic';
+}}
+
+const TYPE_COLOR = {{
+  Record:'#aa66ff', HTTP:'#44aaff', FTP:'#ffaa44',
+  Email:'#44ffaa', Variable:'#ffff44', Generic:'#778'
+}};
+
+async function doSearch() {{
+  const q = document.getElementById('q').value.trim();
+  const url = `/api/peoplesoft/url-definitions?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&limit=200`;
+  const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  const list = document.getElementById('list');
+  if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
+  list.innerHTML = data.map(r => {{
+    const name = r.url_id || '';
+    const descr = (r.descr || '').trim().slice(0, 50);
+    const uval = (r.url || '').trim().slice(0, 60);
+    const tp = urlType(r.url);
+    const tc = TYPE_COLOR[tp] || '#778';
+    return `<div class="list-item${{selected===name?' selected':''}}" onclick="loadDetail('${{esc(name)}}')"
+      style="padding:6px 10px;border-radius:4px;cursor:pointer;margin-bottom:2px;border-bottom:1px solid #0d1520">
+      <div style="font-weight:bold;color:#55dd33;font-family:monospace;font-size:11px">${{esc(name)}}</div>
+      <div style="display:flex;gap:8px;margin-top:2px;align-items:center">
+        <span style="font-size:10px;font-weight:bold;color:${{tc}}">${{esc(tp)}}</span>
+      </div>
+      ${{descr ? `<div style="color:#445;font-size:10px;margin-top:1px">${{esc(descr)}}</div>` : ''}}
+      ${{uval ? `<div style="color:#334;font-size:10px;font-family:monospace">${{esc(uval)}}</div>` : ''}}
+    </div>`;
+  }}).join('');
+}}
+
+async function loadDetail(name) {{
+  selected = name;
+  document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading…</div>';
+  const url = `/api/peoplesoft/object/url_definition/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
+  if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
+
+  const uom = payload;
+  const secs = uom.sections || [];
+  const ovSec = secs.find(s=>s.title?.includes('Overview'));
+
+  function kvTable(sec) {{
+    if (!sec || !sec.items?.length) return '';
+    return `<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px">` +
+      sec.items.map(i=>`<tr><td style="padding:4px 12px 4px 0;color:#778;white-space:nowrap;vertical-align:top">${{esc(i.label)}}</td>
+        <td style="padding:4px 0;color:#c8d8e8;word-break:break-all">${{esc(String(i.value||''))}}</td></tr>`).join('') +
+      `</table>`;
+  }}
+
+  const ov = uom.overview || {{}};
+  detail.innerHTML = `
+    <h2 style="font-family:monospace;color:#55dd33;font-size:14px;margin:0 0 4px">${{esc(name)}}</h2>
+    <div style="font-size:12px;color:#556;margin-bottom:16px">${{esc(uom.display_name||'')}}</div>
+    <div style="margin-bottom:16px;font-size:12px;color:#778">
+      Type: <b style="color:#aac">${{esc(ov.url_type||'')}}</b>
+    </div>
+    ${{uom.warnings?.length ? `<div style="color:#f90;font-size:11px;margin-bottom:12px">${{uom.warnings.map(w=>esc(w)).join('<br>')}}</div>` : ''}}
+    ${{ovSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:0 0 6px">Overview</h3>${{kvTable(ovSec)}}` : ''}}
+  `;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/cbskill", response_class=HTMLResponse)
+def admin_cbskill(request: Request, env: str = "HCM"):
+    nav = _nav_html("cbskill", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>Chatbot Skills</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+</head><body class="ds-body">
+{nav}
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
+  <div style="margin-bottom:6px;display:flex;gap:6px">
+    <input id="q" placeholder="Search skill name, description, or URL param…" oninput="doSearch()"
+      style="flex:1;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 10px;border-radius:4px;font-size:13px">
+  </div>
+  <div id="list" style="font-size:12px"></div>
+</div>
+<div id="detail" style="overflow-y:auto;padding:20px 28px;color:#c8d8e8">
+  <div class="muted">Select a Chatbot Skill to view its parameters and result states.</div>
+</div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = {repr(env)};
+let selected = null;
+
+async function doSearch() {{
+  const q = document.getElementById('q').value.trim();
+  const url = `/api/peoplesoft/chatbot-skills?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&limit=200`;
+  const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  const list = document.getElementById('list');
+  if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
+  list.innerHTML = data.map(r => {{
+    const name = r.ptcbapplname || '';
+    const descr = (r.descr50 || '').trim().slice(0, 50);
+    const urlp = (r.ptcburlparamname || '').trim();
+    const pcnt = r.param_count || 0;
+    return `<div class="list-item${{selected===name?' selected':''}}" onclick="loadDetail('${{esc(name)}}')"
+      style="padding:6px 10px;border-radius:4px;cursor:pointer;margin-bottom:2px;border-bottom:1px solid #0d1520">
+      <div style="font-weight:bold;color:#dd44ff;font-family:monospace;font-size:11px">${{esc(name)}}</div>
+      <div style="display:flex;gap:8px;margin-top:2px;align-items:center">
+        ${{pcnt ? `<span style="font-size:10px;color:#445">${{pcnt}} params</span>` : ''}}
+        ${{urlp ? `<span style="font-size:10px;color:#334;font-family:monospace">${{esc(urlp)}}</span>` : ''}}
+      </div>
+      ${{descr ? `<div style="color:#445;font-size:10px;margin-top:1px">${{esc(descr)}}</div>` : ''}}
+    </div>`;
+  }}).join('');
+}}
+
+async function loadDetail(name) {{
+  selected = name;
+  document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading…</div>';
+  const url = `/api/peoplesoft/object/chatbot_skill/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
+  if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
+
+  const uom = payload;
+  const secs = uom.sections || [];
+  const ovSec = secs.find(s=>s.title?.includes('Overview'));
+  const paramSec = secs.find(s=>s.title?.includes('Parameter'));
+  const stateSec = secs.find(s=>s.title?.includes('State'));
+
+  function kvTable(sec) {{
+    if (!sec || !sec.items?.length) return '';
+    return `<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px">` +
+      sec.items.map(i=>`<tr><td style="padding:4px 12px 4px 0;color:#778;white-space:nowrap;vertical-align:top">${{esc(i.label)}}</td>
+        <td style="padding:4px 0;color:#c8d8e8;font-family:monospace">${{esc(String(i.value||''))}}</td></tr>`).join('') +
+      `</table>`;
+  }}
+
+  function itemList(sec) {{
+    if (!sec || !sec.items?.length) return '';
+    return `<div style="display:flex;flex-direction:column;gap:4px">` +
+      sec.items.map(i=>{{
+        const chips = (i.chips||[]).map(c=>`<span style="padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;background:#1a1a2a;border:1px solid #334;color:#aac">${{esc(c.label||c)}}</span>`).join(' ');
+        return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0d1520">
+          <span style="font-family:monospace;font-size:11px;color:#c8d8e8">${{esc(i.name||'')}}</span>
+          ${{chips}}
+          ${{i.meta ? `<span style="font-size:10px;color:#445">${{esc(i.meta)}}</span>` : ''}}
+        </div>`;
+      }}).join('') + `</div>`;
+  }}
+
+  const ov = uom.overview || {{}};
+  detail.innerHTML = `
+    <h2 style="font-family:monospace;color:#dd44ff;font-size:14px;margin:0 0 4px">${{esc(name)}}</h2>
+    <div style="font-size:12px;color:#556;margin-bottom:4px">${{esc(uom.display_name||'')}}</div>
+    ${{ov.url_parameter ? `<div style="font-family:monospace;font-size:11px;color:#778;margin-bottom:16px">${{esc(ov.url_parameter)}}</div>` : ''}}
+    <div style="display:flex;gap:12px;margin-bottom:16px;font-size:12px;color:#778">
+      <span>Params: <b style="color:#aac">${{ov.param_count||0}}</b></span>
+      <span>States: <b style="color:#aac">${{ov.state_count||0}}</b></span>
+    </div>
+    ${{uom.warnings?.length ? `<div style="color:#f90;font-size:11px;margin-bottom:12px">${{uom.warnings.map(w=>esc(w)).join('<br>')}}</div>` : ''}}
+    ${{ovSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:0 0 6px">Overview</h3>${{kvTable(ovSec)}}` : ''}}
+    ${{paramSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">${{esc(paramSec.title)}}</h3>${{itemList(paramSec)}}` : ''}}
+    ${{stateSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">${{esc(stateSec.title)}}</h3>${{itemList(stateSec)}}` : ''}}
+  `;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/ibrtng", response_class=HTMLResponse)
+def admin_ibrtng(request: Request, env: str = "HCM"):
+    nav = _nav_html("ibrtng", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>IB Routings</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+</head><body class="ds-body">
+{nav}
+<div class="ds-main" style="display:grid;grid-template-columns:380px 1fr;gap:0;height:calc(100vh - 48px)">
+<div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
+  <div style="margin-bottom:6px;display:flex;gap:6px">
+    <input id="q" placeholder="Search name, operation, or node…" oninput="doSearch()"
+      style="flex:1;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 10px;border-radius:4px;font-size:13px">
+    <select id="rt" onchange="doSearch()"
+      style="width:80px;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 6px;border-radius:4px;font-size:12px">
+      <option value="">All</option>
+      <option value="S">Sync</option>
+      <option value="A">Async</option>
+      <option value="R">REST</option>
+    </select>
+    <select id="st" onchange="doSearch()"
+      style="width:70px;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 6px;border-radius:4px;font-size:12px">
+      <option value="">All</option>
+      <option value="A">Active</option>
+      <option value="I">Inactive</option>
+    </select>
+  </div>
+  <div id="list" style="font-size:12px"></div>
+</div>
+<div id="detail" style="overflow-y:auto;padding:20px 28px;color:#c8d8e8">
+  <div class="muted">Select an IB Routing to view its node connections and handlers.</div>
+</div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = {repr(env)};
+let selected = null;
+
+const TYPE_COLOR = {{S:'#44aaff', A:'#ffaa44', R:'#44ff88', X:'#778'}};
+const TYPE_LABEL = {{S:'Sync', A:'Async', R:'REST', X:'Internal'}};
+
+async function doSearch() {{
+  const q = document.getElementById('q').value.trim();
+  const rt = document.getElementById('rt').value;
+  const st = document.getElementById('st').value;
+  const url = `/api/peoplesoft/ib-routings?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&rtng_type=${{encodeURIComponent(rt)}}&status=${{encodeURIComponent(st)}}&limit=300`;
+  const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  const list = document.getElementById('list');
+  if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
+  list.innerHTML = data.map(r => {{
+    const name = r.routingdefnname || '';
+    const op = (r.ib_operationname || '').trim();
+    const sender = (r.sendernodename || '').trim();
+    const rcvr = (r.receivernodename || '').trim();
+    const rt2 = r.rtngtype || '';
+    const tc = TYPE_COLOR[rt2] || '#778';
+    const tl = TYPE_LABEL[rt2] || rt2;
+    const active = r.eff_status === 'A';
+    return `<div class="list-item${{selected===name?' selected':''}}" onclick="loadDetail('${{esc(name)}}')"
+      style="padding:6px 10px;border-radius:4px;cursor:pointer;margin-bottom:2px;border-bottom:1px solid #0d1520;${{active?'':'opacity:0.5'}}">
+      <div style="font-weight:bold;color:#4488ff;font-family:monospace;font-size:10px">${{esc(name)}}</div>
+      <div style="display:flex;gap:6px;margin-top:2px;align-items:center">
+        <span style="font-size:10px;font-weight:bold;color:${{tc}}">${{esc(tl)}}</span>
+        <span style="font-size:10px;color:#445">${{esc(op)}}</span>
+      </div>
+      <div style="font-size:10px;color:#334;font-family:monospace;margin-top:1px">${{esc(sender)}} → ${{esc(rcvr)}}</div>
+    </div>`;
+  }}).join('');
+}}
+
+async function loadDetail(name) {{
+  selected = name;
+  document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading…</div>';
+  const url = `/api/peoplesoft/object/ib_routing/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
+  if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
+
+  const uom = payload;
+  const secs = uom.sections || [];
+  const ovSec = secs.find(s=>s.title?.includes('Overview'));
+  const aliasSec = secs.find(s=>s.title?.includes('Alias'));
+
+  function kvTable(sec) {{
+    if (!sec || !sec.items?.length) return '';
+    return `<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px">` +
+      sec.items.map(i=>`<tr><td style="padding:4px 12px 4px 0;color:#778;white-space:nowrap;vertical-align:top">${{esc(i.label)}}</td>
+        <td style="padding:4px 0;color:#c8d8e8;font-family:monospace">${{esc(String(i.value||''))}}</td></tr>`).join('') +
+      `</table>`;
+  }}
+
+  function itemList(sec) {{
+    if (!sec || !sec.items?.length) return '';
+    return `<div style="display:flex;flex-direction:column;gap:4px">` +
+      sec.items.map(i=>{{
+        const chips = (i.chips||[]).map(c=>`<span style="padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;background:#1a1a2a;border:1px solid #334;color:#aac">${{esc(c.label||c)}}</span>`).join(' ');
+        return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0d1520">
+          <span style="font-family:monospace;font-size:11px;color:#c8d8e8">${{esc(i.name||'')}}</span>
+          ${{chips}}
+          ${{i.meta ? `<span style="font-size:10px;color:#445">${{esc(i.meta)}}</span>` : ''}}
+        </div>`;
+      }}).join('') + `</div>`;
+  }}
+
+  const ov = uom.overview || {{}};
+  const statusColor = uom.status === 'active' ? '#44ee88' : '#ee8844';
+  detail.innerHTML = `
+    <h2 style="font-family:monospace;color:#4488ff;font-size:13px;margin:0 0 4px">${{esc(name)}}</h2>
+    <div style="display:flex;gap:12px;margin-bottom:16px;font-size:12px;color:#778">
+      <span>Type: <b style="color:#aac">${{esc(ov.routing_type||'')}}</b></span>
+      <span style="color:${{statusColor}}">${{uom.status||''}}</span>
+    </div>
+    ${{uom.warnings?.length ? `<div style="color:#f90;font-size:11px;margin-bottom:12px">${{uom.warnings.map(w=>esc(w)).join('<br>')}}</div>` : ''}}
+    ${{ovSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:0 0 6px">Routing Detail</h3>${{kvTable(ovSec)}}` : ''}}
+    ${{aliasSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">${{esc(aliasSec.title)}}</h3>${{itemList(aliasSec)}}` : ''}}
+  `;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/stylesheet", response_class=HTMLResponse)
+def admin_stylesheet(request: Request, env: str = "HCM"):
+    nav = _nav_html("stylesheet", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>Style Sheets</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+</head><body class="ds-body">
+{nav}
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
+  <div style="margin-bottom:6px;display:flex;gap:6px">
+    <input id="q" placeholder="Search stylesheet name or description…" oninput="doSearch()"
+      style="flex:1;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 10px;border-radius:4px;font-size:13px">
+    <select id="tp" onchange="doSearch()"
+      style="width:100px;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 6px;border-radius:4px;font-size:12px">
+      <option value="">All</option>
+      <option value="0">Classic</option>
+      <option value="1">Fluid</option>
+      <option value="2">Component</option>
+    </select>
+  </div>
+  <div id="list" style="font-size:12px"></div>
+</div>
+<div id="detail" style="overflow-y:auto;padding:20px 28px;color:#c8d8e8">
+  <div class="muted">Select a Style Sheet to view its CSS class inventory.</div>
+</div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = {repr(env)};
+let selected = null;
+
+const TYPE_LABEL = {{0:'Classic', 1:'Fluid Theme', 2:'Component Style'}};
+const TYPE_COLOR = {{0:'#aa88ff', 1:'#ffcc44', 2:'#44aaff'}};
+
+async function doSearch() {{
+  const q = document.getElementById('q').value.trim();
+  const tp = document.getElementById('tp').value;
+  const url = `/api/peoplesoft/style-sheets?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&ss_type=${{encodeURIComponent(tp)}}&limit=200`;
+  const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  const list = document.getElementById('list');
+  if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
+  list.innerHTML = data.map(r => {{
+    const name = r.stylesheetname || '';
+    const descr = (r.descr || '').trim().slice(0, 50);
+    const tp2 = r.stylesheettype;
+    const tc = TYPE_COLOR[tp2] || '#778';
+    const tl = TYPE_LABEL[tp2] || String(tp2);
+    const classes = r.class_count || 0;
+    return `<div class="list-item${{selected===name?' selected':''}}" onclick="loadDetail('${{esc(name)}}')"
+      style="padding:6px 10px;border-radius:4px;cursor:pointer;margin-bottom:2px;border-bottom:1px solid #0d1520">
+      <div style="font-weight:bold;color:#ffcc44;font-family:monospace;font-size:11px">${{esc(name)}}</div>
+      <div style="display:flex;gap:8px;margin-top:2px;align-items:center">
+        <span style="font-size:10px;font-weight:bold;color:${{tc}}">${{esc(tl)}}</span>
+        ${{classes ? `<span style="font-size:10px;color:#445">${{classes}} classes</span>` : ''}}
+      </div>
+      ${{descr ? `<div style="color:#445;font-size:10px;margin-top:1px">${{esc(descr)}}</div>` : ''}}
+    </div>`;
+  }}).join('');
+}}
+
+async function loadDetail(name) {{
+  selected = name;
+  document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading…</div>';
+  const url = `/api/peoplesoft/object/style_sheet/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
+  if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
+
+  const uom = payload;
+  const secs = uom.sections || [];
+  const ovSec = secs.find(s=>s.title?.includes('Overview'));
+  const chipSec = secs.find(s=>s.type==='chips');
+
+  function kvTable(sec) {{
+    if (!sec || !sec.items?.length) return '';
+    return `<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px">` +
+      sec.items.map(i=>`<tr><td style="padding:4px 12px 4px 0;color:#778;white-space:nowrap">${{esc(i.label)}}</td>
+        <td style="padding:4px 0;color:#c8d8e8">${{esc(String(i.value||''))}}</td></tr>`).join('') +
+      `</table>`;
+  }}
+
+  const ov = uom.overview || {{}};
+  const chips = chipSec ? chipSec.items.map(c => `<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-family:monospace;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;margin:2px">${{esc(c.label||c)}}</span>`).join('') : '';
+
+  detail.innerHTML = `
+    <h2 style="font-family:monospace;color:#ffcc44;font-size:14px;margin:0 0 4px">${{esc(name)}}</h2>
+    <div style="font-size:12px;color:#556;margin-bottom:16px">${{esc(uom.display_name||'')}}</div>
+    <div style="margin-bottom:16px;font-size:12px;color:#778">
+      Type: <b style="color:#aac">${{esc(ov.type||'')}}</b>
+      &nbsp;&nbsp;CSS classes: <b style="color:#aac">${{ov.class_count||0}}</b>
+    </div>
+    ${{uom.warnings?.length ? `<div style="color:#f90;font-size:11px;margin-bottom:12px">${{uom.warnings.map(w=>esc(w)).join('<br>')}}</div>` : ''}}
+    ${{ovSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:0 0 6px">Overview</h3>${{kvTable(ovSec)}}` : ''}}
+    ${{chips ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">${{esc(chipSec?.title||'CSS Classes')}}</h3><div style="line-height:1.8">${{chips}}</div>` : ''}}
+  `;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/archobj", response_class=HTMLResponse)
+def admin_archobj(request: Request, env: str = "HCM"):
+    nav = _nav_html("archobj", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>Archive Objects</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+</head><body class="ds-body">
+{nav}
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
+  <div style="margin-bottom:6px;display:flex;gap:6px">
+    <input id="q" placeholder="Search archive object name or description…" oninput="doSearch()"
+      style="flex:1;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 10px;border-radius:4px;font-size:13px">
+  </div>
+  <div id="list" style="font-size:12px"></div>
+</div>
+<div id="detail" style="overflow-y:auto;padding:20px 28px;color:#c8d8e8">
+  <div class="muted">Select a Data Archive Object to view its source and history record mapping.</div>
+</div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = {repr(env)};
+let selected = null;
+
+async function doSearch() {{
+  const q = document.getElementById('q').value.trim();
+  const url = `/api/peoplesoft/archive-objects?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&limit=200`;
+  const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  const list = document.getElementById('list');
+  if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
+  list.innerHTML = data.map(r => {{
+    const name = r.psarch_object || '';
+    const descr = (r.descr || '').trim().slice(0, 60);
+    const recs = r.record_count || 0;
+    return `<div class="list-item${{selected===name?' selected':''}}" onclick="loadDetail('${{esc(name)}}')"
+      style="padding:6px 10px;border-radius:4px;cursor:pointer;margin-bottom:2px;border-bottom:1px solid #0d1520">
+      <div style="font-weight:bold;color:#aa66cc;font-family:monospace;font-size:11px">${{esc(name)}}</div>
+      <div style="display:flex;gap:8px;margin-top:2px;align-items:center">
+        ${{recs ? `<span style="font-size:10px;color:#445">${{recs}} records</span>` : ''}}
+      </div>
+      ${{descr ? `<div style="color:#445;font-size:10px;margin-top:1px">${{esc(descr)}}</div>` : ''}}
+    </div>`;
+  }}).join('');
+}}
+
+async function loadDetail(name) {{
+  selected = name;
+  document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading…</div>';
+  const url = `/api/peoplesoft/object/archive_object/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
+  if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
+
+  const uom = payload;
+  const secs = uom.sections || [];
+  const ovSec = secs.find(s=>s.title?.includes('Overview'));
+  const recSec = secs.find(s=>s.title?.includes('Records'));
+
+  function kvTable(sec) {{
+    if (!sec || !sec.items?.length) return '';
+    return `<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px">` +
+      sec.items.map(i=>`<tr><td style="padding:4px 12px 4px 0;color:#778;white-space:nowrap">${{esc(i.label)}}</td>
+        <td style="padding:4px 0;color:#c8d8e8">${{esc(String(i.value||''))}}</td></tr>`).join('') +
+      `</table>`;
+  }}
+
+  function itemList(sec) {{
+    if (!sec || !sec.items?.length) return '';
+    return `<div style="display:flex;flex-direction:column;gap:4px">` +
+      sec.items.map(i=>{{
+        const chips = (i.chips||[]).map(c=>`<span style="padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;background:#1a0a2a;border:1px solid #334;color:#aa66cc">${{esc(c.label||c)}}</span>`).join(' ');
+        return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0d1520">
+          <span style="font-family:monospace;font-size:11px;color:#c8d8e8">${{esc(i.name||'')}}</span>
+          ${{chips}}
+          ${{i.meta ? `<span style="font-size:10px;color:#445">${{esc(i.meta)}}</span>` : ''}}
+        </div>`;
+      }}).join('') + `</div>`;
+  }}
+
+  const ov = uom.overview || {{}};
+  detail.innerHTML = `
+    <h2 style="font-family:monospace;color:#aa66cc;font-size:14px;margin:0 0 4px">${{esc(name)}}</h2>
+    <div style="font-size:12px;color:#556;margin-bottom:16px">${{esc(uom.display_name||'')}}</div>
+    <div style="margin-bottom:16px;font-size:12px;color:#778">
+      Records: <b style="color:#aac">${{ov.record_count||0}}</b>
+    </div>
+    ${{uom.warnings?.length ? `<div style="color:#f90;font-size:11px;margin-bottom:12px">${{uom.warnings.map(w=>esc(w)).join('<br>')}}</div>` : ''}}
+    ${{ovSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:0 0 6px">Overview</h3>${{kvTable(ovSec)}}` : ''}}
+    ${{recSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">${{esc(recSec.title)}}</h3>${{itemList(recSec)}}` : ''}}
+  `;
 }}
 
 doSearch();

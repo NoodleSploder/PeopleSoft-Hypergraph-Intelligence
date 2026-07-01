@@ -6519,3 +6519,561 @@ def get_ptf_test(env_name, test_name):
         },
         "warnings": warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# Application Data Set (ADS) Definitions
+# ---------------------------------------------------------------------------
+
+def search_ads_definitions(env_name, q="", owner="", limit=200):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSADSDEFN"):
+        return []
+    where_parts = ["1=1"]
+    params = {}
+    if q:
+        where_parts.append(
+            "(UPPER(PTADSNAME) LIKE :q OR UPPER(DESCR) LIKE :q OR UPPER(DESCR254) LIKE :q)"
+        )
+        params["q"] = f"%{q.upper()}%"
+    if owner:
+        where_parts.append("UPPER(OBJECTOWNERID) = :own")
+        params["own"] = owner.upper()
+    where = "WHERE " + " AND ".join(where_parts)
+    rows = query(env_name, f"""
+        SELECT d.PTADSNAME, d.DESCR, d.DESCR254, d.OBJECTOWNERID,
+               d.PTCOPYABLE, d.PTCOMPARABLE, d.PTDERVTYPE,
+               d.PTKEYCOL1,
+               (SELECT COUNT(*) FROM SYSADM.PSADSDEFNITEM i
+                WHERE i.PTADSNAME = d.PTADSNAME) AS RECORD_COUNT
+          FROM SYSADM.PSADSDEFN d
+        {where}
+         ORDER BY d.PTADSNAME
+         FETCH FIRST :lim ROWS ONLY
+    """, {**params, "lim": limit})
+    return [dict(r) for r in (rows or [])]
+
+
+def get_ads_definition(env_name, ads_name):
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env_name, "PSADSDEFN"):
+        return {"warnings": ["PSADSDEFN table not accessible"]}
+
+    defn_rows = query(env_name, """
+        SELECT PTADSNAME, DESCR, DESCR254, OBJECTOWNERID,
+               PTCOPYABLE, PTCOMPARABLE, PTDERVTYPE,
+               PTDERVKEY1, PTDERVKEY2, PTVALIDATESTATIC,
+               PACKAGEROOT, QUALIFYPATH, APPCLASSID,
+               PTKEYCOL1, PTKEYCOL2, PTKEYCOL3, PTKEYCOL4,
+               PTKEYCOL5, PTKEYCOL6, PTKEYCOL7, PTKEYCOL8,
+               VERSION, LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PSADSDEFN
+         WHERE PTADSNAME = :id
+    """, {"id": ads_name.upper()})
+    if not defn_rows:
+        return {"warnings": [f"ADS definition '{ads_name}' not found"]}
+    defn = dict(defn_rows[0])
+
+    # Key columns (strip blanks)
+    key_cols = [
+        defn.get(f"ptkeycol{i}", "").strip()
+        for i in range(1, 9)
+        if (defn.get(f"ptkeycol{i}") or "").strip()
+    ]
+
+    # Records (PSADSDEFNITEM)
+    records = []
+    if ptmetadata.has_table(env_name, "PSADSDEFNITEM"):
+        try:
+            rec_rows = query(env_name, """
+                SELECT RECNAME, PTPARENTRECNAME, PTPEERORDER
+                  FROM SYSADM.PSADSDEFNITEM
+                 WHERE PTADSNAME = :id
+                 ORDER BY PTPARENTRECNAME, RECNAME
+            """, {"id": ads_name.upper()})
+            records = [dict(r) for r in (rec_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSADSDEFNITEM: {exc}")
+
+    # Groups
+    groups = []
+    if ptmetadata.has_table(env_name, "PSADSGROUP"):
+        try:
+            grp_rows = query(env_name, """
+                SELECT g.PTGROUPNAME, g.PTGRPDISPNAME,
+                       COUNT(m.FIELDNAME) AS FIELD_COUNT
+                  FROM SYSADM.PSADSGROUP g
+                  LEFT JOIN SYSADM.PSADSGROUPMEMB m
+                    ON m.PTADSNAME = g.PTADSNAME
+                   AND m.PTGROUPNAME = g.PTGROUPNAME
+                 WHERE g.PTADSNAME = :id
+                 GROUP BY g.PTGROUPNAME, g.PTGRPDISPNAME
+                 ORDER BY g.PTGROUPNAME
+            """, {"id": ads_name.upper()})
+            groups = [dict(r) for r in (grp_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSADSGROUP: {exc}")
+
+    return {
+        "definition": defn,
+        "key_cols": key_cols,
+        "records": records,
+        "groups": groups,
+        "counts": {
+            "records": len(records),
+            "groups": len(groups),
+        },
+        "warnings": warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# IB Service Groups
+# ---------------------------------------------------------------------------
+
+def search_ib_service_groups(env_name, q="", owner="", limit=200):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSIBGROUPDEFN"):
+        return []
+    where_parts = ["1=1"]
+    params = {}
+    if q:
+        where_parts.append(
+            "(UPPER(g.IB_INTGROUPNAME) LIKE :q OR UPPER(g.DESCR) LIKE :q OR UPPER(g.DESCRLONG) LIKE :q)"
+        )
+        params["q"] = f"%{q.upper()}%"
+    if owner:
+        where_parts.append("UPPER(g.OBJECTOWNERID) = :own")
+        params["own"] = owner.upper()
+    where = "WHERE " + " AND ".join(where_parts)
+    rows = query(env_name, f"""
+        SELECT g.IB_INTGROUPNAME, g.DESCR, g.DESCRLONG, g.OBJECTOWNERID,
+               (SELECT COUNT(*) FROM SYSADM.PSIBSRVGROUP m
+                WHERE m.IB_INTGROUPNAME = g.IB_INTGROUPNAME) AS SERVICE_COUNT
+          FROM SYSADM.PSIBGROUPDEFN g
+        {where}
+         ORDER BY g.IB_INTGROUPNAME
+         FETCH FIRST :lim ROWS ONLY
+    """, {**params, "lim": limit})
+    return [dict(r) for r in (rows or [])]
+
+
+def get_ib_service_group(env_name, group_name):
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env_name, "PSIBGROUPDEFN"):
+        return {"warnings": ["PSIBGROUPDEFN table not accessible"]}
+
+    header_rows = query(env_name, """
+        SELECT IB_INTGROUPNAME, DESCR, DESCRLONG, OBJECTOWNERID,
+               LASTUPDDTTM, LASTUPDOPRID, VERSION
+          FROM SYSADM.PSIBGROUPDEFN
+         WHERE IB_INTGROUPNAME = :id
+    """, {"id": group_name.upper()})
+    if not header_rows:
+        return {"warnings": [f"IB Service Group '{group_name}' not found"]}
+    header = dict(header_rows[0])
+
+    # Member services
+    members = []
+    if ptmetadata.has_table(env_name, "PSIBSRVGROUP"):
+        try:
+            mem_rows = query(env_name, """
+                SELECT m.IB_SERVICENAME,
+                       s.DESCR, s.IB_OPERATION_TYPE, s.VERSION_NUM,
+                       s.EFF_STATUS
+                  FROM SYSADM.PSIBSRVGROUP m
+                  LEFT JOIN SYSADM.PSIBSVCOPER s
+                    ON s.IB_OPERATIONNAME = m.IB_SERVICENAME
+                   AND s.VERSION_NUM = (
+                       SELECT MAX(s2.VERSION_NUM) FROM SYSADM.PSIBSVCOPER s2
+                        WHERE s2.IB_OPERATIONNAME = m.IB_SERVICENAME
+                   )
+                 WHERE m.IB_INTGROUPNAME = :id
+                 ORDER BY m.IB_SERVICENAME
+            """, {"id": group_name.upper()})
+            members = [dict(r) for r in (mem_rows or [])]
+        except Exception:
+            # Fallback: just the names without join
+            try:
+                mem_rows = query(env_name, """
+                    SELECT IB_SERVICENAME FROM SYSADM.PSIBSRVGROUP
+                     WHERE IB_INTGROUPNAME = :id
+                     ORDER BY IB_SERVICENAME
+                """, {"id": group_name.upper()})
+                members = [{"ib_servicename": r["ib_servicename"]} for r in (mem_rows or [])]
+            except Exception as exc:
+                warnings.append(f"PSIBSRVGROUP: {exc}")
+
+    return {
+        "header": header,
+        "members": members,
+        "counts": {"services": len(members)},
+        "warnings": warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# URL Definitions
+# ---------------------------------------------------------------------------
+
+def search_url_definitions(env_name, q="", limit=200):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSURLDEFN"):
+        return []
+    where_parts = ["1=1"]
+    params = {}
+    if q:
+        where_parts.append(
+            "(UPPER(URL_ID) LIKE :q OR UPPER(DESCR) LIKE :q OR UPPER(URL) LIKE :q)"
+        )
+        params["q"] = f"%{q.upper()}%"
+    where = "WHERE " + " AND ".join(where_parts)
+    rows = query(env_name, f"""
+        SELECT URL_ID, DESCR, URL, OBJECTOWNERID, ICLIENT_SERVERFLAG,
+               COMMENTS, LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PSURLDEFN
+        {where}
+         ORDER BY URL_ID
+         FETCH FIRST :lim ROWS ONLY
+    """, {**params, "lim": limit})
+    return [dict(r) for r in (rows or [])]
+
+
+def get_url_definition(env_name, url_id):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSURLDEFN"):
+        return {"warnings": ["PSURLDEFN table not accessible"]}
+
+    rows = query(env_name, """
+        SELECT URL_ID, DESCR, URL, OBJECTOWNERID, ICLIENT_SERVERFLAG,
+               COMMENTS, LASTUPDDTTM, LASTUPDOPRID, VERSION
+          FROM SYSADM.PSURLDEFN
+         WHERE URL_ID = :id
+    """, {"id": url_id.upper()})
+    if not rows:
+        return {"warnings": [f"URL definition '{url_id}' not found"]}
+
+    return {
+        "definition": dict(rows[0]),
+        "warnings": [],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Chatbot Skill Definitions
+# ---------------------------------------------------------------------------
+
+_CB_PARAM_DTYPE = {
+    "STR": "String", "INT": "Integer", "NUM": "Number",
+    "DATE": "Date", "BOOL": "Boolean", "OBJ": "Object",
+}
+_CB_PARAM_TYPE = {"IN": "Input", "OUT": "Output", "INOUT": "In/Out"}
+_CB_RSLT_CAT = {"S": "Success", "E": "Error", "W": "Warning", "I": "Info"}
+
+
+def search_chatbot_skills(env_name, q="", limit=200):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSCBAPPLDEFN"):
+        return []
+    where_parts = ["1=1"]
+    params = {}
+    if q:
+        where_parts.append(
+            "(UPPER(d.PTCBAPPLNAME) LIKE :q OR UPPER(d.DESCR50) LIKE :q OR UPPER(d.PTCBURLPARAMNAME) LIKE :q)"
+        )
+        params["q"] = f"%{q.upper()}%"
+    where = "WHERE " + " AND ".join(where_parts)
+    rows = query(env_name, f"""
+        SELECT d.PTCBAPPLNAME, d.DESCR50, d.PTCBURLPARAMNAME,
+               d.PACKAGEROOT, d.QUALIFYPATH, d.APPCLASSID, d.APPCLASSMETHOD,
+               d.STATUS, d.PTCBCACHESUPPORT,
+               (SELECT COUNT(*) FROM SYSADM.PSCBAPPLPARAM p
+                WHERE p.PTCBAPPLNAME = d.PTCBAPPLNAME) AS PARAM_COUNT
+          FROM SYSADM.PSCBAPPLDEFN d
+        {where}
+         ORDER BY d.PTCBAPPLNAME
+         FETCH FIRST :lim ROWS ONLY
+    """, {**params, "lim": limit})
+    return [dict(r) for r in (rows or [])]
+
+
+def get_chatbot_skill(env_name, skill_name):
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env_name, "PSCBAPPLDEFN"):
+        return {"warnings": ["PSCBAPPLDEFN table not accessible"]}
+
+    defn_rows = query(env_name, """
+        SELECT PTCBAPPLNAME, PTCBAPPLTYPE, PTCBURLPARAMNAME, DESCR50,
+               APPCLASSID, APPCLASSMETHOD, PACKAGEROOT, QUALIFYPATH,
+               PTCBCACHESUPPORT, PTMULTIROWINPUT, PTMULTIROWOUTPUT,
+               PTCB_ASENDUSER, STATUS, PTCB_SRC_TYPE
+          FROM SYSADM.PSCBAPPLDEFN
+         WHERE PTCBAPPLNAME = :id
+    """, {"id": skill_name.upper()})
+    if not defn_rows:
+        return {"warnings": [f"Chatbot skill '{skill_name}' not found"]}
+    defn = dict(defn_rows[0])
+
+    # Parameters
+    params_list = []
+    if ptmetadata.has_table(env_name, "PSCBAPPLPARAM"):
+        try:
+            param_rows = query(env_name, """
+                SELECT PARAM_NAME, PTCBPARAMTYPE, PTCBPARAMDTYPE,
+                       DESCR60, PTCB_PARAMVAL_TYPE, PTCB_PARAM_VALUE
+                  FROM SYSADM.PSCBAPPLPARAM
+                 WHERE PTCBAPPLNAME = :id
+                 ORDER BY PTCBPARAMTYPE, PARAM_NAME
+            """, {"id": skill_name.upper()})
+            params_list = [dict(r) for r in (param_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSCBAPPLPARAM: {exc}")
+
+    # Result states
+    states = []
+    if ptmetadata.has_table(env_name, "PSCBAPPLSTATES"):
+        try:
+            state_rows = query(env_name, """
+                SELECT PTCBRSLT_STATE, DESCR60, PTCBRSLTCAT
+                  FROM SYSADM.PSCBAPPLSTATES
+                 WHERE PTCBAPPLNAME = :id
+                 ORDER BY PTCBRSLTCAT, PTCBRSLT_STATE
+            """, {"id": skill_name.upper()})
+            states = [dict(r) for r in (state_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSCBAPPLSTATES: {exc}")
+
+    return {
+        "definition": defn,
+        "params": params_list,
+        "states": states,
+        "counts": {
+            "params": len(params_list),
+            "states": len(states),
+        },
+        "warnings": warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# IB Routing Definitions
+# ---------------------------------------------------------------------------
+
+_IB_RTNG_TYPE = {"S": "Synchronous", "A": "Asynchronous", "R": "REST", "X": "Internal"}
+_IB_DELIVER_MODE = {
+    0: "Guaranteed", 1: "Best Effort", 2: "Unsolicited",
+}
+
+
+def search_ib_routings(env_name, q="", rtng_type="", status="", limit=200):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSIBRTNGDEFN"):
+        return []
+    where_parts = ["ROUTINGDEFNNAME NOT LIKE '~%'"]
+    params = {}
+    if q:
+        where_parts.append(
+            "(UPPER(ROUTINGDEFNNAME) LIKE :q OR UPPER(IB_OPERATIONNAME) LIKE :q "
+            "OR UPPER(SENDERNODENAME) LIKE :q OR UPPER(RECEIVERNODENAME) LIKE :q)"
+        )
+        params["q"] = f"%{q.upper()}%"
+    if rtng_type:
+        where_parts.append("RTNGTYPE = :rt")
+        params["rt"] = rtng_type.upper()
+    if status:
+        where_parts.append("EFF_STATUS = :st")
+        params["st"] = status.upper()
+    where = "WHERE " + " AND ".join(where_parts)
+    rows = query(env_name, f"""
+        SELECT ROUTINGDEFNNAME, EFF_STATUS, SENDERNODENAME, RECEIVERNODENAME,
+               IB_OPERATIONNAME, RTNGTYPE, DESCR, OBJECTOWNERID,
+               ONSNDHDLRNAME, ONRCVHDLRNAME
+          FROM SYSADM.PSIBRTNGDEFN
+        {where}
+         ORDER BY IB_OPERATIONNAME, ROUTINGDEFNNAME
+         FETCH FIRST :lim ROWS ONLY
+    """, {**params, "lim": limit})
+    return [dict(r) for r in (rows or [])]
+
+
+def get_ib_routing(env_name, routing_name):
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env_name, "PSIBRTNGDEFN"):
+        return {"warnings": ["PSIBRTNGDEFN table not accessible"]}
+
+    defn_rows = query(env_name, """
+        SELECT ROUTINGDEFNNAME, EFFDT, EFF_STATUS, SENDERNODENAME, RECEIVERNODENAME,
+               IB_OPERATIONNAME, VERSIONNAME, RTNGTYPE, IB_DELIVERYMODE,
+               CONNOVERRIDE, CONNGATEWAYID, CONNID,
+               ONSNDHDLRNAME, ONRCVHDLRNAME, ONPREHDLRNAME, ONPOSTHDLRNAME,
+               LOGMSGDTLFLG, IB_SYNCHNONBLOCK, GENERATED,
+               DESCR, DESCRLONG, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PSIBRTNGDEFN
+         WHERE ROUTINGDEFNNAME = :id
+    """, {"id": routing_name.upper()})
+    if not defn_rows:
+        return {"warnings": [f"IB Routing '{routing_name}' not found"]}
+    defn = dict(defn_rows[0])
+
+    # Alias records
+    aliases = []
+    if ptmetadata.has_table(env_name, "PSIBRTNGSUBDEFN"):
+        try:
+            alias_rows = query(env_name, """
+                SELECT SEQNUM, IB_DIRECTION, RTNGTYPE,
+                       SENDERNODENAME, RECEIVERNODENAME, ALIASNAME
+                  FROM SYSADM.PSIBRTNGSUBDEFN
+                 WHERE ROUTINGDEFNNAME = :id
+                 ORDER BY SEQNUM
+            """, {"id": routing_name.upper()})
+            aliases = [dict(r) for r in (alias_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSIBRTNGSUBDEFN: {exc}")
+
+    return {
+        "definition": defn,
+        "aliases": aliases,
+        "counts": {"aliases": len(aliases)},
+        "warnings": warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Style Sheet Definitions
+# ---------------------------------------------------------------------------
+
+_SS_TYPE = {0: "Classic", 1: "Fluid Theme", 2: "Component Style"}
+
+
+def search_style_sheets(env_name, q="", ss_type="", limit=200):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSSTYLSHEETDEFN"):
+        return []
+    where_parts = ["1=1"]
+    params = {}
+    if q:
+        where_parts.append("(UPPER(STYLESHEETNAME) LIKE :q OR UPPER(DESCR) LIKE :q)")
+        params["q"] = f"%{q.upper()}%"
+    if ss_type != "":
+        where_parts.append("STYLESHEETTYPE = :sst")
+        params["sst"] = int(ss_type)
+    where = "WHERE " + " AND ".join(where_parts)
+    rows = query(env_name, f"""
+        SELECT s.STYLESHEETNAME, s.STYLESHEETTYPE, s.DESCR,
+               s.PARENTSTYLENAME, s.OBJECTOWNERID,
+               (SELECT COUNT(*) FROM SYSADM.PSSTYLECLASS c
+                WHERE c.STYLESHEETNAME = s.STYLESHEETNAME) AS CLASS_COUNT
+          FROM SYSADM.PSSTYLSHEETDEFN s
+        {where}
+         ORDER BY s.STYLESHEETTYPE, s.STYLESHEETNAME
+         FETCH FIRST :lim ROWS ONLY
+    """, {**params, "lim": limit})
+    return [dict(r) for r in (rows or [])]
+
+
+def get_style_sheet(env_name, stylesheet_name):
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env_name, "PSSTYLSHEETDEFN"):
+        return {"warnings": ["PSSTYLSHEETDEFN table not accessible"]}
+
+    defn_rows = query(env_name, """
+        SELECT STYLESHEETNAME, VERSION, STYLESHEETTYPE, PARENTSTYLENAME,
+               DESCR, NUMSTYLECLASS, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PSSTYLSHEETDEFN
+         WHERE STYLESHEETNAME = :id
+    """, {"id": stylesheet_name.upper()})
+    if not defn_rows:
+        return {"warnings": [f"Style Sheet '{stylesheet_name}' not found"]}
+    defn = dict(defn_rows[0])
+
+    # Style classes (names only — CSS property columns are numeric encoded)
+    classes = []
+    if ptmetadata.has_table(env_name, "PSSTYLECLASS"):
+        try:
+            cls_rows = query(env_name, """
+                SELECT STYLECLASSNAME, SEQNO
+                  FROM SYSADM.PSSTYLECLASS
+                 WHERE STYLESHEETNAME = :id
+                 ORDER BY SEQNO
+                 FETCH FIRST 300 ROWS ONLY
+            """, {"id": stylesheet_name.upper()})
+            classes = [r["styleclassname"] for r in (cls_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSSTYLECLASS: {exc}")
+
+    return {
+        "definition": defn,
+        "classes": classes,
+        "counts": {"classes": len(classes)},
+        "warnings": warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Data Archive Object Definitions
+# ---------------------------------------------------------------------------
+
+def search_archive_objects(env_name, q="", limit=200):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSARCHOBJDEFN"):
+        return []
+    where_parts = ["1=1"]
+    params = {}
+    if q:
+        where_parts.append("(UPPER(PSARCH_OBJECT) LIKE :q OR UPPER(DESCR) LIKE :q)")
+        params["q"] = f"%{q.upper()}%"
+    where = "WHERE " + " AND ".join(where_parts)
+    rows = query(env_name, f"""
+        SELECT d.PSARCH_OBJECT, d.DESCR, d.OBJECTOWNERID, d.VERSION,
+               d.LASTUPDDTTM, d.LASTUPDOPRID,
+               (SELECT COUNT(*) FROM SYSADM.PSARCHOBJREC r
+                WHERE r.PSARCH_OBJECT = d.PSARCH_OBJECT) AS RECORD_COUNT
+          FROM SYSADM.PSARCHOBJDEFN d
+        {where}
+         ORDER BY d.PSARCH_OBJECT
+         FETCH FIRST :lim ROWS ONLY
+    """, {**params, "lim": limit})
+    return [dict(r) for r in (rows or [])]
+
+
+def get_archive_object(env_name, arch_object):
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env_name, "PSARCHOBJDEFN"):
+        return {"warnings": ["PSARCHOBJDEFN table not accessible"]}
+
+    defn_rows = query(env_name, """
+        SELECT PSARCH_OBJECT, DESCR, OBJECTOWNERID, VERSION,
+               LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PSARCHOBJDEFN
+         WHERE PSARCH_OBJECT = :id
+    """, {"id": arch_object.upper()})
+    if not defn_rows:
+        return {"warnings": [f"Archive object '{arch_object}' not found"]}
+    defn = dict(defn_rows[0])
+
+    # Records in this archive object
+    records = []
+    if ptmetadata.has_table(env_name, "PSARCHOBJREC"):
+        try:
+            rec_rows = query(env_name, """
+                SELECT RECNAME, HIST_RECNAME, PSARCH_BASETABLE
+                  FROM SYSADM.PSARCHOBJREC
+                 WHERE PSARCH_OBJECT = :id
+                 ORDER BY RECNAME
+            """, {"id": arch_object.upper()})
+            records = [dict(r) for r in (rec_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSARCHOBJREC: {exc}")
+
+    return {
+        "definition": defn,
+        "records": records,
+        "counts": {"records": len(records)},
+        "warnings": warnings,
+    }

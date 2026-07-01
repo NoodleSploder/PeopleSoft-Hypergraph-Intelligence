@@ -985,6 +985,127 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "app_class", key, label, r)
         return len(rows)
 
+    def archive_objects():
+        if not ptmetadata.has_table(env, "PSARCHOBJDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT PSARCH_OBJECT, DESCR, OBJECTOWNERID
+              FROM SYSADM.PSARCHOBJDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY PSARCH_OBJECT
+        """) or []
+        for r in rows:
+            aname = r.get("psarch_object")
+            if not aname:
+                continue
+            label = (r.get("descr") or "").strip() or aname
+            add_node(graph, "archive_object", aname, label, r)
+        return len(rows)
+
+    def style_sheets():
+        if not ptmetadata.has_table(env, "PSSTYLSHEETDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT STYLESHEETNAME, STYLESHEETTYPE, DESCR, OBJECTOWNERID
+              FROM SYSADM.PSSTYLSHEETDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY STYLESHEETTYPE, STYLESHEETNAME
+        """) or []
+        for r in rows:
+            sname = r.get("stylesheetname")
+            if not sname:
+                continue
+            label = (r.get("descr") or "").strip() or sname
+            add_node(graph, "style_sheet", sname, label, r)
+        return len(rows)
+
+    def ib_routings():
+        if not ptmetadata.has_table(env, "PSIBRTNGDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT ROUTINGDEFNNAME, EFF_STATUS, SENDERNODENAME, RECEIVERNODENAME,
+                   IB_OPERATIONNAME, RTNGTYPE, DESCR
+              FROM SYSADM.PSIBRTNGDEFN
+             WHERE ROUTINGDEFNNAME NOT LIKE '~%'
+               AND ROWNUM <= {limit}
+             ORDER BY IB_OPERATIONNAME, ROUTINGDEFNNAME
+        """) or []
+        for r in rows:
+            rname = r.get("routingdefnname")
+            if not rname:
+                continue
+            label = rname
+            add_node(graph, "ib_routing", rname, label, r)
+        return len(rows)
+
+    def chatbot_skills():
+        if not ptmetadata.has_table(env, "PSCBAPPLDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT PTCBAPPLNAME, DESCR50, PTCBURLPARAMNAME, PACKAGEROOT, STATUS
+              FROM SYSADM.PSCBAPPLDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY PTCBAPPLNAME
+        """) or []
+        for r in rows:
+            sname = r.get("ptcbapplname")
+            if not sname:
+                continue
+            label = (r.get("descr50") or "").strip() or sname
+            add_node(graph, "chatbot_skill", sname, label, r)
+        return len(rows)
+
+    def url_definitions():
+        if not ptmetadata.has_table(env, "PSURLDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT URL_ID, DESCR, URL, OBJECTOWNERID
+              FROM SYSADM.PSURLDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY URL_ID
+        """) or []
+        for r in rows:
+            uid = r.get("url_id")
+            if not uid:
+                continue
+            label = (r.get("descr") or "").strip() or uid
+            add_node(graph, "url_definition", uid, label, r)
+        return len(rows)
+
+    def ib_service_groups():
+        if not ptmetadata.has_table(env, "PSIBGROUPDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT IB_INTGROUPNAME, DESCR, DESCRLONG, OBJECTOWNERID
+              FROM SYSADM.PSIBGROUPDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY IB_INTGROUPNAME
+        """) or []
+        for r in rows:
+            gname = r.get("ib_intgroupname")
+            if not gname:
+                continue
+            label = (r.get("descr") or "").strip() or gname
+            add_node(graph, "ib_service_group", gname, label, r)
+        return len(rows)
+
+    def ads_definitions():
+        if not ptmetadata.has_table(env, "PSADSDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT PTADSNAME, DESCR, DESCR254, OBJECTOWNERID
+              FROM SYSADM.PSADSDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY PTADSNAME
+        """) or []
+        for r in rows:
+            ads_name = r.get("ptadsname")
+            if not ads_name:
+                continue
+            label = (r.get("descr") or "").strip() or ads_name
+            add_node(graph, "ads_definition", ads_name, label, r)
+        return len(rows)
+
     def ib_applications():
         if not ptmetadata.has_table(env, "PSIBAPPLDEFN"):
             return 0
@@ -1123,6 +1244,13 @@ def build(env="HCM", limit=50, persist=True):
         ("app_classes", app_classes),
         ("content_services", content_services),
         ("ptf_tests", ptf_tests),
+        ("archive_objects", archive_objects),
+        ("style_sheets", style_sheets),
+        ("ib_routings", ib_routings),
+        ("chatbot_skills", chatbot_skills),
+        ("url_definitions", url_definitions),
+        ("ib_service_groups", ib_service_groups),
+        ("ads_definitions", ads_definitions),
     ):
         provider(graph, name, loader)
 

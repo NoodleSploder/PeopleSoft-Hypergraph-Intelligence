@@ -850,6 +850,97 @@ OBJECT_REGISTRY.setdefault("ptf_test", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("archive_object", {
+    "display_title": "Archive Object",
+    "icon": "archive",
+    "graph_node_type": "archive_object",
+    "object_page": "/admin/archobj",
+    "discovery": {"table": "PSARCHOBJDEFN", "name_column": "PSARCH_OBJECT"},
+    "search": {"table": "PSARCHOBJDEFN", "name_column": "PSARCH_OBJECT",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["OBJECTOWNERID"]},
+    "supported_versions": ["8.50", "8.51", "8.52", "8.53", "8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+OBJECT_REGISTRY.setdefault("style_sheet", {
+    "display_title": "Style Sheet",
+    "icon": "layout",
+    "graph_node_type": "style_sheet",
+    "object_page": "/admin/stylesheet",
+    "discovery": {"table": "PSSTYLSHEETDEFN", "name_column": "STYLESHEETNAME"},
+    "search": {"table": "PSSTYLSHEETDEFN", "name_column": "STYLESHEETNAME",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["OBJECTOWNERID"]},
+    "supported_versions": ["8.50", "8.51", "8.52", "8.53", "8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+OBJECT_REGISTRY.setdefault("ib_routing", {
+    "display_title": "IB Routing",
+    "icon": "shuffle",
+    "graph_node_type": "ib_routing",
+    "object_page": "/admin/ibrtng",
+    "discovery": {"table": "PSIBRTNGDEFN", "name_column": "ROUTINGDEFNNAME"},
+    "search": {"table": "PSIBRTNGDEFN", "name_column": "ROUTINGDEFNNAME",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["IB_OPERATIONNAME", "SENDERNODENAME", "RECEIVERNODENAME"]},
+    "supported_versions": ["8.50", "8.51", "8.52", "8.53", "8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+OBJECT_REGISTRY.setdefault("chatbot_skill", {
+    "display_title": "Chatbot Skill",
+    "icon": "message-square",
+    "graph_node_type": "chatbot_skill",
+    "object_page": "/admin/cbskill",
+    "discovery": {"table": "PSCBAPPLDEFN", "name_column": "PTCBAPPLNAME"},
+    "search": {"table": "PSCBAPPLDEFN", "name_column": "PTCBAPPLNAME",
+               "description_columns": ["DESCR50"],
+               "extra_search_columns": ["PTCBURLPARAMNAME", "APPCLASSID"]},
+    "supported_versions": ["8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+OBJECT_REGISTRY.setdefault("url_definition", {
+    "display_title": "URL Definition",
+    "icon": "link",
+    "graph_node_type": "url_definition",
+    "object_page": "/admin/urldef",
+    "discovery": {"table": "PSURLDEFN", "name_column": "URL_ID"},
+    "search": {"table": "PSURLDEFN", "name_column": "URL_ID",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["URL", "OBJECTOWNERID"]},
+    "supported_versions": ["8.50", "8.51", "8.52", "8.53", "8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+OBJECT_REGISTRY.setdefault("ib_service_group", {
+    "display_title": "IB Service Group",
+    "icon": "layers",
+    "graph_node_type": "ib_service_group",
+    "object_page": "/admin/ibsvcgrp",
+    "discovery": {"table": "PSIBGROUPDEFN", "name_column": "IB_INTGROUPNAME"},
+    "search": {"table": "PSIBGROUPDEFN", "name_column": "IB_INTGROUPNAME",
+               "description_columns": ["DESCR", "DESCRLONG"],
+               "extra_search_columns": ["OBJECTOWNERID"]},
+    "supported_versions": ["8.50", "8.51", "8.52", "8.53", "8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+OBJECT_REGISTRY.setdefault("ads_definition", {
+    "display_title": "ADS Definition",
+    "icon": "package",
+    "graph_node_type": "ads_definition",
+    "object_page": "/admin/adsdef",
+    "discovery": {"table": "PSADSDEFN", "name_column": "PTADSNAME"},
+    "search": {"table": "PSADSDEFN", "name_column": "PTADSNAME",
+               "description_columns": ["DESCR", "DESCR254"],
+               "extra_search_columns": ["OBJECTOWNERID"]},
+    "supported_versions": ["8.52", "8.53", "8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 for object_type in [
     "content_reference",
     "section",
