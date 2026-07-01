@@ -120,3 +120,5 @@
 {"timestamp": "2026-06-30T19:57:38.456719+00:00", "action": "execute", "query_id": "9cdbb364-8c22-48cc-a26b-21db5035e2f4", "env": "HCM", "sql": "SELECT OPRID, OPRDEFNDESC, EMPLID, EMAILID, ACCTLOCK, OPRTYPE, LASTSIGNONDTTM, FAILEDLOGINS FROM SYSADM.PSOPRDEFN WHERE ROWNUM <= 3", "elapsed_ms": 22, "row_count": 3, "status": "success", "page": 1, "page_size": 100}
 {"timestamp": "2026-07-01T05:18:43.446822+00:00", "action": "schema_search", "env": "HCM", "q": "JOB"}
 {"timestamp": "2026-07-01T05:18:45.208925+00:00", "action": "schema_columns", "env": "HCM", "owner": "SYSADM", "object_name": "PS_JOB"}
+{"timestamp": "2026-07-01T06:24:28.648852+00:00", "action": "schema_search", "env": "HCM", "q": "JOB"}
+{"timestamp": "2026-07-01T06:24:30.967191+00:00", "action": "schema_columns", "env": "HCM", "owner": "SYSADM", "object_name": "PS_JOB"}

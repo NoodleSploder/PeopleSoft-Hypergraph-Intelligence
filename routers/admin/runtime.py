@@ -1090,6 +1090,7 @@ a.obj-link:hover{text-decoration:underline;}
     <div class="tab"     onclick="switchTab('trees')">Trees</div>
     <div class="tab"     onclick="switchTab('ib_routings')">IB Routings</div>
     <div class="tab"     onclick="switchTab('ib_messages')">IB Messages</div>
+    <div class="tab"     onclick="switchTab('ci')">Comp. Interfaces</div>
     <div class="tab"     onclick="switchTab('graph')">Graph</div>
   </div>
 
@@ -1141,6 +1142,14 @@ a.obj-link:hover{text-decoration:underline;}
       <span class="spinner" id="spin-ae">&#9679;&#9679;&#9679;</span>
     </div>
     <div id="res-ae"></div>
+    <hr style="border-color:#1a2a3a;margin:18px 0">
+    <div style="font-size:11px;color:#7faab2;margin-bottom:8px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;">Step-Level Body Diff</div>
+    <div class="ctrl">
+      <input id="aeBodyName" type="text" placeholder="AE program name (e.g. GP_ABSENCE_CALC)" style="width:300px;" onkeydown="if(event.key==='Enter')runAeBodyDiff()">
+      <button onclick="runAeBodyDiff()">Diff Steps &amp; SQL</button>
+      <span class="spinner" id="spin-ae-body">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-ae-body"></div>
   </div>
 
   <!-- Roles tab -->
@@ -1252,6 +1261,16 @@ a.obj-link:hover{text-decoration:underline;}
     <div id="res-ib_messages"></div>
   </div>
 
+  <!-- Comp. Interfaces tab -->
+  <div id="pane-ci" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="ciQ" type="text" placeholder="Search component interface name…" style="width:280px;" onkeydown="if(event.key==='Enter')runCompare('ci')">
+      <button onclick="runCompare('ci')">Compare</button>
+      <span class="spinner" id="spin-ci">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-ci"></div>
+  </div>
+
   <!-- Graph tab -->
   <div id="pane-graph" class="pane" style="display:none;">
     <div class="ctrl">
@@ -1268,7 +1287,7 @@ a.obj-link:hover{text-decoration:underline;}
 
 <script>
 const $ = id => document.getElementById(id);
-const TABS = ['records','fields','components','permissions','ae','roles','peoplecode','sql_definitions','portals','queries','menus','trees','ib_routings','ib_messages','graph'];
+const TABS = ['records','fields','components','permissions','ae','roles','peoplecode','sql_definitions','portals','queries','menus','trees','ib_routings','ib_messages','ci','graph'];
 let currentTab = 'records';
 
 function env1() { return $('env1Sel').value || 'HCM'; }
@@ -1287,7 +1306,8 @@ async function api(path) {
 function switchTab(name) {
   currentTab = name;
   TABS.forEach(t => {
-    $(`pane-${t}`).style.display = t === name ? 'block' : 'none';
+    const pane = $(`pane-${t}`);
+    if (pane) pane.style.display = t === name ? 'block' : 'none';
   });
   document.querySelectorAll('.tab').forEach((el, i) => {
     el.classList.toggle('on', TABS[i] === name);
@@ -1323,7 +1343,7 @@ async function loadSummary() {
 const Q_IDS = {
   records: 'recQ', components: 'compQ', permissions: 'permQ', ae: 'aeQ', roles: 'roleQ',
   peoplecode: 'pcQ', sql_definitions: 'sqlQ', portals: 'portalQ', queries: 'queryQ',
-  menus: 'menuQ', trees: 'treeQ', ib_routings: 'ibrtngQ', ib_messages: 'ibmsgQ',
+  menus: 'menuQ', trees: 'treeQ', ib_routings: 'ibrtngQ', ib_messages: 'ibmsgQ', ci: 'ciQ',
 };
 
 async function runCompare(type) {
@@ -1373,6 +1393,86 @@ async function runGraphCompare() {
   const d = await api(`/api/envcompare/graph?env1=${env1()}&env2=${env2()}&node_types=${encodeURIComponent(types)}&limit=250`);
   $('spin-graph').classList.remove('on');
   renderGraphDiff(d);
+}
+
+async function runAeBodyDiff() {
+  const name = ($('aeBodyName').value || '').trim().toUpperCase();
+  if (!name) return;
+  $('spin-ae-body').classList.add('on');
+  $('res-ae-body').innerHTML = '';
+  const d = await api(`/api/envcompare/ae-body?env1=${env1()}&env2=${env2()}&ae_applid=${encodeURIComponent(name)}`);
+  $('spin-ae-body').classList.remove('on');
+  renderAeBodyDiff(d);
+}
+
+function renderAeBodyDiff(d) {
+  if (!d || !d.ae_applid) { $('res-ae-body').innerHTML = '<div class="empty">No result</div>'; return; }
+  let h = '';
+  (d.warnings || []).forEach(w => {
+    h += `<div class="warn-msg">&#9888; ${esc(w.message||String(w))}</div>`;
+  });
+
+  const total = d.total_steps || 0;
+  const changed = (d.changed || []).length;
+  const only1 = (d.only_in_env1 || []).length;
+  const only2 = (d.only_in_env2 || []).length;
+  const identical = d.identical_count || 0;
+  h += `<div class="stat-grid">
+    <div class="stat-box"><div class="stat-num">${total}</div><div class="stat-lbl">Total Steps</div></div>
+    <div class="stat-box"><div class="stat-num n-changed">${changed}</div><div class="stat-lbl">Changed</div></div>
+    <div class="stat-box"><div class="stat-num n-only1">${only1}</div><div class="stat-lbl">Only ${esc(d.env1)}</div></div>
+    <div class="stat-box"><div class="stat-num n-only2">${only2}</div><div class="stat-lbl">Only ${esc(d.env2)}</div></div>
+    <div class="stat-box"><div class="stat-num n-same">${identical}</div><div class="stat-lbl">Identical</div></div>
+  </div>`;
+
+  if (only1 > 0) {
+    h += `<div class="section-head">Steps only in ${esc(d.env1)} <span class="chip chip-del">${only1}</span></div>`;
+    h += `<table><tr><th>Step</th><th>Section</th><th>Status</th></tr>`;
+    (d.only_in_env1 || []).forEach(r => {
+      h += `<tr><td class="mono">${esc(r.step_key)}</td><td class="mono">${esc(r.ae_section)}</td><td>${esc(r.ae_active_status)}</td></tr>`;
+    });
+    h += `</table>`;
+  }
+
+  if (only2 > 0) {
+    h += `<div class="section-head">Steps only in ${esc(d.env2)} <span class="chip chip-add">${only2}</span></div>`;
+    h += `<table><tr><th>Step</th><th>Section</th><th>Status</th></tr>`;
+    (d.only_in_env2 || []).forEach(r => {
+      h += `<tr><td class="mono">${esc(r.step_key)}</td><td class="mono">${esc(r.ae_section)}</td><td>${esc(r.ae_active_status)}</td></tr>`;
+    });
+    h += `</table>`;
+  }
+
+  if (changed > 0) {
+    h += `<div class="section-head" style="margin-top:10px">Changed Steps <span class="chip chip-chg">${changed}</span></div>`;
+    (d.changed || []).forEach(c => {
+      const sqlTag = c.sql_changed ? '<span class="chip chip-chg">SQL</span>' : '';
+      const metaTag = c.meta_changed ? '<span class="chip chip-chg">META</span>' : '';
+      h += `<div class="card">`;
+      h += `<div style="font-size:11px;font-weight:bold;font-family:monospace;margin-bottom:6px">${esc(c.step_key)} ${sqlTag}${metaTag}</div>`;
+      if (c.meta_changed) {
+        h += `<div style="font-size:11px;color:#ffdd55">Status: ${esc(d.env1)}=${esc(c.env1_status)} → ${esc(d.env2)}=${esc(c.env2_status)}</div>`;
+      }
+      if (c.sql_changed && c.diff) {
+        h += `<div style="font-size:10px;font-family:monospace;background:#050e16;border:1px solid #1a2a3a;padding:8px;margin-top:6px;overflow-x:auto;max-height:400px;overflow-y:auto;white-space:pre;">`;
+        c.diff.split('\\n').forEach(line => {
+          let col = '#9ab', bg = 'transparent';
+          if (line.startsWith('+++') || line.startsWith('---')) { col = '#668'; bg = '#0a1520'; }
+          else if (line.startsWith('@@'))  { col = '#00aaff'; bg = '#001828'; }
+          else if (line.startsWith('+'))   { col = '#00cc66'; bg = '#002210'; }
+          else if (line.startsWith('-'))   { col = '#ff4444'; bg = '#200808'; }
+          h += `<div style="color:${col};background:${bg};padding:0 2px;min-height:13px">${esc(line)||'&nbsp;'}</div>`;
+        });
+        h += `</div>`;
+      }
+      h += `</div>`;
+    });
+  }
+
+  if (!h || (only1 === 0 && only2 === 0 && changed === 0)) {
+    h += `<div class="empty">No differences found — programs are identical across environments.</div>`;
+  }
+  $('res-ae-body').innerHTML = h;
 }
 
 async function runPortalObjectCompare() {
@@ -1502,7 +1602,7 @@ function renderPcSourceDiff(d) {
 
   // Unified diff rendered with line-level coloring
   h += `<div style="font-size:10px;font-family:monospace;background:#050e16;border:1px solid #1a2a3a;padding:10px;margin-top:8px;overflow-x:auto;max-height:600px;overflow-y:auto;white-space:pre;">`;
-  d.diff.split('\n').forEach(line => {
+  d.diff.split('\\n').forEach(line => {
     let col = '#9ab', bg = 'transparent';
     if (line.startsWith('+++') || line.startsWith('---')) { col = '#668'; bg = '#0a1520'; }
     else if (line.startsWith('@@'))  { col = '#00aaff'; bg = '#001828'; }
@@ -1769,6 +1869,7 @@ function nameCol(type) {
     trees: 'tree_name',
     ib_routings: 'routingdefnname',
     ib_messages: 'msgname',
+    ci: 'bcname',
   };
   return map[type] || 'name';
 }
@@ -1786,6 +1887,7 @@ function metaHeaders(type) {
     trees:        ['Name', 'SetID', 'Status', 'Description'],
     ib_routings:  ['Name', 'Type', 'Operation', 'Sender', 'Receiver'],
     ib_messages:  ['Name', 'Status', 'Description', 'Owner'],
+    ci:           ['Name', 'Type', 'Description', 'Component'],
   };
   return map[type] || ['Name'];
 }
@@ -1814,6 +1916,8 @@ function metaCells(r, type) {
       return `<td>${esc(r.rtngtype)}</td><td class="mono">${esc(r.ib_operationname)}</td><td class="mono">${esc(r.sendernodename)}</td><td class="mono">${esc(r.receivernodename)}</td>`;
     case 'ib_messages':
       return `<td>${esc(r.msgstatus)}</td><td>${esc(r.descr)}</td><td>${esc(r.objectownerid)}</td>`;
+    case 'ci':
+      return `<td>${esc(r.bctype)}</td><td>${esc(r.descr)}</td><td class="mono">${esc(r.pnlgrpname)}</td>`;
     default:
       return '';
   }
@@ -1821,12 +1925,23 @@ function metaCells(r, type) {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 (async () => {
-  const d = await api('/api/envcompare/config');
-  const envs = d.envs || ['HCM', 'FSCM'];
-  $('env1Sel').innerHTML = envs.map((e,i) => `<option value="${e}"${i===0?' selected':''}>${e}</option>`).join('');
-  $('env2Sel').innerHTML = envs.map((e,i) => `<option value="${e}"${i===1||envs.length===1?' selected':''}>${e}</option>`).join('');
-  // If only one env, pick it for both (will show all-identical).
-  loadSummary();
+  try {
+    const d = await api('/api/envcompare/config');
+    const envs = (d && d.envs) ? d.envs : ['HCM', 'FSCM'];
+    const e1 = $('env1Sel');
+    const e2 = $('env2Sel');
+    if (!e1 || !e2) {
+      console.error('DeathStar envcompare: selector elements not found', {e1, e2});
+      return;
+    }
+    e1.innerHTML = envs.map((e,i) => `<option value="${e}"${i===0?' selected':''}>${e}</option>`).join('');
+    e2.innerHTML = envs.map((e,i) => `<option value="${e}"${i===1||envs.length===1?' selected':''}>${e}</option>`).join('');
+    loadSummary();
+  } catch(err) {
+    console.error('DeathStar envcompare init failed:', err);
+    const st = $('summaryTable');
+    if (st) st.innerHTML = `<div class="err-msg">Init error: ${esc(String(err))}</div>`;
+  }
 })();
 </script>""")
 

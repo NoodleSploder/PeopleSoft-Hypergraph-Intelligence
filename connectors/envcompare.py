@@ -616,6 +616,193 @@ def compare_ib_messages(env1, env2, q="", limit=500):
     return diff
 
 
+def compare_ci(env1, env2, q="", limit=500):
+    """Diff PSBCDEFN (Component Interface definitions) between two environments."""
+    pattern = f"%{q.upper()}%" if q else None
+    params = {"q": pattern}
+    warnings = []
+    all_rows = []
+
+    for env in (env1, env2):
+        cols = psdb.table_columns(env, "PSBCDEFN")
+        if not cols:
+            all_rows.append([])
+            warnings.append({"code": f"{env.upper()}_NO_TABLE",
+                             "message": f"{env}: PSBCDEFN not accessible", "severity": "error"})
+            continue
+        descr_col = "DESCR" if "descr" in cols else "NULL AS DESCR"
+        descr_filter = "OR UPPER(DESCR) LIKE :q" if "descr" in cols else ""
+        type_col = "BCTYPE" if "bctype" in cols else "NULL AS BCTYPE"
+        pnlgrp_col = "PNLGRPNAME" if "pnlgrpname" in cols else "NULL AS PNLGRPNAME"
+        ts_col = "LASTUPDDTTM" if "lastupddttm" in cols else "NULL AS LASTUPDDTTM"
+        sql = f"""
+            SELECT BCNAME, {type_col}, {descr_col}, {pnlgrp_col}, {ts_col}
+              FROM SYSADM.PSBCDEFN
+             WHERE (:q IS NULL OR UPPER(BCNAME) LIKE :q {descr_filter})
+             ORDER BY BCNAME
+             FETCH FIRST {int(limit)} ROWS ONLY
+        """
+        rows, w = _run(env, sql, params)
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
+
+    rows1, rows2 = all_rows
+    diff = _compare(rows1, rows2, "bcname",
+                    ["bctype", "descr", "pnlgrpname", "lastupddttm"])
+    diff.update({"env1": env1, "env2": env2, "object_type": "ci",
+                 "query": q, "warnings": warnings})
+    return diff
+
+
+def compare_ae_body(env1, env2, ae_applid):
+    """
+    Step-level diff of an AE program between two environments.
+    Compares PSAESTEPDEFN rows (section+step composite key), and for SQL steps
+    fetches and diffs the SQL text from PSAESTMTDEFN + PSSQLTEXTDEFN.
+    Returns a structured diff with per-step detail.
+    """
+    ae_applid = ae_applid.strip().upper()
+    warnings = []
+
+    def _fetch_steps(env):
+        try:
+            return psdb.query(env, """
+                SELECT AE_SECTION, AE_STEP, AE_ACTIVE_STATUS, AE_ABEND_ACTION, DESCR
+                  FROM SYSADM.PSAESTEPDEFN
+                 WHERE AE_APPLID = :applid
+                   AND DBTYPE    = ' '
+                   AND MARKET    = 'GBL'
+                   AND EFFDT = (
+                       SELECT MAX(e.EFFDT) FROM SYSADM.PSAESTEPDEFN e
+                        WHERE e.AE_APPLID  = PSAESTEPDEFN.AE_APPLID
+                          AND e.AE_SECTION = PSAESTEPDEFN.AE_SECTION
+                          AND e.AE_STEP    = PSAESTEPDEFN.AE_STEP
+                          AND e.DBTYPE     = PSAESTEPDEFN.DBTYPE
+                          AND e.MARKET     = PSAESTEPDEFN.MARKET)
+                 ORDER BY AE_SECTION, AE_STEP
+            """, {"applid": ae_applid}), None
+        except Exception as exc:
+            return [], f"{env}: {exc}"
+
+    def _fetch_sql_texts(env):
+        """Return dict keyed by (section, step) -> full sql_text (chunks concatenated by seqnum)."""
+        try:
+            stmt_rows = psdb.query(env, """
+                SELECT s.AE_SECTION, s.AE_STEP, TRIM(s.SQLID) AS SQLID
+                  FROM SYSADM.PSAESTMTDEFN s
+                 WHERE s.AE_APPLID = :applid
+                   AND s.DBTYPE    = ' '
+                   AND s.MARKET    = 'GBL'
+                   AND s.EFFDT = (
+                       SELECT MAX(e.EFFDT) FROM SYSADM.PSAESTMTDEFN e
+                        WHERE e.AE_APPLID  = s.AE_APPLID
+                          AND e.AE_SECTION = s.AE_SECTION
+                          AND e.AE_STEP    = s.AE_STEP
+                          AND e.DBTYPE     = s.DBTYPE
+                          AND e.MARKET     = s.MARKET)
+                 ORDER BY s.AE_SECTION, s.AE_STEP
+            """, {"applid": ae_applid})
+        except Exception:
+            return {}
+
+        sqlids = {str(r.get("sqlid") or "").strip() for r in stmt_rows
+                  if str(r.get("sqlid") or "").strip()}
+        if not sqlids:
+            return {}
+
+        try:
+            text_rows = psdb.query(env, f"""
+                SELECT SQLID, SEQNUM, SQLTEXT
+                  FROM SYSADM.PSSQLTEXTDEFN
+                 WHERE SQLTYPE = 1
+                   AND SQLID IN ({','.join(':id'+str(i) for i in range(len(sqlids)))})
+                 ORDER BY SQLID, SEQNUM
+            """, {f"id{i}": sid for i, sid in enumerate(sqlids)})
+        except Exception:
+            return {}
+
+        # Concatenate chunks per SQLID ordered by SEQNUM
+        sqlid_chunks: dict = {}
+        for r in text_rows:
+            sid = str(r.get("sqlid") or "").strip()
+            sqlid_chunks.setdefault(sid, []).append(str(r.get("sqltext") or ""))
+        sqlid_to_text = {sid: "".join(chunks) for sid, chunks in sqlid_chunks.items()}
+
+        result = {}
+        for r in stmt_rows:
+            sid = str(r.get("sqlid") or "").strip()
+            if sid and sid in sqlid_to_text:
+                key = (str(r.get("ae_section") or "").strip(),
+                       str(r.get("ae_step") or "").strip())
+                result[key] = sqlid_to_text[sid]
+        return result
+
+    steps1, err1 = _fetch_steps(env1)
+    steps2, err2 = _fetch_steps(env2)
+    if err1:
+        warnings.append({"code": f"{env1.upper()}_STEP_ERR", "message": err1, "severity": "error"})
+    if err2:
+        warnings.append({"code": f"{env2.upper()}_STEP_ERR", "message": err2, "severity": "error"})
+
+    sql1 = _fetch_sql_texts(env1)
+    sql2 = _fetch_sql_texts(env2)
+
+    def _step_key(r):
+        return f"{str(r.get('ae_section') or '').strip()}.{str(r.get('ae_step') or '').strip()}"
+
+    map1 = {_step_key(r): r for r in steps1}
+    map2 = {_step_key(r): r for r in steps2}
+    all_keys = sorted(set(map1) | set(map2))
+
+    only_in_env1, only_in_env2, changed, identical = [], [], [], []
+
+    for key in all_keys:
+        sect, _, step = key.partition(".")
+        in1 = key in map1
+        in2 = key in map2
+        if in1 and not in2:
+            only_in_env1.append({"step_key": key, **map1[key]})
+        elif in2 and not in1:
+            only_in_env2.append({"step_key": key, **map2[key]})
+        else:
+            r1, r2 = map1[key], map2[key]
+            step_tuple = (sect.strip(), step.strip())
+            txt1 = sql1.get(step_tuple, "")
+            txt2 = sql2.get(step_tuple, "")
+            sql_changed = txt1 != txt2
+            meta_changed = (str(r1.get("ae_active_status") or "") != str(r2.get("ae_active_status") or "") or
+                            str(r1.get("ae_abend_action") or "") != str(r2.get("ae_abend_action") or ""))
+            if sql_changed or meta_changed:
+                diff_lines = list(difflib.unified_diff(
+                    txt1.splitlines(), txt2.splitlines(),
+                    fromfile=f"{env1}/{key}", tofile=f"{env2}/{key}", lineterm="",
+                )) if sql_changed else []
+                changed.append({
+                    "step_key": key,
+                    "ae_section": sect.strip(),
+                    "ae_step": step.strip(),
+                    "sql_changed": sql_changed,
+                    "meta_changed": meta_changed,
+                    "env1_status": r1.get("ae_active_status"),
+                    "env2_status": r2.get("ae_active_status"),
+                    "diff": "\n".join(diff_lines) if diff_lines else "",
+                })
+            else:
+                identical.append(key)
+
+    return {
+        "env1": env1, "env2": env2,
+        "ae_applid": ae_applid,
+        "only_in_env1": only_in_env1,
+        "only_in_env2": only_in_env2,
+        "changed": changed,
+        "identical_count": len(identical),
+        "total_steps": len(all_keys),
+        "warnings": warnings,
+    }
+
+
 def summary(env1, env2):
     """
     Quick catalog-count comparison across key object types.
@@ -637,6 +824,7 @@ def summary(env1, env2):
         ("Trees",            "SELECT COUNT(*) AS n FROM SYSADM.PSTREEDEFN"),
         ("IB Routings",      "SELECT COUNT(*) AS n FROM SYSADM.PSIBRTNGDEFN WHERE ROUTINGDEFNNAME NOT LIKE '~%'"),
         ("IB Messages",      "SELECT COUNT(*) AS n FROM SYSADM.PSMSGDEFN"),
+        ("Comp. Interfaces", "SELECT COUNT(*) AS n FROM SYSADM.PSBCDEFN"),
     ]
     rows = []
     warnings = []

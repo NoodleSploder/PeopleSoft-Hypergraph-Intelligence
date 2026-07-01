@@ -566,7 +566,7 @@ async function bulkProvisionSelected() {
 
     alert(
         `Bulk Provision: ${data.provisioned} provisioned, ${data.skipped} skipped, ${data.errors} errors\n\n` +
-        lines.join('\n')
+        lines.join('\\n')
     );
 
     await loadUsers();

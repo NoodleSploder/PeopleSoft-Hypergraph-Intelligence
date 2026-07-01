@@ -199,6 +199,27 @@ def compare_ib_messages(
     return envcompare.compare_ib_messages(env1, env2, q=q, limit=limit)
 
 
+@router.get("/ci")
+def compare_ci(
+    env1:  str = Query("HCM"),
+    env2:  str = Query("FSCM"),
+    q:     str = Query(""),
+    limit: int = Query(500),
+):
+    """Diff PSBCDEFN (Component Interface definitions) between two environments."""
+    return envcompare.compare_ci(env1, env2, q=q, limit=limit)
+
+
+@router.get("/ae-body")
+def compare_ae_body(
+    env1:      str = Query("HCM"),
+    env2:      str = Query("FSCM"),
+    ae_applid: str = Query(..., description="AE program name to diff step-by-step"),
+):
+    """Step-level diff of an AE program (sections, steps, SQL text) across two environments."""
+    return envcompare.compare_ae_body(env1, env2, ae_applid)
+
+
 @router.get("/graph")
 def compare_graph(
     env1: str = Query("HCM"),

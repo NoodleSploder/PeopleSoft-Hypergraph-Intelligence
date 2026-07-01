@@ -277,8 +277,10 @@ Every object should answer:
 - Tree comparison (`/api/envcompare/trees`) — diffs PSTREEDEFN (326 rows), latest effective row per tree; shows status, description, timestamp
 - IB Routing comparison (`/api/envcompare/ib_routings`) — diffs PSIBRTNGDEFN named routings (auto-generated excluded); shows type, operation, sender/receiver nodes
 - IB Message comparison (`/api/envcompare/ib_messages`) — diffs PSMSGDEFN (4272 rows); shows status, description, owner
-- Summary sidebar updated with Menus, Trees, IB Routings, IB Messages counts
-- Environment Compare UI updated with 4 new tabs (Menus, Trees, IB Routings, IB Messages)
+- Component Interface comparison (`/api/envcompare/ci`) — diffs PSBCDEFN; shows type, description, backing component (added 2026-07-01)
+- AE step/body comparison (`/api/envcompare/ae-body`) — step-level diff; SQL text via PSAESTMTDEFN/PSSQLTEXTDEFN; unified diff per changed step (added 2026-07-01)
+- Summary sidebar updated with Menus, Trees, IB Routings, IB Messages, Comp. Interfaces counts
+- Environment Compare UI updated with 5 new tabs (Menus, Trees, IB Routings, IB Messages, Comp. Interfaces) + AE body drill-down within AE tab
 
 ### Remaining
 
@@ -291,10 +293,11 @@ Automatically detect changes in:
 - Trees — ✅ added 2026-07-01
 - Integration Broker metadata — ✅ added 2026-07-01 (routings + messages)
 
+- Component interface comparison (`/api/envcompare/ci`) — diffs PSBCDEFN; shows type, description, backing component — ✅ added 2026-07-01
+- AE program body comparison (`/api/envcompare/ae-body`) — step-level diff of PSAESTEPDEFN + SQL text from PSAESTMTDEFN/PSSQLTEXTDEFN; unified diff per changed step — ✅ added 2026-07-01
+
 **Remaining continuous drift work:**
 - Scheduled drift reports (run comparisons on a cron schedule, persist diffs to a store, surface alerts when drift exceeds thresholds)
-- AE program body comparison (currently we compare the catalog entry; full step/SQL body diff is not yet implemented)
-- Component interface comparison
 
 ---
 
