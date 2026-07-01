@@ -865,24 +865,34 @@ def record_object(env, recname):
     }
 
     # Compact graph: record → fields, record ← parent, record → component
-    nodes = {}
-    edges = []
-    add_node(nodes, graph_node("record", recname, detail or {}))
-    for f in (fields or [])[:30]:
-        fn = f.get("fieldname")
-        if fn:
-            add_node(nodes, graph_node("field", fn, f))
-            edges.append(graph_edge("record", recname, "field", fn, "contains_field"))
-    for r in related_parent:
-        pn = r.get("recname")
-        if pn:
-            add_node(nodes, graph_node("record", pn, r))
-            edges.append(graph_edge("record", pn, "record", recname, "parent_of"))
-    for c in (components or [])[:10]:
-        cn = c.get("pnlgrpname")
-        if cn:
-            add_node(nodes, graph_node("component", cn, c))
-            edges.append(graph_edge("record", recname, "component", cn, "used_in_component"))
+    graph = relationship_graph(
+        "record",
+        recname,
+        limit_relationships(relationships, {"fields": 30, "components": 10}),
+        [
+            {
+                "relationship": "fields",
+                "node_type": "field",
+                "target_name": lambda row: str(row.get("fieldname") or "").strip(),
+                "default_edge": "contains_field",
+            },
+            {
+                "relationship": "parent",
+                "node_type": "record",
+                "source_node_type": "record",
+                "source_name": lambda row: str(row.get("recname") or "").strip(),
+                "target_name": lambda row: recname,
+                "default_edge": "parent_of",
+            },
+            {
+                "relationship": "components",
+                "node_type": "component",
+                "target_name": lambda row: str(row.get("pnlgrpname") or "").strip(),
+                "default_edge": "used_in_component",
+            },
+        ],
+        root_data=detail or {},
+    )
 
     rectype_label = psdb.RECTYPE_LABELS.get(rectype, f"Type {rectype}") if rectype is not None else ""
 
@@ -902,7 +912,7 @@ def record_object(env, recname):
             "graph": graph_url("record", recname),
         },
         _relationships=relationships,
-        _graph={"nodes": list(nodes.values()), "edges": edges},
+        _graph=graph,
         _metadata={
             "environment": env.upper(),
             "rectype": rectype,

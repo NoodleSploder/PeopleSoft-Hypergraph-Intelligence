@@ -6,6 +6,65 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-06-30 — Record UOM Relationship Graph Extraction
+
+Date/time: 2026-06-30 23:44 CDT
+
+Features implemented:
+- Continued the relationship-provider extraction work by moving the Record UOM
+  graph preview onto the shared `relationship_graph()` helper.
+- Preserved existing Record graph preview caps: fields 30, parent record
+  relationship uncapped, and components 10.
+- Preserved existing Record UOM edge vocabulary:
+  `contains_field`, `parent_of`, and `used_in_component`.
+
+Files modified:
+- `connectors/uom.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Migrated only the UOM Record graph preview in this slice. The separate
+  `/api/peoplesoft/graph/record/{name}` route intentionally remains unchanged
+  because it currently returns a broader impact-style graph from graphdb plus
+  legacy route edges, not the compact UOM preview.
+- Kept root Record node metadata populated from `PSRECDEFN` detail.
+
+Bugs fixed:
+- Removed another imperative graph-building loop from `connectors/uom.py`.
+
+Technical debt:
+- Record, Operator, Role, and Permission List graph routes still contain
+  router-local graph construction or route-specific graph behavior.
+- Field UOM graph construction still uses a bespoke builder because it includes
+  runtime security expansion and page/record fan-out.
+
+Verification:
+- `python -m py_compile connectors/uom.py` — OK.
+- Direct `uom.record_object('HCM', 'JOB')['_graph']` returned 32 nodes and
+  31 edges, matching the pre-refactor UOM graph count.
+- Direct `uom.record_object('HCM', 'PSOPRDEFN')['_graph']` returned 31 nodes
+  and 30 edges, matching the pre-refactor UOM graph count.
+- Direct `uom.record_object('HCM', 'DEPT_TBL')['_graph']` returned 33 nodes
+  and 33 edges, matching the pre-refactor UOM graph count.
+- Compared `/api/peoplesoft/graph/record/{name}` behavior in-process and left
+  it unchanged because its graph shape differs from the UOM preview.
+- `python -m py_compile connectors/uom.py connectors/ptmetadata.py connectors/psdb.py routers/peoplesoft.py routers/admin.py`
+  — OK; existing unrelated `routers/admin.py` invalid escape SyntaxWarning remains.
+- `python -c "import main; print('main import ok')"` — OK.
+- Reloaded `deathstar-api.service` by terminating the current unit PID and
+  allowing systemd to restart it; service came back active on port 8088.
+- `GET /api/peoplesoft/object/record/JOB?env=HCM` — OK, Graph Preview returned
+  `node_count=32`, `edge_count=31`.
+- `GET /api/sqlws/config` — OK baseline.
+
+Next recommended work:
+- Continue reducing duplicate graph construction where the route and UOM graph
+  semantics match, or explicitly split compact UOM previews from impact graph
+  endpoints in the architecture docs before unifying Record route behavior.
+
+------------------------------------------------------------------------
+
 ## 2026-06-30 — Component Graph API Uses UOM Provider
 
 Date/time: 2026-06-30 23:39 CDT
