@@ -35,6 +35,7 @@ _NAV = [
     ("project",    "Projects",      "/admin/project"),
     ("ibmessage",  "IB Messages",   "/admin/ibmessage"),
     ("ibapp",      "IB App Svcs",   "/admin/ibapp"),
+    ("appclass",   "App Classes",   "/admin/appclass"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -3042,6 +3043,7 @@ const TYPE_CHIP_CFG = {
     routing:            {label:'IB Routing',    bg:'#001818',border:'#00aabb44',color:'#00aabb'},
     application_package:{label:'App Package',   bg:'#180a1a',border:'#cc44ff44',color:'#cc44ff'},
     application_class:  {label:'App Class',     bg:'#12081a',border:'#aa33ee44',color:'#aa33ee'},
+    app_class:          {label:'App Class',     bg:'#12081a',border:'#aa33ee44',color:'#aa33ee'},
     message_catalog:    {label:'Message',       bg:'#0a1800',border:'#66cc2244',color:'#88dd44'},
     menu:               {label:'Menu',          bg:'#1a1200',border:'#cc880044',color:'#cc8800'},
     query:              {label:'PS Query',      bg:'#001820',border:'#0099bb44',color:'#00bbdd'},
@@ -13512,6 +13514,115 @@ async function loadDetail(name) {{
     html += '<div class="muted">No detail available.</div>';
   }}
 
+  detail.innerHTML = html;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/appclass", response_class=HTMLResponse)
+def admin_appclass(request: Request, env: str = "HCM"):
+    nav = _nav_html("appclass", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>Application Classes</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+</head><body class="ds-body">
+{nav}
+<div class="ds-main" style="display:grid;grid-template-columns:380px 1fr;gap:0;height:calc(100vh - 48px)">
+<div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
+  <div style="margin-bottom:6px;display:flex;gap:6px">
+    <input id="q" placeholder="Search class or package…" oninput="doSearch()"
+      style="flex:1;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 10px;border-radius:4px;font-size:13px">
+    <input id="pkg" placeholder="Exact package…" oninput="doSearch()"
+      style="width:130px;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 8px;border-radius:4px;font-size:12px">
+  </div>
+  <div id="list" style="font-size:12px"></div>
+</div>
+<div id="detail" style="overflow-y:auto;padding:20px 28px;color:#c8d8e8">
+  <div class="muted">Select an Application Class to view its package context and sibling classes.</div>
+</div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = {repr(env)};
+let selected = null;
+
+async function doSearch() {{
+  const q = document.getElementById('q').value.trim();
+  const pkg = document.getElementById('pkg').value.trim();
+  const url = `/api/peoplesoft/app-classes?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&pkg=${{encodeURIComponent(pkg)}}&limit=200`;
+  const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  const list = document.getElementById('list');
+  if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
+  list.innerHTML = data.map(r => {{
+    const key = r._key || '';
+    const cid = r.appclassid || '';
+    const pkg2 = r.packageroot || '';
+    const qp = (r.qualifypath || '').trim();
+    const path = qp === ':' || !qp ? `${{pkg2}}:${{cid}}` : `${{pkg2}}:${{qp}}:${{cid}}`;
+    return `<div class="list-item${{selected===key?' selected':''}}" onclick="loadDetail('${{esc(key)}}')"
+      style="padding:5px 10px;border-radius:4px;cursor:pointer;margin-bottom:1px;border-bottom:1px solid #0d1520">
+      <div style="font-weight:bold;color:#aa66ff;font-family:monospace;font-size:11px">${{esc(cid)}}</div>
+      <div style="color:#445;font-size:10px;font-family:monospace;word-break:break-all">${{esc(path)}}</div>
+    </div>`;
+  }}).join('');
+}}
+
+async function loadDetail(key) {{
+  selected = key;
+  document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.dataset?.key === key));
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading…</div>';
+  const url = `/api/peoplesoft/object/app_class/${{encodeURIComponent(key)}}?env=${{encodeURIComponent(ENV)}}`;
+  const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
+  if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
+
+  const uom = payload;
+  const secs = uom.sections || [];
+  const ovSec = secs.find(s=>s.title?.includes('Overview'));
+  const sibSec = secs.find(s=>s.title?.includes('Sibling'));
+  const spSec = secs.find(s=>s.title?.includes('Sub-Package'));
+
+  let html = `<h1 style="color:#aa66ff;font-size:16px;margin:0 0 4px;font-family:monospace">${{esc(uom.display_name || key)}}</h1>`;
+
+  // Overview KV
+  if (ovSec?.rows?.length) {{
+    html += '<table style="border-collapse:collapse;margin-bottom:16px;font-size:13px">';
+    ovSec.rows.forEach(row => {{
+      html += `<tr><td style="color:#556;padding:2px 16px 2px 0;white-space:nowrap;vertical-align:top">${{esc(row.key)}}</td>
+        <td style="color:#acd;font-family:monospace;word-break:break-all">${{esc(String(row.value || '—'))}}</td></tr>`;
+    }});
+    html += '</table>';
+  }}
+
+  // Sub-packages section (show as KV-style summary)
+  if (spSec?.items?.length) {{
+    html += `<h2 style="color:#aab;font-size:13px;margin:16px 0 6px">${{esc(spSec.title)}}</h2>`;
+    html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px">';
+    spSec.items.forEach(sp => {{
+      const cnt = sp.chips?.[0]?.label || '';
+      html += `<span style="display:inline-block;background:#0a1528;border:1px solid #1a3a5a;border-radius:3px;padding:2px 8px;font-size:11px;font-family:monospace;color:#7ab">${{esc(sp.name)}} <span style="color:#445">${{esc(cnt)}}</span></span>`;
+    }});
+    html += '</div>';
+  }}
+
+  // Siblings
+  if (sibSec?.items?.length) {{
+    html += `<h2 style="color:#aab;font-size:13px;margin:16px 0 6px">${{esc(sibSec.title)}}</h2>`;
+    html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
+    sibSec.items.forEach(sib => {{
+      const chips = sib.chips?.map(ch => `<span style="font-size:9px;color:#996;margin-left:4px">${{esc(ch.label)}}</span>`).join('') || '';
+      html += `<span style="display:inline-block;background:#0a0818;border:1px solid #2a1a4a;border-radius:3px;padding:2px 8px;font-size:11px;font-family:monospace;color:#aa66ff;cursor:pointer" onclick="loadDetail(${{JSON.stringify(key.split('~').slice(0,2).join('~') + '~' + sib.name)}})">${{esc(sib.name)}}${{chips}}</span>`;
+    }});
+    html += '</div>';
+  }}
+
+  if (!ovSec && !sibSec) {{
+    html += '<div class="muted">No detail available.</div>';
+  }}
   detail.innerHTML = html;
 }}
 

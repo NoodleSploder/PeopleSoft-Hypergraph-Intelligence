@@ -809,6 +809,20 @@ OBJECT_REGISTRY.setdefault("ib_application", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("app_class", {
+    "display_title": "Application Class",
+    "icon": "code",
+    "graph_node_type": "app_class",
+    "object_page": "/admin/appclass",
+    "discovery": {"table": "PSAPPCLASSDEFN", "name_column": "APPCLASSID"},
+    "search": {"table": "PSAPPCLASSDEFN", "name_column": "APPCLASSID",
+               "description_columns": [],
+               "extra_search_columns": ["PACKAGEROOT", "QUALIFYPATH"]},
+    "supported_versions": ["8.50", "8.51", "8.52", "8.53", "8.54", "8.55",
+                           "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 for object_type in [
     "content_reference",
     "section",

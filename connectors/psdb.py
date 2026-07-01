@@ -6182,3 +6182,111 @@ def get_ib_application(env_name, applname):
         },
         "warnings": warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# Application Class Definitions
+# ---------------------------------------------------------------------------
+
+def _app_class_full_path(packageroot, qualifypath, appclassid):
+    """Build the PeopleCode-style full class path."""
+    qp = (qualifypath or "").strip()
+    if qp == ":" or not qp:
+        return f"{packageroot}:{appclassid}"
+    return f"{packageroot}:{qp}:{appclassid}"
+
+
+def search_app_classes(env_name, q="", pkg="", limit=200):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSAPPCLASSDEFN"):
+        return []
+    where_parts = ["1=1"]
+    params = {}
+    if q:
+        where_parts.append("(UPPER(APPCLASSID) LIKE :q OR UPPER(PACKAGEROOT) LIKE :q OR UPPER(QUALIFYPATH) LIKE :q)")
+        params["q"] = f"%{q.upper()}%"
+    if pkg:
+        where_parts.append("UPPER(PACKAGEROOT) = :pkg")
+        params["pkg"] = pkg.upper()
+    where = "WHERE " + " AND ".join(where_parts)
+    rows = query(env_name, f"""
+        SELECT APPCLASSID, PACKAGEROOT, QUALIFYPATH, APPCLASSREF
+          FROM SYSADM.PSAPPCLASSDEFN
+        {where}
+         ORDER BY PACKAGEROOT, QUALIFYPATH, APPCLASSID
+         FETCH FIRST :lim ROWS ONLY
+    """, {**params, "lim": limit})
+    results = []
+    for r in (rows or []):
+        d = dict(r)
+        d["_key"] = f"{d['packageroot']}~{d['qualifypath']}~{d['appclassid']}"
+        d["full_path"] = _app_class_full_path(d["packageroot"], d["qualifypath"], d["appclassid"])
+        results.append(d)
+    return results
+
+
+def get_app_class(env_name, compound_key):
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env_name, "PSAPPCLASSDEFN"):
+        return {"warnings": ["PSAPPCLASSDEFN table not accessible"]}
+
+    # Key format: PACKAGEROOT~QUALIFYPATH~APPCLASSID
+    parts = compound_key.split("~", 2)
+    if len(parts) != 3:
+        return {"warnings": [f"Invalid compound key '{compound_key}' (expected PKG~QP~CLASSID)"]}
+    packageroot, qualifypath, appclassid = parts
+
+    defn_rows = query(env_name, """
+        SELECT APPCLASSID, PACKAGEROOT, QUALIFYPATH, APPCLASSREF
+          FROM SYSADM.PSAPPCLASSDEFN
+         WHERE PACKAGEROOT = :pkg AND QUALIFYPATH = :qp AND APPCLASSID = :cid
+    """, {"pkg": packageroot, "qp": qualifypath, "cid": appclassid})
+    if not defn_rows:
+        return {"warnings": [f"Class '{compound_key}' not found"]}
+    defn = dict(defn_rows[0])
+    defn["full_path"] = _app_class_full_path(packageroot, qualifypath, appclassid)
+
+    # Siblings — other classes in same package:sub-path
+    siblings = []
+    try:
+        sib_rows = query(env_name, """
+            SELECT APPCLASSID, APPCLASSREF
+              FROM SYSADM.PSAPPCLASSDEFN
+             WHERE PACKAGEROOT = :pkg AND QUALIFYPATH = :qp
+               AND APPCLASSID != :cid
+             ORDER BY APPCLASSID
+             FETCH FIRST 100 ROWS ONLY
+        """, {"pkg": packageroot, "qp": qualifypath, "cid": appclassid})
+        siblings = [dict(r) for r in (sib_rows or [])]
+    except Exception as exc:
+        warnings.append(f"Siblings: {exc}")
+
+    # All sub-paths in the same package
+    sub_paths = []
+    try:
+        sp_rows = query(env_name, """
+            SELECT QUALIFYPATH, COUNT(*) AS CLASS_COUNT
+              FROM SYSADM.PSAPPCLASSDEFN
+             WHERE PACKAGEROOT = :pkg
+             GROUP BY QUALIFYPATH
+             ORDER BY QUALIFYPATH
+             FETCH FIRST 50 ROWS ONLY
+        """, {"pkg": packageroot})
+        sub_paths = [dict(r) for r in (sp_rows or [])]
+    except Exception as exc:
+        warnings.append(f"SubPaths: {exc}")
+
+    total_in_pkg = sum(sp.get("class_count", 0) for sp in sub_paths)
+
+    return {
+        "definition": defn,
+        "siblings": siblings,
+        "sub_paths": sub_paths,
+        "counts": {
+            "siblings": len(siblings),
+            "sub_paths": len(sub_paths),
+            "total_in_package": total_in_pkg,
+        },
+        "warnings": warnings,
+    }

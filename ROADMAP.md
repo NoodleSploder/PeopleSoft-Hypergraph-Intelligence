@@ -166,6 +166,7 @@ Continue expanding object coverage.
 - App Designer Projects (added 2026-06-30; PSPROJECTDEFN, 3488 rows, keyed by PROJECTNAME; sub-table PSPROJECTITEM with 200086 object items; 40+ object type codes decoded; includes PTADS* automated delivery projects)
 - IB Message Definitions (added 2026-06-30; PSMSGDEFN, 4272 rows, keyed by MSGNAME; sub-tables PSMSGVER/PSMSGREC; shows versions and schema record hierarchy for each message)
 - IB Application Services (added 2026-06-30; PSIBAPPLDEFN, 13 apps, keyed by PTIBAPPLNAME; sub-tables PSIBAPPMETHOD/PSIBAPPURI/PSIBAPPTRAN/PSIBAPPLSTATES; shows REST endpoint operations with HTTP methods and URI templates; covers Chatbot, Fluid/Mobile, Payroll, Absence, Recruitment ASF services)
+- Application Class Definitions (added 2026-06-30; PSAPPCLASSDEFN, 12622 rows across 1860 packages; compound key PACKAGEROOT~QUALIFYPATH~APPCLASSID; displays full PeopleCode path, sibling classes in same sub-package, and sub-package inventory; QUALIFYPATH `:` indicates root-level class)
 
 ### ⚠️ Stub Providers (no live backing tables found in verified HCM schema)
 
@@ -418,6 +419,7 @@ Completed in this session:
 
 Completed this session (2026-06-30 continued):
 - **IB Application Services** — implemented against verified `PSIBAPPLDEFN` (13 apps); exposes REST endpoint operations via PSIBAPPMETHOD/PSIBAPPURI with HTTP methods and URI templates
+- **Application Class Definitions** — implemented against verified `PSAPPCLASSDEFN` (12622 rows, 1860 packages); compound key PACKAGEROOT~QUALIFYPATH~APPCLASSID; shows full class path with sibling classes and sub-package tree
 
 Candidates for next session:
 - **WorkCenters** — no standalone definition header table found; EOWC tables are runtime config keyed by portal object name, not metadata definitions; deprioritized
@@ -425,4 +427,5 @@ Candidates for next session:
 - **BI Publisher / Branding / Page Composer** — no backing definition tables found in live HCM SYSADM schema; deprioritized
 - **Activity Guide Collections** — `PS_AGC_TILE_TBL` (2 rows): too few rows to be useful
 - **IB Service Groups** — `PSIBSRVGROUP` (456 rows, 76 groups): viable; no header description table exists, groups are self-defined by membership; could add as a grouping view on IB services
-- **Application Classes** — `PSAPPCLASSDEFN` (12622 rows): compound key PACKAGEROOT+QUALIFYPATH+APPCLASSID is unique; complements App Package Explorer with class-level detail
+- **Fluid Homepage / Tile Definitions** — investigate PSPGEDEFN, PSFLPGCOLLECT, or similar tables for Fluid homepage configurations
+- **Chatbot Definitions** — investigate if PSIB tables cover chatbot-specific configs beyond what IB App Services exposes

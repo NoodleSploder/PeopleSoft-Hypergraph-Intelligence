@@ -926,6 +926,30 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "connected_query", cid, r.get("descr") or cid, r)
         return len(rows)
 
+    def app_classes():
+        if not ptmetadata.has_table(env, "PSAPPCLASSDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT APPCLASSID, PACKAGEROOT, QUALIFYPATH, APPCLASSREF
+              FROM SYSADM.PSAPPCLASSDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY PACKAGEROOT, QUALIFYPATH, APPCLASSID
+        """) or []
+        for r in rows:
+            pkg = r.get("packageroot") or ""
+            qp = r.get("qualifypath") or ""
+            cid = r.get("appclassid") or ""
+            if not (pkg and cid):
+                continue
+            key = f"{pkg}~{qp}~{cid}"
+            qp_stripped = qp.strip()
+            if qp_stripped == ":" or not qp_stripped:
+                label = f"{pkg}:{cid}"
+            else:
+                label = f"{pkg}:{qp_stripped}:{cid}"
+            add_node(graph, "app_class", key, label, r)
+        return len(rows)
+
     def ib_applications():
         if not ptmetadata.has_table(env, "PSIBAPPLDEFN"):
             return 0
@@ -1061,6 +1085,7 @@ def build(env="HCM", limit=50, persist=True):
         ("file_layouts", file_layouts),
         ("process_definitions", process_definitions),
         ("ib_applications", ib_applications),
+        ("app_classes", app_classes),
     ):
         provider(graph, name, loader)
 

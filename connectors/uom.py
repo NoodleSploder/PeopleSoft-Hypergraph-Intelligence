@@ -5973,6 +5973,8 @@ def canonical_object(env, object_type, name):
         return ib_message_object(env, name)
     if object_type == "ib_application":
         return ib_application_object(env, name)
+    if object_type == "app_class":
+        return app_class_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])
@@ -6124,4 +6126,105 @@ def ib_application_object(env, applname):
             "operation_count": counts.get("operations", 0),
         },
         _metadata={"environment": env.upper(), "source_table": "PSIBAPPLDEFN"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Application Class Definitions
+# ---------------------------------------------------------------------------
+
+def _app_class_full_path(packageroot, qualifypath, appclassid):
+    qp = (qualifypath or "").strip()
+    if qp == ":" or not qp:
+        return f"{packageroot}:{appclassid}"
+    return f"{packageroot}:{qp}:{appclassid}"
+
+
+def _app_class_sections(data):
+    sections = []
+    defn = data.get("definition") or {}
+    siblings = data.get("siblings") or []
+    sub_paths = data.get("sub_paths") or []
+    counts = data.get("counts") or {}
+
+    pkg = defn.get("packageroot", "")
+    qp = defn.get("qualifypath", "")
+    cid = defn.get("appclassid", "")
+    full_path = defn.get("full_path", "")
+    base_class = (defn.get("appclassref") or "").strip()
+    qp_display = qp if qp not in (":", "") else "(root)"
+
+    kv = [
+        {"key": "Class Name", "value": cid},
+        {"key": "Package Root", "value": pkg},
+        {"key": "Sub-Package Path", "value": qp_display},
+        {"key": "Full Class Path", "value": full_path},
+        {"key": "Total Classes in Package", "value": str(counts.get("total_in_package", ""))},
+    ]
+    if base_class and base_class != " ":
+        kv.insert(4, {"key": "Base Class (APPCLASSREF)", "value": base_class})
+    sections.append({"type": "kv", "title": "Class Overview", "rows": kv})
+
+    # Sibling classes in same sub-package
+    if siblings:
+        sib_items = []
+        for s in siblings[:80]:
+            ref = (s.get("appclassref") or "").strip()
+            chips = [{"label": "extends " + ref, "cls": "chip-purple"}] if ref and ref != " " else []
+            sib_items.append({
+                "name": s.get("appclassid", ""),
+                "chips": chips,
+                "meta": "",
+            })
+        sections.append({
+            "type": "items",
+            "title": f"Sibling Classes in {pkg}:{qp} ({len(siblings)})",
+            "items": sib_items,
+        })
+
+    # Sub-packages within the package
+    if sub_paths and counts.get("sub_paths", 0) > 1:
+        sp_items = []
+        for sp in sub_paths:
+            sp_qp = (sp.get("qualifypath") or "").strip()
+            sp_cnt = sp.get("class_count", 0)
+            display_qp = sp_qp if sp_qp not in (":", "") else "(root)"
+            sp_items.append({
+                "name": display_qp,
+                "chips": [{"label": str(sp_cnt), "cls": "chip-blue"}],
+                "meta": f"{sp_cnt} classes",
+            })
+        sections.append({
+            "type": "items",
+            "title": f"Sub-Packages in {pkg} ({len(sub_paths)})",
+            "items": sp_items,
+        })
+
+    return sections
+
+
+def app_class_object(env, compound_key):
+    from connectors import psdb as _psdb
+    data = _psdb.get_app_class(env, compound_key)
+    defn = data.get("definition") or {}
+    warnings = data.get("warnings") or []
+
+    full_path = defn.get("full_path") or compound_key
+    sections = _app_class_sections(data)
+
+    return canonical_base(
+        env,
+        "app_class",
+        compound_key,
+        display_name=full_path,
+        status="active",
+        warnings=warnings,
+        sections=sections,
+        overview={
+            "package": defn.get("packageroot"),
+            "sub_path": defn.get("qualifypath"),
+            "class_name": defn.get("appclassid"),
+            "base_class": (defn.get("appclassref") or "").strip() or None,
+        },
+        _metadata={"environment": env.upper(), "source_table": "PSAPPCLASSDEFN"},
     )
