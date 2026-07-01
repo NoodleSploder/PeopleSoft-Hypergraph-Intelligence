@@ -5993,6 +5993,8 @@ def canonical_object(env, object_type, name):
         return style_sheet_object(env, name)
     if object_type == "archive_object":
         return archive_object_object(env, name)
+    if object_type == "timezone":
+        return timezone_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])
@@ -7085,4 +7087,76 @@ def archive_object_object(env, arch_name):
         sections=sections,
         overview={"record_count": counts.get("records", 0)},
         _metadata={"environment": env.upper(), "source_table": "PSARCHOBJDEFN"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Timezone Definitions
+# ---------------------------------------------------------------------------
+
+def timezone_object(env, tz_code):
+    from connectors import psdb as _psdb
+    data = _psdb.get_timezone(env, tz_code)
+    defn = data.get("definition") or {}
+    iana = data.get("iana") or []
+    warnings = data.get("warnings") or []
+
+    descr = (defn.get("tzdescr") or "").strip()
+    utc_offset = defn.get("utcoffset")
+    observedst = (defn.get("observedst") or "").strip()
+    std_lbl = (defn.get("timezonestdlbl") or "").strip()
+    dst_lbl = (defn.get("timezonedstlbl") or "").strip()
+    dst_offset = defn.get("dstoffset")
+    dst_start = (defn.get("dststart") or "").strip()
+    dst_end = (defn.get("dstend") or "").strip()
+    display = f"{tz_code} — {descr}" if descr else tz_code
+
+    kv_items = []
+    if descr:
+        kv_items.append(("Description", descr))
+    if utc_offset is not None:
+        # UTCOFFSET is stored in minutes; convert to ±H:MM display
+        h, m = divmod(abs(int(utc_offset)), 60)
+        sign = "+" if utc_offset >= 0 else "-"
+        off_str = f"UTC{sign}{h}:{m:02d}" if m else ("UTC\u00b10" if utc_offset == 0 else f"UTC{sign}{h}")
+        kv_items.append(("UTC Offset", off_str))
+    if std_lbl:
+        kv_items.append(("Standard Label", std_lbl))
+    kv_items.append(("Observes DST", "Yes" if observedst == "Y" else "No"))
+    if observedst == "Y":
+        if dst_lbl:
+            kv_items.append(("DST Label", dst_lbl))
+        if dst_offset is not None:
+            h2, m2 = divmod(abs(int(dst_offset)), 60)
+            sign2 = "+" if dst_offset >= 0 else "-"
+            dst_off_str = f"{sign2}{h2}:{m2:02d} from standard" if m2 else (f"{sign2}{h2}h from standard" if dst_offset != 0 else "Same as standard")
+            kv_items.append(("DST Adjustment", dst_off_str))
+        if dst_start:
+            kv_items.append(("DST Start", dst_start))
+        if dst_end:
+            kv_items.append(("DST End", dst_end))
+
+    sections = [{
+        "title": "Timezone Overview",
+        "type": "kv",
+        "items": [{"label": k, "value": v} for k, v in kv_items],
+    }]
+
+    if iana:
+        sections.append({
+            "title": f"IANA Equivalents ({len(iana)})",
+            "type": "chips",
+            "items": [{"label": iz, "cls": "secondary"} for iz in iana],
+        })
+
+    return canonical_base(
+        env,
+        "timezone",
+        tz_code.upper(),
+        display_name=display,
+        status="active",
+        warnings=warnings,
+        sections=sections,
+        overview={"utc_offset_minutes": utc_offset, "observes_dst": observedst == "Y"},
+        _metadata={"environment": env.upper(), "source_table": "PSTIMEZONEDEFN"},
     )

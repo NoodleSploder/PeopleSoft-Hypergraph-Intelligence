@@ -6,6 +6,59 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-06-30 — Timezone Explorer Vertical Slice
+
+Date/time: 2026-06-30 (resumed session)
+
+Features implemented:
+- Full Timezone Explorer slice from `psdb.py` through to the admin UI page.
+- `psdb.search_timezones(env, q, limit)` — queries `PSTIMEZONEDEFN` with effective-date subquery; returns `TIMEZONE`, `TZDESCR`, `UTCOFFSET` (minutes), `OBSERVEDST`, `PTEFFDTTM`.
+- `psdb.get_timezone(env, tz_code)` — fetches single timezone plus IANA mappings from `PSTIMEZONEIANA`; returns `{definition, iana, warnings}`.
+- `ptmetadata.py` — added `OBJECT_REGISTRY["timezone"]` with discovery/search tables `PSTIMEZONEDEFN`/`TIMEZONE`, icon `clock`.
+- `connectors/uom.py` — `timezone_object(env, tz_code)` canonical object: converts `UTCOFFSET` minutes to `UTC±H:MM` string, maps `OBSERVEDST`, builds kv overview section and IANA chip section. `utc_offset_minutes` key preserved in overview for the admin page JS.
+- `connectors/graphdb.py` — `timezones()` provider with `has_table()` guard and effective-date subquery; registered in the graph build loop.
+- `routers/peoplesoft.py` — `GET /api/peoplesoft/timezones` endpoint; object dispatch for `object_type == "timezone"`.
+- `routers/admin.py` — NAV entry `("timezone", "Timezones", "/admin/timezone")`; chip definition; `GET /timezone` route using `_shell()` with full search/select UI.
+- `scripts/smoke_admin_shell.py` — added `("/admin/timezone", "#q", True, True, [])` to `DEFAULT_PAGES`.
+
+Files modified:
+- `connectors/psdb.py`
+- `connectors/ptmetadata.py`
+- `connectors/uom.py`
+- `connectors/graphdb.py`
+- `routers/peoplesoft.py`
+- `routers/admin.py`
+- `scripts/smoke_admin_shell.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- `UTCOFFSET` and `DSTOFFSET` in `PSTIMEZONEDEFN` are stored in minutes (PST = -480, IST = +330). Converted to display strings in `uom.py`; raw minutes kept in the overview payload so the admin page JS can format independently with `fmtOffset()`.
+- Effective-date subquery (`WHERE PTEFFDTTM = (SELECT MAX(...))`) used in both search and detail queries to pick the current definition row.
+- `PSTIMEZONEIANA` join in `get_timezone()` retrieves all IANA equivalents for the given timezone code.
+- Admin page JS avoids inline onclick; uses `data-idx` attributes and `addEventListener` to comply with the project's HTML escaping requirements.
+
+Bugs fixed:
+- Previous session left `psdb.py`/`ptmetadata.py` committed but `uom.py`/`graphdb.py`/`routers/`/`admin.py` missing — completed the slice.
+- Admin route path corrected from `@router.get("/admin/timezone")` (double-prefix with `APIRouter(prefix="/admin")`) to `@router.get("/timezone")`.
+- Removed `request: Request` parameter that caused 422 when `Request` was not imported.
+
+Verification:
+- `python -m py_compile connectors/uom.py connectors/graphdb.py routers/peoplesoft.py routers/admin.py` — OK.
+- `uom.timezone_object('HCM', 'PST')` → display `PST \u2014 Pacific Time (US)`, UTC-8, DST yes.
+- `uom.timezone_object('HCM', 'IST')` → UTC+5:30 (half-hour offset correct).
+- `uom.timezone_object('HCM', 'DOES_NOT_EXIST')` → warnings `["Timezone 'DOES_NOT_EXIST' not found"]`.
+- `GET /api/peoplesoft/timezones?env=HCM` — OK.
+- `GET /admin/timezone` — 200 OK.
+- `python scripts/smoke_admin_shell.py` — `/admin/timezone` passes; pre-existing `/admin/envcompare` and `/admin/reports` failures unchanged.
+
+Next recommended work:
+- IB Schema Definitions (`PSIBSCMADATA`/`PSIBSCMADFN`, 3680/3618 rows)
+- Performance Monitor Metrics (`PSPMMETRICDEFN`, 206 rows)
+- Locale Definitions (`PSLOCALEDEFN` + `PSLOCALEOPTNDFN`, 191/923 rows)
+
+------------------------------------------------------------------------
+
 ## 2026-06-30 — Page Graph API Uses UOM Provider
 
 Date/time: 2026-06-30 11:47 CDT

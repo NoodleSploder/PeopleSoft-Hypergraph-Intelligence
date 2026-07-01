@@ -1019,6 +1019,26 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "style_sheet", sname, label, r)
         return len(rows)
 
+    def timezones():
+        if not ptmetadata.has_table(env, "PSTIMEZONEDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT t.TIMEZONE, t.TZDESCR, t.UTCOFFSET, t.OBSERVEDST
+              FROM SYSADM.PSTIMEZONEDEFN t
+             WHERE t.PTEFFDTTM = (
+                   SELECT MAX(t2.PTEFFDTTM) FROM SYSADM.PSTIMEZONEDEFN t2
+                    WHERE t2.TIMEZONE = t.TIMEZONE)
+               AND ROWNUM <= {limit}
+             ORDER BY t.TIMEZONE
+        """) or []
+        for r in rows:
+            tzname = r.get("timezone")
+            if not tzname:
+                continue
+            label = (r.get("tzdescr") or "").strip() or tzname
+            add_node(graph, "timezone", tzname, label, r)
+        return len(rows)
+
     def ib_routings():
         if not ptmetadata.has_table(env, "PSIBRTNGDEFN"):
             return 0
@@ -1251,6 +1271,7 @@ def build(env="HCM", limit=50, persist=True):
         ("url_definitions", url_definitions),
         ("ib_service_groups", ib_service_groups),
         ("ads_definitions", ads_definitions),
+        ("timezones", timezones),
     ):
         provider(graph, name, loader)
 

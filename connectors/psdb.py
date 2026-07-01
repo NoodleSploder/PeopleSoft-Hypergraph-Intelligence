@@ -7077,3 +7077,58 @@ def get_archive_object(env_name, arch_object):
         "counts": {"records": len(records)},
         "warnings": warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# Timezone Definitions
+# ---------------------------------------------------------------------------
+
+def search_timezones(env_name, q="", limit=200):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSTIMEZONEDEFN"):
+        return []
+    where = ""
+    params = {}
+    if q:
+        where = "WHERE UPPER(TIMEZONE) LIKE :q OR UPPER(TZDESCR) LIKE :q"
+        params["q"] = f"%{q.upper()}%"
+    rows = query(env_name, f"""
+        SELECT TIMEZONE, TZDESCR, TIMEZONESTDLBL, TIMEZONEDSTLBL,
+               UTCOFFSET, OBSERVEDST, DSTOFFSET
+          FROM SYSADM.PSTIMEZONEDEFN t
+         WHERE PTEFFDTTM = (
+               SELECT MAX(t2.PTEFFDTTM) FROM SYSADM.PSTIMEZONEDEFN t2
+                WHERE t2.TIMEZONE = t.TIMEZONE)
+         {where}
+         ORDER BY TIMEZONE
+         FETCH FIRST :lim ROWS ONLY
+    """, {**params, "lim": limit})
+    return [dict(r) for r in (rows or [])]
+
+
+def get_timezone(env_name, tz_code):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSTIMEZONEDEFN"):
+        return {"warnings": ["PSTIMEZONEDEFN table not accessible"]}
+    rows = query(env_name, """
+        SELECT TIMEZONE, TZDESCR, TIMEZONESTDLBL, TIMEZONEDSTLBL,
+               UTCOFFSET, OBSERVEDST, DSTOFFSET, DSTSTART, DSTEND,
+               PTEFFDTTM, LASTUPDDTTM
+          FROM SYSADM.PSTIMEZONEDEFN
+         WHERE TIMEZONE = :id
+           AND PTEFFDTTM = (SELECT MAX(t2.PTEFFDTTM) FROM SYSADM.PSTIMEZONEDEFN t2
+                             WHERE t2.TIMEZONE = :id)
+    """, {"id": tz_code.upper()})
+    # Also get IANA mapping
+    iana = []
+    if ptmetadata.has_table(env_name, "PSTIMEZONEIANA"):
+        try:
+            iana_rows = query(env_name, """
+                SELECT IANAZONEID FROM SYSADM.PSTIMEZONEIANA
+                 WHERE TIMEZONE = :id ORDER BY IANAZONEID
+            """, {"id": tz_code.upper()})
+            iana = [r["ianazoneid"] for r in (iana_rows or [])]
+        except Exception:
+            pass
+    return {"definition": dict(rows[0]) if rows else {}, "iana": iana,
+            "warnings": [] if rows else [f"Timezone '{tz_code}' not found"]}

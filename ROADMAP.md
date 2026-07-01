@@ -55,9 +55,10 @@ The following major subsystems are production-ready:
 - Search Definition Explorer
 - Search Category Explorer
 - Drop Zone Explorer
+- Timezone Explorer
 - Version-aware metadata adapters
 - Shared frontend shell with global navigation and environment selector
-- Admin shell smoke test harness (22+ pages; 16 new providers added in Phase 5)
+- Admin shell smoke test harness (23+ pages; 17 new providers added in Phase 5)
 - Scheduled graph snapshots with retention pruning
 
 Development focus now shifts from feature parity toward platform intelligence.
@@ -451,4 +452,6 @@ Candidates for future sessions:
 - **IB Schema Definitions** — PSIBSCMADATA/PSIBSCMADFN (3680/3618 rows): IB XML schema metadata; investigate if human-readable name + type columns exist for browsing
 - **Performance Monitor Metrics** — PSPMMETRICDEFN (206 rows): metric IDs and labels for PeopleSoft Performance Monitor; possible integration with runtime monitoring
 - **Locale Definitions** — PSLOCALEDEFN (191 rows) + PSLOCALEOPTNDFN (923 rows): PeopleSoft locale/i18n settings catalog
-- **Timezone Definitions** — PSTIMEZONEDEFN (61 rows) + PSTIMEZONEIANA (592 rows): timezone catalog with IANA mappings
+
+Completed (previous candidates now implemented):
+- **Timezone Definitions** — PSTIMEZONEDEFN (61 rows) + PSTIMEZONEIANA (592 rows): timezone catalog with IANA mappings; effective-dated; UTCOFFSET in minutes; full admin UI with search and detail panel

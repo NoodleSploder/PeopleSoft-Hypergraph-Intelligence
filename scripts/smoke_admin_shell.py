@@ -158,6 +158,7 @@ DEFAULT_PAGES = [
     ("/admin/srchdef",    "#sdSearch",   True, True,  []),
     ("/admin/srchcat",    "#scSearch",   True, True,  []),
     ("/admin/dropzone",   "#dzSearch",   True, True,  []),
+    ("/admin/timezone",   "#q",          True, True,  []),
 ]
 
 

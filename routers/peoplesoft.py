@@ -403,6 +403,8 @@ def object_payload(env, object_type, object_name):
         return uom.object_payload(uom.style_sheet_object(env, object_name))
     if object_type == "archive_object":
         return uom.object_payload(uom.archive_object_object(env, object_name))
+    if object_type == "timezone":
+        return uom.object_payload(uom.timezone_object(env, object_name))
 
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
@@ -1251,6 +1253,12 @@ def peoplesoft_style_sheets(env: str = "HCM", q: str = "", ss_type: str = "", li
 def peoplesoft_archive_objects(env: str = "HCM", q: str = "", limit: int = 200):
     """Search Data Archive Object definitions (PSARCHOBJDEFN)."""
     return psdb.search_archive_objects(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/timezones")
+def peoplesoft_timezones(env: str = "HCM", q: str = "", limit: int = 200):
+    """Search Timezone definitions (PSTIMEZONEDEFN)."""
+    return psdb.search_timezones(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/security/reports")
