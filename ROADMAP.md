@@ -565,6 +565,100 @@ log_errors  WHERE oprid='GUACUSER' → cross-ref with PS metadata
 | `log_errors` | Surface and group errors; returns error_code, object_ref, count, sample |
 | `session_log_chain` | Full web→app chain for an OPRID in a time window |
 
+### Integration Gateway Log Consumption
+
+PeopleSoft Integration Gateway writes gateway-specific diagnostic logs that must be consumed independently from standard PIA/WebLogic logs.
+
+Additional log sources:
+
+| Tier | Log type | Parser | Notes |
+|------|----------|--------|-------|
+| Integration Gateway | `igw_msg_log` | IGW HTML log parser | `msgLog.html`; gateway message activity, routing, service operation details |
+| Integration Gateway | `igw_error_log` | IGW HTML log parser | `errorLog.html`; gateway exceptions, target connector failures, authentication failures, routing errors |
+
+### Config Shape — Integration Gateway Logs
+
+Integration Gateway logs are configured independently in `config.json`, allowing each web server to define its own gateway log paths.
+
+```json
+"igw_log_sources": [
+  {
+    "name": "HCM_WEB1_IGW_MSG",
+    "type": "igw_msg_log",
+    "env": "HCM",
+    "ssh_host": "hcm_web1",
+    "path": "/opt/oracle/psft/pt/webserv/HCM/applications/peoplesoft/PSIGW/msgLog.html",
+    "enabled": true
+  },
+  {
+    "name": "HCM_WEB1_IGW_ERROR",
+    "type": "igw_error_log",
+    "env": "HCM",
+    "ssh_host": "hcm_web1",
+    "path": "/opt/oracle/psft/pt/webserv/HCM/applications/peoplesoft/PSIGW/errorLog.html",
+    "enabled": true
+  }
+]
+
+### Process Scheduler Transport Support
+
+Process Scheduler log retrieval must support both Unix/Linux and Windows-hosted scheduler servers.
+
+Unlike app server and web server log ingestion, Process Scheduler domains may run on:
+
+- Linux / Unix
+- Windows Server
+- mixed platform deployments
+
+Therefore `prcs_log_sources` must allow an explicit retrieval method per source.
+
+Supported transport types:
+
+| Transport | Use case |
+|----------|----------|
+| `local` | Same-host file reads |
+| `ssh_sftp` | Linux/Unix Process Scheduler servers |
+| `smb` | Windows Process Scheduler servers via file share |
+| `winrm` | Windows Process Scheduler servers via remote command/file retrieval |
+| `agent` | Future lightweight PHI collector agent installed on scheduler host |
+
+### Updated Config Shape — Process Scheduler Logs
+
+```json
+"prcs_log_sources": [
+  {
+    "name": "HCM_PRCS_LINUX_DOMAIN",
+    "type": "prcs_scheduler",
+    "env": "HCM",
+    "platform": "linux",
+    "transport": "ssh_sftp",
+    "ssh_host": "hcm_prcs_linux1",
+    "path": "/opt/oracle/psft/cfg/appserv/prcs/HCM/LOGS/*.LOG",
+    "enabled": true
+  },
+  {
+    "name": "HCM_PRCS_WINDOWS_OUTPUT",
+    "type": "prcs_process_log",
+    "env": "HCM",
+    "platform": "windows",
+    "transport": "smb",
+    "smb_host": "hcm-prcs-win1",
+    "share": "PS_CFG_HOME",
+    "path": "appserv\\prcs\\HCM\\files\\log_output\\*\\*\\*.log",
+    "enabled": true
+  },
+  {
+    "name": "HCM_PRCS_WINDOWS_TRACE",
+    "type": "prcs_trace",
+    "env": "HCM",
+    "platform": "windows",
+    "transport": "winrm",
+    "winrm_host": "hcm-prcs-win1",
+    "path": "C:\\psft\\pt\\8.61\\appserv\\prcs\\HCM\\files\\log_output\\*\\*\\*.tracesql",
+    "enabled": false
+  }
+]
+
 ---
 
 ## Implementation Status
@@ -572,18 +666,15 @@ log_errors  WHERE oprid='GUACUSER' → cross-ref with PS metadata
 ### ✅ Completed (2026-07-01)
 
 - Architecture design and config schema
-- Phase 8 roadmap documentation
-
-### In Progress
-
-- `connectors/sshclient.py` — paramiko SSH/SFTP wrapper
-- `connectors/logparser.py` — PIA / APPSRV / Apache / F5 parsers
-- `connectors/logdb.py` — SQLite storage
-- `connectors/logingest.py` — ingestion orchestration
-- `connectors/scheduler.py` — 60s log ingest job
-- `routers/logs.py` — REST API
-- `routers/admin/logs.py` — Log viewer + error surface + session chain UI
-- AI tools: `log_search`, `log_errors`, `session_log_chain`
+- `connectors/sshclient.py` — paramiko SSH/SFTP wrapper with connection pooling and byte-offset tracking
+- `connectors/logparser.py` — PIA access/error/servlet/weblogic/stdout, APPSRV, Tuxedo ULOG, Apache/nginx, F5 parsers; PS-specific error code extraction (ORA-XXXXX, HTTP_NNN, IB_PCODEWOL, IB_EXT_APP, AUTH_FAIL, WEBPROFILE_ERR); object reference extraction; OPRID extraction from message body
+- `connectors/logdb.py` — SQLite storage with web_entries/app_entries/log_errors tables; `re_extract_errors()` backfill for improved extraction patterns
+- `connectors/logingest.py` — ingestion orchestration with per-file byte-offset tracking
+- `connectors/scheduler.py` — 60s log ingest job integrated with graph snapshot scheduler
+- `routers/logs.py` — REST API: sources, web, app, errors (with summary grouping), session chain, search, ingest trigger, re-extract trigger
+- `routers/admin/logs.py` — `/admin/logs` (source overview), `/admin/log_errors` (grouped error surface with Ask AI), `/admin/log_viewer` (filtered web/app/error browser), `/admin/log_session` (OPRID session chain)
+- AI tools: `log_search`, `log_errors`, `session_log_chain` in `connectors/ai_tools.py`
+- 7+ active log sources ingesting live HCM data; error surface groups errors by code+object (HTTP_502, IB_PCODEWOL, WEBPROFILE_ERR, AUTH_FAIL, IB_EXT_APP)
 
 ### Design Decisions
 
@@ -591,7 +682,7 @@ log_errors  WHERE oprid='GUACUSER' → cross-ref with PS metadata
 - **Future F5 native**: When F5 Analytics/AVR logs become available, add `f5_avr` parser with VS name, pool, irule fields
 - **Retention**: 30 days of web entries, 90 days of app entries, 90 days of errors (configurable)
 - **Dedup**: log_errors has UNIQUE(source_name, ts, raw) — safe to re-ingest overlapping byte ranges
-- **OPRID extraction**: web logs — second NCSA field (auth user); app logs — `N.OPRID` pattern in APPSRV format
+- **OPRID extraction**: web logs — second NCSA field (auth user); app logs — context field + message body fallback
 
 ---
 
