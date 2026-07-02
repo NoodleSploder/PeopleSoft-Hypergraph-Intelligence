@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  check:
+    name: Syntax + Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Match the version in use on the production host.
+          # Pin to 3.12 as the minimum supported version for CI runners;
+          # production runs 3.14 but syntax and unit tests are version-agnostic.
+          python-version: "3.12"
+
+      - name: Install dependencies (lightweight subset for unit tests)
+        run: |
+          python -m pip install --upgrade pip
+          # oracledb is a top-level import in connectors; install it so unit tests
+          # can import modules without a live Oracle connection.
+          pip install fastapi pydantic PyYAML oracledb
+
+      - name: Syntax check — all Python files
+        run: python scripts/syntax_check.py --quiet
+
+      - name: Unit tests (no Oracle / Chrome required)
+        run: python -m unittest discover -s tests/ -v

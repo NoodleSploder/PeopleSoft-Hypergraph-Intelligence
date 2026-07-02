@@ -659,7 +659,7 @@ function highlightPC(src,q){
     if(s[i]==='/' && s[i+1]==='*'){const e=s.indexOf('*/',i+2);const end=e<0?s.length:e+2;h+='<span class="cmt">'+esc(s.slice(i,end))+'</span>';i=end;continue;}
     if(s[i]==='"'){let j=i+1;while(j<s.length&&s[j]!=='"')j++;h+='<span class="str">'+esc(s.slice(i,j+1))+'</span>';i=j+1;continue;}
     // word
-    if(/[A-Za-z%_]/.test(s[i])){let j=i;while(j<s.length&&/[A-Za-z0-9_.%\-]/.test(s[j]))j++;const w=s.slice(i,j);
+    if(/[A-Za-z%_]/.test(s[i])){let j=i;while(j<s.length&&/[A-Za-z0-9_.%\\-]/.test(s[j]))j++;const w=s.slice(i,j);
       if(PC_KW.includes(w))h+='<span class="kw">'+esc(w)+'</span>';
       else if(PC_BUILTIN.includes(w))h+='<span class="builtin">'+esc(w)+'</span>';
       else if(q&&w.toUpperCase()===q.toUpperCase())h+='<span class="hit">'+esc(w)+'</span>';
