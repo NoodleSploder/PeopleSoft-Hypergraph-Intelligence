@@ -22,6 +22,7 @@ _NAV_GROUPS = [
         ("logs",        "Logs",           "/admin/logs"),
         ("log_errors",  "Log Errors",     "/admin/log_errors"),
         ("igw",         "IGW Errors",     "/admin/igw"),
+        ("prcs_ae",     "PRCS AE Logs",   "/admin/prcs-ae"),
     ]),
     ("Data", [
         ("sqlws",  "SQL Workspace",  "/admin/sqlws"),
@@ -69,6 +70,8 @@ _NAV_GROUPS = [
         ("timezone",   "Timezones",    "/admin/timezone"),
         ("locale",     "Locales",      "/admin/locale"),
         ("ptftest",    "PTF Tests",    "/admin/ptftest"),
+        ("sqr",        "SQR Explorer",  "/admin/sqr"),
+        ("compflow",   "Comp Event Flow", "/admin/compflow"),
     ]),
     ("Perf", [
         ("pmmetric", "PM Metrics",      "/admin/pmmetric"),

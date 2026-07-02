@@ -3,64 +3,339 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse
 from ._core import router, _shell, _nav_html, _NAV_CSS, _ESC_JS
 
+
 @router.get("/", response_class=HTMLResponse)
 def admin_home():
-    return _shell("Home", "home", env=False, content="""\
-<div class="pe-home">
-  <div class="pe-hero">
-    <p class="pe-kicker">DeathStar Platform</p>
-    <h1>PeopleSoft Hypergraph Intelligence</h1>
-    <p>Unified diagnostic, development, security, and monitoring
-    console for PeopleSoft environments.</p>
-    <div class="pe-actions">
-      <a href="/admin/runtime">Runtime Monitor</a>
-      <a href="/admin/sqlws">SQL Workspace</a>
-      <a href="/admin/ib">IB Explorer</a>
-      <a href="/admin/envcompare">Env Compare</a>
+    return _shell("Home", "home", env=False, noscroll=False, content="""\
+<style>
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;}
+h2{color:#00e5ff;font-size:12px;letter-spacing:2px;text-transform:uppercase;
+   border-bottom:1px solid #00e5ff22;padding-bottom:6px;margin:0 0 10px;}
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:1100px;}
+@media(max-width:700px){.dash-grid{grid-template-columns:1fr;}}
+.dash-card{background:rgba(0,20,30,.75);border:1px solid #00e5ff33;
+  box-shadow:0 0 10px rgba(0,229,255,.1);padding:14px 18px;border-radius:4px;}
+.dash-card.alert-card{border-color:rgba(255,107,107,.3);}
+.stat-row{display:flex;gap:16px;flex-wrap:wrap;margin:8px 0;}
+.stat{display:flex;flex-direction:column;}
+.stat-val{font-size:22px;font-weight:700;color:#00e5ff;}
+.stat-val.red{color:#ff4444;}
+.stat-val.green{color:#00cc66;}
+.stat-val.orange{color:#ff9f43;}
+.stat-lbl{font-size:10px;color:#445;text-transform:uppercase;letter-spacing:.5px;margin-top:1px;}
+.alert-item{display:flex;gap:8px;align-items:flex-start;padding:5px 0;
+  border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;}
+.alert-item:last-child{border-bottom:none;}
+.sev-error{color:#ff4444;font-weight:700;font-size:10px;min-width:38px;}
+.sev-warn{color:#ff9f43;font-weight:700;font-size:10px;min-width:38px;}
+.src-row{display:flex;justify-content:space-between;align-items:center;
+  padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;}
+.src-row:last-child{border-bottom:none;}
+.src-ok{color:#00cc66;font-size:10px;}
+.src-err{color:#ff4444;font-size:10px;}
+.ql-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+.ql{padding:5px 12px;border-radius:3px;background:rgba(0,229,255,.07);
+  border:1px solid rgba(0,229,255,.2);color:#00e5ff;font-size:11px;
+  text-decoration:none;white-space:nowrap;}
+.ql:hover{background:rgba(0,229,255,.15);}
+.ql.orange{border-color:rgba(255,159,67,.3);color:#ff9f43;background:rgba(255,159,67,.07);}
+.ql.green{border-color:rgba(0,204,102,.3);color:#00cc66;background:rgba(0,204,102,.07);}
+.ql.red{border-color:rgba(255,107,107,.3);color:#ff6b6b;background:rgba(255,107,107,.07);}
+.ql.purple{border-color:rgba(180,100,255,.3);color:#c97fff;background:rgba(180,100,255,.07);}
+.mini-spark{display:block;overflow:visible;}
+.spark-row{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;}
+.spark-tile{display:flex;flex-direction:column;gap:2px;}
+.spark-lbl{font-size:10px;color:#334;text-transform:uppercase;letter-spacing:.5px;}
+.spark-val{font-size:14px;font-weight:700;}
+.muted{color:#334;}
+.ts-label{font-size:11px;color:#334;}
+</style>
+
+<div class="pe-home" style="max-width:1100px;margin:0 auto;padding:16px">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+  <div>
+    <div style="font-size:10px;color:#445;letter-spacing:2px;text-transform:uppercase">DeathStar Platform</div>
+    <h1 style="color:#00e5ff;font-size:20px;margin:2px 0;text-shadow:0 0 12px #00e5ff44;letter-spacing:3px">
+      PeopleSoft Hypergraph Intelligence
+    </h1>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <select id="envSel" onchange="loadDash()"
+      style="background:rgba(0,20,30,.88);border:1px solid rgba(0,229,255,.3);
+             color:#d7faff;font-size:12px;padding:5px 10px;border-radius:4px">
+    </select>
+    <span class="ts-label" id="lastTs">Loading…</span>
+  </div>
+</div>
+
+<div class="dash-grid">
+
+  <!-- Active Alerts -->
+  <div class="dash-card alert-card" id="alertCard">
+    <h2>Active Alerts <span id="alertBadge" style="font-weight:normal;font-size:11px"></span></h2>
+    <div id="alertBody"><span class="muted" style="font-size:12px">Loading…</span></div>
+    <div class="ql-row">
+      <a class="ql" href="/admin/runtime">Runtime Monitor</a>
+      <a class="ql orange" href="/admin/igw">IGW Errors</a>
+      <a class="ql green" href="/admin/prcs-ae">PRCS AE</a>
     </div>
   </div>
-  <div class="pe-grid">
-    <div class="pe-card">
-      <span>Identity &amp; Security</span>
-      User management, operator search, role explorer, permission analysis.
-      <div style="margin-top:8px;font-size:11px">
-        <a href="/admin/users">Users</a> &middot;
-        <a href="/admin/operator">Operators</a> &middot;
-        <a href="/admin/role">Roles</a> &middot;
-        <a href="/admin/security">Security Explorer</a>
-      </div>
-    </div>
-    <div class="pe-card">
-      <span>Object Exploration</span>
-      Browse records, fields, components, pages, PeopleCode, and AE programs.
-      <div style="margin-top:8px;font-size:11px">
-        <a href="/admin/record">Records</a> &middot;
-        <a href="/admin/field">Fields</a> &middot;
-        <a href="/admin/peoplecode">PeopleCode</a> &middot;
-        <a href="/admin/objects">Object Explorer</a>
-      </div>
-    </div>
-    <div class="pe-card">
-      <span>Integration &amp; Tracing</span>
-      Integration Broker, transaction tracing, and process monitoring.
-      <div style="margin-top:8px;font-size:11px">
-        <a href="/admin/ib">IB Explorer</a> &middot;
-        <a href="/admin/tracing">Transaction Tracing</a> &middot;
-        <a href="/admin/runtime">Runtime Monitor</a>
-      </div>
-    </div>
-    <div class="pe-card">
-      <span>Analytics &amp; Tools</span>
-      Knowledge Graph, SQL Workspace, environment comparison, platform tools.
-      <div style="margin-top:8px;font-size:11px">
-        <a href="/admin/sqlws">SQL Workspace</a> &middot;
-        <a href="/admin/envcompare">Env Compare</a> &middot;
-        <a href="/admin/tools">Tools</a> &middot;
-        <a href="/admin/graph">Graph Explorer</a>
-      </div>
+
+  <!-- Runtime Health -->
+  <div class="dash-card">
+    <h2>Runtime Health</h2>
+    <div id="runtimeBody"><span class="muted" style="font-size:12px">Loading…</span></div>
+    <div class="ql-row">
+      <a class="ql" href="/admin/runtime">Monitor</a>
+      <a class="ql orange" href="/admin/runtime">Process Errors</a>
     </div>
   </div>
-</div>""")
+
+  <!-- Log Health -->
+  <div class="dash-card">
+    <h2>Log Intelligence</h2>
+    <div id="logBody"><span class="muted" style="font-size:12px">Loading…</span></div>
+    <div class="ql-row">
+      <a class="ql" href="/admin/logs">Sources</a>
+      <a class="ql red" href="/admin/log_errors">Errors</a>
+      <a class="ql orange" href="/admin/igw">IGW</a>
+      <a class="ql green" href="/admin/prcs-ae">PRCS AE</a>
+    </div>
+  </div>
+
+  <!-- Drift + Trend -->
+  <div class="dash-card">
+    <h2>Environment &amp; Trends</h2>
+    <div id="driftBody"><span class="muted" style="font-size:12px">Loading…</span></div>
+    <div id="sparkBody" style="margin-top:12px"></div>
+    <div class="ql-row">
+      <a class="ql" href="/admin/drift">Drift History</a>
+      <a class="ql" href="/admin/envcompare">Env Compare</a>
+      <a class="ql purple" href="/admin/assistant">Ask AI</a>
+    </div>
+  </div>
+
+</div><!-- /dash-grid -->
+
+<!-- Quick Navigation -->
+<div style="margin-top:14px;background:rgba(0,20,30,.5);border:1px solid #00e5ff22;
+            border-radius:4px;padding:12px 18px">
+  <div style="font-size:10px;color:#334;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Quick Navigation</div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px">
+    <a class="ql" href="/admin/objects">Object Explorer</a>
+    <a class="ql" href="/admin/graph">Graph Explorer</a>
+    <a class="ql" href="/admin/ib">IB Explorer</a>
+    <a class="ql" href="/admin/tracing">Tracing</a>
+    <a class="ql" href="/admin/sqlws">SQL Workspace</a>
+    <a class="ql" href="/admin/security">Security</a>
+    <a class="ql" href="/admin/peoplecode">PeopleCode</a>
+    <a class="ql" href="/admin/record">Records</a>
+    <a class="ql" href="/admin/ae">AE Programs</a>
+    <a class="ql" href="/admin/impact">Impact</a>
+    <a class="ql" href="/admin/promotions">Promotions</a>
+    <a class="ql" href="/admin/topology">Topology</a>
+    <a class="ql" href="/admin/log_viewer">Log Viewer</a>
+    <a class="ql" href="/admin/log_session">Session Chain</a>
+    <a class="ql" href="/admin/users">Users</a>
+    <a class="ql purple" href="/admin/assistant">AI Assistant</a>
+  </div>
+</div>
+</div><!-- /max-width -->
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(r.statusText);
+  return r.json();
+}
+
+function _sparkline(vals, color, w=100, h=28) {
+  if (!vals.length) return '';
+  const min = Math.min(...vals), max = Math.max(...vals, min + 1);
+  const range = max - min || 1;
+  const pts = vals.map((v, i) => {
+    const x = ((i / Math.max(vals.length - 1, 1)) * (w - 4) + 2).toFixed(1);
+    const y = (h - 2 - ((v - min) / range) * (h - 6)).toFixed(1);
+    return `${x},${y}`;
+  }).join(' ');
+  const lp = pts.split(' ').at(-1).split(',');
+  return `<svg class="mini-spark" width="${w}" height="${h}">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" opacity=".9"/>
+    <circle cx="${lp[0]}" cy="${lp[1]}" r="2.5" fill="${color}"/>
+  </svg>`;
+}
+
+async function loadAlerts(env) {
+  try {
+    const d = await api(`/api/runtime/alerts?env=${encodeURIComponent(env)}`);
+    const alerts = d.alerts || [];
+    $('alertBadge').textContent = alerts.length ? `· ${alerts.length} active` : '· All Clear';
+    $('alertBadge').style.color = d.error_count > 0 ? '#ff4444' : d.warn_count > 0 ? '#ff9f43' : '#00cc66';
+    if (!alerts.length) {
+      $('alertBody').innerHTML = '<div style="color:#00cc66;font-size:13px">✓ No active alerts</div>';
+      return;
+    }
+    $('alertBody').innerHTML = alerts.slice(0, 6).map(a => `
+      <div class="alert-item">
+        <span class="${a.severity === 'error' ? 'sev-error' : 'sev-warn'}">${a.severity.toUpperCase()}</span>
+        <span>${esc(a.message)}</span>
+        ${a.data?._links?.admin ? `<a href="${a.data._links.admin}" style="color:#00e5ff;font-size:10px;margin-left:auto;white-space:nowrap">→</a>` : ''}
+      </div>`).join('');
+  } catch(e) {
+    $('alertBody').innerHTML = `<span class="muted" style="font-size:12px">Alerts unavailable: ${esc(e.message)}</span>`;
+  }
+}
+
+async function loadRuntime(env) {
+  try {
+    const d = await api(`/api/runtime/status?env=${encodeURIComponent(env)}`);
+    const ps = d.process_summary?.totals || {};
+    const ae = d.ae_running?.count ?? 0;
+    const ib = d.ib_summary?.ib || {};
+    const ibPend = Object.values(ib).flat()
+      .filter(r => (r.pubstatus ?? r.subconstatus ?? 4) !== 4)
+      .reduce((s, r) => s + (r.cnt || 0), 0);
+
+    const statColor = (v, badIfPos) => v > 0 ? (badIfPos ? 'red' : 'green') : 'muted';
+    $('runtimeBody').innerHTML = `
+      <div class="stat-row">
+        <div class="stat"><span class="stat-val">${ps.total ?? '—'}</span><span class="stat-lbl">Processes</span></div>
+        <div class="stat"><span class="stat-val ${statColor(ps.active,false)}">${ps.active ?? 0}</span><span class="stat-lbl">Active</span></div>
+        <div class="stat"><span class="stat-val ${statColor(ps.error,true)}">${ps.error ?? 0}</span><span class="stat-lbl">Errors</span></div>
+        <div class="stat"><span class="stat-val ${statColor(ae,false)}">${ae}</span><span class="stat-lbl">AE Running</span></div>
+        <div class="stat"><span class="stat-val ${statColor(ibPend,true)}">${ibPend}</span><span class="stat-lbl">IB Pending</span></div>
+      </div>
+      ${d.warnings?.length ? `<div style="font-size:11px;color:#334;margin-top:4px">${esc(d.warnings[0]?.message||'')}</div>` : ''}`;
+  } catch(e) {
+    $('runtimeBody').innerHTML = `<span class="muted" style="font-size:12px">Unavailable: ${esc(e.message)}</span>`;
+  }
+}
+
+async function loadLog(env) {
+  try {
+    const [srcs, ae, igw] = await Promise.allSettled([
+      api('/api/logs/sources'),
+      api(`/api/logs/prcs-ae-summary?env=${encodeURIComponent(env)}`),
+      api(`/api/logs/igw-summary?env=${encodeURIComponent(env)}`),
+    ]);
+
+    const sources = srcs.value || [];
+    const lastIngest = sources.reduce((latest, s) => {
+      const t = s.last_ingest || '';
+      return t > latest ? t : latest;
+    }, '');
+    const srcErrors = sources.filter(s => s.last_error).length;
+    const aed = ae.value || {};
+    const igwd = igw.value || {};
+
+    $('logBody').innerHTML = `
+      <div class="stat-row">
+        <div class="stat">
+          <span class="stat-val">${sources.length}</span>
+          <span class="stat-lbl">Log Sources</span>
+        </div>
+        <div class="stat">
+          <span class="stat-val ${srcErrors > 0 ? 'red' : 'green'}">${srcErrors > 0 ? srcErrors : '✓'}</span>
+          <span class="stat-lbl">Source Errors</span>
+        </div>
+        <div class="stat">
+          <span class="stat-val ${(aed.error_count||0) > 0 ? 'orange' : 'green'}">${aed.error_count ?? 0}</span>
+          <span class="stat-lbl">PRCS AE Errors</span>
+        </div>
+        <div class="stat">
+          <span class="stat-val ${(igwd.total||0) > 0 ? 'orange' : 'green'}">${igwd.total ?? 0}</span>
+          <span class="stat-lbl">IGW Errors</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:#334;margin-top:4px">
+        Last ingest: ${lastIngest ? lastIngest.replace('T',' ').substring(0,16) : '—'}
+      </div>`;
+  } catch(e) {
+    $('logBody').innerHTML = `<span class="muted" style="font-size:12px">Unavailable: ${esc(e.message)}</span>`;
+  }
+}
+
+async function loadDriftAndTrends(env) {
+  try {
+    // Drift
+    const driftP = api('/api/drift/latest?env1=HCM&env2=FSCM').catch(() => null);
+    const histP  = api(`/api/runtime/history?env=${encodeURIComponent(env)}&hours=6`).catch(() => ({snapshots:[]}));
+    const [driftD, histD] = await Promise.all([driftP, histP]);
+
+    // Drift section
+    let driftHtml = '';
+    if (driftD) {
+      const alerts = (driftD.alerts || []).filter(a => !a.resolved_at);
+      driftHtml = `<div style="font-size:12px;color:#9ab">
+        Drift vs FSCM: <span style="color:${alerts.length ? '#ff9f43':'#00cc66'}">${alerts.length} alert${alerts.length===1?'':'s'}</span>
+      </div>`;
+      if (alerts.length) {
+        driftHtml += alerts.slice(0,2).map(a =>
+          `<div style="font-size:11px;color:#ff9f43;margin-top:2px">⚠ ${esc(a.message||a.alert_type||'')}</div>`
+        ).join('');
+      }
+    } else {
+      driftHtml = '<div style="font-size:12px;color:#334">Drift data unavailable</div>';
+    }
+    $('driftBody').innerHTML = driftHtml;
+
+    // Sparklines from runtime history
+    const snaps = (histD.snapshots || []);
+    if (snaps.length < 2) {
+      $('sparkBody').innerHTML = '<div style="font-size:11px;color:#334">Not enough history yet — check back in a few minutes.</div>';
+      return;
+    }
+    const metrics = [
+      {key:'process_active', label:'Active', color:'#00e5ff'},
+      {key:'process_error',  label:'Errors', color:'#ff4444'},
+      {key:'ib_pending',     label:'IB',     color:'#ffdd55'},
+      {key:'alert_count',    label:'Alerts', color:'#ff6b6b'},
+    ];
+    let sparkHtml = '<div class="spark-row">';
+    metrics.forEach(m => {
+      const vals = snaps.map(s => s[m.key] ?? 0);
+      const cur  = vals.at(-1) ?? 0;
+      sparkHtml += `<div class="spark-tile">
+        <span class="spark-lbl">${m.label}</span>
+        <span class="spark-val" style="color:${m.color}">${cur}</span>
+        ${_sparkline(vals, m.color)}
+      </div>`;
+    });
+    sparkHtml += '</div><div style="font-size:10px;color:#223;margin-top:4px">${snaps.length} pts · 6h trend</div>';
+    $('sparkBody').innerHTML = sparkHtml.replace('${snaps.length}', snaps.length);
+  } catch(e) {
+    $('driftBody').innerHTML = `<span class="muted" style="font-size:12px">Unavailable: ${esc(e.message)}</span>`;
+  }
+}
+
+async function loadDash() {
+  const env = $('envSel').value || 'HCM';
+  $('lastTs').textContent = 'Loading…';
+  await Promise.allSettled([
+    loadAlerts(env),
+    loadRuntime(env),
+    loadLog(env),
+    loadDriftAndTrends(env),
+  ]);
+  $('lastTs').textContent = 'Updated ' + new Date().toLocaleTimeString();
+}
+
+(async () => {
+  try {
+    const cfg = await api('/api/runtime/config');
+    $('envSel').innerHTML = (cfg.envs || ['HCM']).map(e =>
+      `<option value="${esc(e)}">${esc(e)}</option>`
+    ).join('');
+  } catch {
+    $('envSel').innerHTML = '<option value="HCM">HCM</option>';
+  }
+  await loadDash();
+  setInterval(loadDash, 60000);
+})();
+</script>""")
 
 
 @router.get("/users", response_class=HTMLResponse)
