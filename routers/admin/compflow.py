@@ -81,6 +81,11 @@ button:hover{{background:#33eeff}}
 .phase-interaction{{border:1px solid #88ff4433;border-radius:3px}}
 .phase-save{{border:1px solid #ff669933;border-radius:3px}}
 .phase-other{{border:1px solid #33333366;border-radius:3px}}
+.owner-badge{{font-size:10px;font-family:Arial;font-weight:600;padding:1px 7px;border-radius:10px;vertical-align:middle;margin-left:8px}}
+.owner-custom{{color:#fa0;background:rgba(255,170,0,.14);border:1px solid rgba(255,170,0,.3)}}
+.owner-delivered{{color:#7faab2;background:rgba(0,100,120,.18);border:1px solid rgba(0,100,120,.3)}}
+.mod-badge{{font-size:9px;font-family:Arial;color:#ffcc44;background:rgba(255,204,68,.1);
+  padding:0 4px;border-radius:2px;display:inline-block;margin-top:2px}}
 </style>
 
 <div class="topbar">
@@ -214,9 +219,15 @@ function renderFlow(d){{
   let html='';
 
   const records=new Set(events.filter(e=>e.record).map(e=>e.record)).size;
+  const modCount=events.filter(e=>e.modified).length;
+  const modNote=modCount?` &middot; <span style="color:#ffcc44;font-weight:600">${{modCount}} user-modified</span>`:'';
+  const compOwner=(d.component_owner||'').trim();
+  const ownerBadge=compOwner
+    ?`<span class="owner-badge owner-delivered">${{esc(compOwner)}}</span>`
+    :`<span class="owner-badge owner-custom">CUSTOM</span>`;
   html+=`<div class="comp-hdr">
-    <span class="comp-name">${{esc(d.component||'')}}</span>
-    <span class="comp-meta">${{events.length}} event handler${{events.length!==1?'s':''}} &middot; ${{records}} record${{records!==1?'s':''}}</span>
+    <span class="comp-name">${{esc(d.component||'')}}</span>${{ownerBadge}}
+    <span class="comp-meta">${{events.length}} event handler${{events.length!==1?'s':''}} &middot; ${{records}} record${{records!==1?'s':''}}${{modNote}}</span>
   </div>`;
 
   if(warns.length)html+=warns.map(w=>`<div class="warn">&#9888; ${{esc(w)}}</div>`).join('');
@@ -247,10 +258,15 @@ function renderFlow(d){{
         ?`<a href="/admin/record/${{esc(e.record)}}" target="_blank" style="color:#88ff44;text-decoration:none" onclick="event.stopPropagation()">${{esc(e.record)}}</a>`
         :'<span style="color:#223">—</span>';
       const fldHtml=e.field?esc(e.field):'<span style="color:#223">—</span>';
+      const modBadge=e.modified
+        ?`<span class="mod-badge">mod: ${{esc(e.last_oprid)}}</span>`:'';
+      const rowTitle=e.modified
+        ?`title="Modified by ${{esc(e.last_oprid)}}${{e.last_dttm?' on '+esc(String(e.last_dttm).substring(0,10)):''}}"`
+        :'title="Click to view PeopleCode source"';
       html+=`<div class="event-row" id="${{rid}}"
         onclick="toggleSrc('${{rid}}','${{esc(comp)}}','${{esc(e.event)}}','${{esc(e.record||'')}}','${{esc(e.field||'')}}')"
-        title="Click to view PeopleCode source">
-        <div class="er-cell er-event">${{esc(e.event)}}</div>
+        ${{rowTitle}}>
+        <div class="er-cell er-event" style="display:flex;flex-direction:column;justify-content:center"><span>${{esc(e.event)}}</span>${{modBadge}}</div>
         <div class="er-cell er-rec">${{recHtml}}</div>
         <div class="er-cell er-field">${{fldHtml}}</div>
         <div class="er-cell"><span class="er-scope">${{esc(e.scope)}}</span></div>

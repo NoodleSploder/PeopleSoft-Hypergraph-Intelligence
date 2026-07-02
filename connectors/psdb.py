@@ -7880,12 +7880,26 @@ def get_component_peoplecode_events(env_name, component):
 
     rows = query(env_name, """
         SELECT OBJECTID1, OBJECTVALUE1, OBJECTVALUE2,
-               OBJECTVALUE3, OBJECTVALUE4, OBJECTVALUE5
+               OBJECTVALUE3, OBJECTVALUE4, OBJECTVALUE5,
+               LASTUPDOPRID, LASTUPDDTTM
           FROM SYSADM.PSPCMPROG
          WHERE OBJECTID1 IN (9, 10)
            AND UPPER(OBJECTVALUE1) = :comp
          ORDER BY OBJECTID1, OBJECTVALUE3, OBJECTVALUE4, OBJECTVALUE5
     """, {"comp": component.upper()})
+
+    comp_owner = ""
+    try:
+        owner_rows = query(env_name, """
+            SELECT OBJECTOWNERID FROM SYSADM.PSPNLGRPDEFN
+             WHERE UPPER(PNLGRPNAME) = :comp AND MARKET = 'GBL'
+        """, {"comp": component.upper()})
+        if owner_rows:
+            comp_owner = (owner_rows[0].get("objectownerid") or "").strip()
+    except Exception:
+        pass
+
+    _SYS_OPRIDS = {"PPLSOFT", "PS", "SYSADM", "UPGUSER", ""}
 
     events = []
     seen = set()
@@ -7912,6 +7926,7 @@ def get_component_peoplecode_events(env_name, component):
 
         ekey = event.upper()
         phase_key, phase_label = _COMP_EVENT_PHASE.get(ekey, ("other", "Other"))
+        oprid = (r.get("lastupdoprid") or "").strip()
         events.append({
             "scope": scope,
             "record": record,
@@ -7921,12 +7936,16 @@ def get_component_peoplecode_events(env_name, component):
             "phase": phase_key,
             "phase_label": phase_label,
             "order": _COMP_EVENT_ORDER.get(ekey, 999),
+            "last_oprid": oprid,
+            "last_dttm": (r.get("lastupddttm") or ""),
+            "modified": oprid not in _SYS_OPRIDS,
         })
 
     events.sort(key=lambda e: (e["order"], e["scope"], e["record"], e["field"]))
 
     return {
         "component": component.upper(),
+        "component_owner": comp_owner,
         "events": events,
         "warnings": [] if rows else [f"No PeopleCode found for component '{component.upper()}'"],
     }
