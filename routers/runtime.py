@@ -187,3 +187,14 @@ def runtime_graph(env: str = "HCM", db: str = None, process_limit: int = 30, ses
         process_limit=process_limit,
         session_limit=session_limit,
     )
+
+
+@router.get("/rca")
+def runtime_rca(env: str = "HCM", start: str = "", end: str = "", db: str = None):
+    """Root cause analysis: correlate process failures, log errors, ASH, and IB errors."""
+    import datetime as _dt
+    if not end:
+        end = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    if not start:
+        start = (_dt.datetime.utcnow() - _dt.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+    return execution.rca_snapshot(env, start, end, db_name=db or None)

@@ -1098,3 +1098,127 @@ def runtime_status(env, db_name=None):
         result["warnings"].extend(blocking.get("warnings", []))
 
     return result
+
+
+# ── Root Cause Analysis ───────────────────────────────────────────────────
+
+def rca_snapshot(env: str, start_iso: str, end_iso: str, db_name: str = None) -> dict:
+    """
+    Correlate process failures, log errors, Oracle ASH, and IB errors
+    for a specific time window to support incident/root-cause analysis.
+    """
+    from connectors import logdb
+    import datetime as _dt
+
+    result = {
+        "env": env.upper(),
+        "window": {"start": start_iso, "end": end_iso},
+        "process_failures": [],
+        "log_errors": [],
+        "ash": None,
+        "ib_errors": [],
+        "timeline": [],
+        "warnings": [],
+    }
+
+    # ── 1. Process failures (PSPRCSRQST) ────────────────────────────────
+    try:
+        if ptmetadata.has_table(env, "PSPRCSRQST"):
+            fail_rows = psdb.query(env, """
+                SELECT PRCSINSTANCE, PRCSTYPE, PRCSNAME, OPRID, RUNSTATUS,
+                       BEGINDTTM, ENDDTTM, RQSTDTTM, SERVERNAMERUN
+                  FROM SYSADM.PSPRCSRQST
+                 WHERE RUNSTATUS IN ('3','4','8','9','10')
+                   AND RQSTDTTM >= TO_DATE(:s, 'YYYY-MM-DD HH24:MI:SS')
+                   AND RQSTDTTM <= TO_DATE(:e, 'YYYY-MM-DD HH24:MI:SS')
+                 ORDER BY RQSTDTTM DESC
+                 FETCH FIRST 50 ROWS ONLY
+            """, {"s": start_iso[:19], "e": end_iso[:19]})
+            result["process_failures"] = [dict(r) for r in fail_rows]
+    except Exception as exc:
+        result["warnings"].append(f"process_failures: {exc}")
+
+    # ── 2. Log errors ────────────────────────────────────────────────────
+    try:
+        log_errs = logdb.query_errors(env=env.upper(), start=start_iso, end=end_iso, limit=100)
+        result["log_errors"] = log_errs
+    except Exception as exc:
+        result["warnings"].append(f"log_errors: {exc}")
+
+    # ── 3. Oracle ASH (if db_name provided) ─────────────────────────────
+    if db_name:
+        try:
+            db = _db_by_name(db_name)
+            ash_rows = oracle_connector.query_db(db, """
+                SELECT NVL(wait_class, 'CPU') as wait_class,
+                       NVL(event, 'On CPU') as event,
+                       COUNT(*) as samples
+                  FROM V$ACTIVE_SESSION_HISTORY
+                 WHERE sample_time >= TO_DATE(:s, 'YYYY-MM-DD HH24:MI:SS')
+                   AND sample_time <= TO_DATE(:e, 'YYYY-MM-DD HH24:MI:SS')
+                   AND session_type = 'FOREGROUND'
+                 GROUP BY wait_class, event
+                 ORDER BY samples DESC
+                 FETCH FIRST 15 ROWS ONLY
+            """, {"s": start_iso[:19], "e": end_iso[:19]})
+            total_ash = sum(r["samples"] for r in ash_rows)
+            result["ash"] = {
+                "total_samples": total_ash,
+                "db": db_name,
+                "top_events": [
+                    {**dict(r), "pct": round(r["samples"] * 100.0 / total_ash, 1) if total_ash else 0}
+                    for r in ash_rows[:10]
+                ],
+            }
+        except Exception as exc:
+            result["warnings"].append(f"ash: {exc}")
+
+    # ── 4. IB errors (PSAPMSGPUBHDR) ─────────────────────────────────────
+    try:
+        if ptmetadata.has_table(env, "PSAPMSGPUBHDR"):
+            ib_rows = psdb.query(env, """
+                SELECT IBTRANSACTIONID, IB_OPERATIONNAME, QUEUENAME, PUBSTATUS,
+                       PUBNODE, ORIGPUBNODE, CREATEDTTM, STATUSSTRING
+                  FROM SYSADM.PSAPMSGPUBHDR
+                 WHERE PUBSTATUS NOT IN ('0','1','2')
+                   AND CREATEDTTM >= TO_DATE(:s, 'YYYY-MM-DD HH24:MI:SS')
+                   AND CREATEDTTM <= TO_DATE(:e, 'YYYY-MM-DD HH24:MI:SS')
+                 ORDER BY CREATEDTTM DESC
+                 FETCH FIRST 30 ROWS ONLY
+            """, {"s": start_iso[:19], "e": end_iso[:19]})
+            result["ib_errors"] = [dict(r) for r in ib_rows]
+    except Exception as exc:
+        result["warnings"].append(f"ib_errors: {exc}")
+
+    # ── 5. Build unified timeline ─────────────────────────────────────────
+    timeline = []
+    for r in result["process_failures"]:
+        ts = str(r.get("rqstdttm") or r.get("begindttm") or "")
+        timeline.append({
+            "ts": ts, "type": "process_fail",
+            "label": f"Process FAILED: {r.get('prcstype','')} {r.get('prcsname','')} (inst {r.get('prcsinstance','')})",
+            "severity": "error", "detail": r,
+        })
+    for r in result["log_errors"]:
+        timeline.append({
+            "ts": r.get("ts", ""), "type": "log_error",
+            "label": f"[{r.get('source','')}] {(r.get('message') or '')[:100]}",
+            "severity": "error" if r.get("level") == "ERROR" else "warn", "detail": r,
+        })
+    for r in result["ib_errors"]:
+        timeline.append({
+            "ts": str(r.get("createdttm", "")), "type": "ib_error",
+            "label": f"IB {r.get('pubstatus','')}: {r.get('ib_operationname','')} [{r.get('queuename','')}] {r.get('origpubnode','')}→{r.get('pubnode','')}",
+            "severity": "error", "detail": r,
+        })
+    timeline.sort(key=lambda x: x.get("ts", ""), reverse=True)
+    result["timeline"] = timeline[:200]
+
+    result["summary"] = {
+        "process_failures": len(result["process_failures"]),
+        "log_errors": len(result["log_errors"]),
+        "ib_errors": len(result["ib_errors"]),
+        "ash_samples": result["ash"]["total_samples"] if result["ash"] else None,
+        "timeline_events": len(result["timeline"]),
+    }
+    return result

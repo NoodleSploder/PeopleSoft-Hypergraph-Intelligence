@@ -23,6 +23,7 @@ _NAV_GROUPS = [
         ("log_errors",  "Log Errors",     "/admin/log_errors"),
         ("igw",         "IGW Errors",     "/admin/igw"),
         ("prcs_ae",     "PRCS AE Logs",   "/admin/prcs-ae"),
+        ("rca",         "Incident RCA",   "/admin/rca"),
     ]),
     ("Data", [
         ("sqlws",  "SQL Workspace",  "/admin/sqlws"),
