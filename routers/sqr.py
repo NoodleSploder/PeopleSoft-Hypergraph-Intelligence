@@ -151,15 +151,15 @@ def sqr_source(filename: str, max_kb: int = Query(128, ge=1, le=512)):
     if not source:
         raise HTTPException(503, f"Source '{source_key}' not in config.json sqr_sources")
 
-    sqr_dir = source["sqr_dir"].rstrip("/")
-    alias   = source["alias"]
-    path    = f"{sqr_dir}/{filename}"
+    sqr_dir  = source["sqr_dir"].rstrip("/")
+    ssh_host = source["ssh_host"]
+    path     = f"{sqr_dir}/{filename}"
 
     try:
-        raw = sshclient.read_bytes(alias, path, max_bytes=max_kb * 1024)
+        raw = sshclient.read_bytes(ssh_host, path, max_bytes=max_kb * 1024)
         content = raw.decode("utf-8", errors="replace")
     except FileNotFoundError:
-        raise HTTPException(404, f"File not found on {alias}: {path}")
+        raise HTTPException(404, f"File not found on {ssh_host}: {path}")
     except PermissionError as exc:
         raise HTTPException(403, str(exc))
 

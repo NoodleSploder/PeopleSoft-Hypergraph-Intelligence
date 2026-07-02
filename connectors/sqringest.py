@@ -6,10 +6,11 @@ parses them with sqrparser, and stores results in sqrdb.
 
 Each source entry in config.json sqr_sources:
   {
-    "key":    "fscm_sqr",           # unique identifier
-    "alias":  "hcm_appserver",      # ssh_hosts alias (or "local")
-    "label":  "FSCM SQR Library",
-    "sqr_dir": "/opt/psoft/fin/..."
+    "key":      "fscm_sqr",         # unique identifier
+    "env":      "FSCM",             # environment this source belongs to
+    "ssh_host": "hcm_appserver",    # ssh_hosts key (or "local")
+    "label":    "FSCM SQR Library",
+    "sqr_dir":  "/opt/psoft/fin/..."
   }
 """
 
@@ -37,9 +38,9 @@ def index_source(source: dict, progress_cb=None) -> dict:
 
     sqrdb.init_db()
 
-    alias   = source["alias"]
-    sqr_dir = source["sqr_dir"].rstrip("/")
-    key     = source["key"]
+    ssh_host = source["ssh_host"]
+    sqr_dir  = source["sqr_dir"].rstrip("/")
+    key      = source["key"]
 
     indexed = 0
     errors  = 0
@@ -47,20 +48,20 @@ def index_source(source: dict, progress_cb=None) -> dict:
 
     for ext in ("sqr", "sqc"):
         try:
-            files = sshclient.list_files(alias, f"{sqr_dir}/*.{ext}")
+            files = sshclient.list_files(ssh_host, f"{sqr_dir}/*.{ext}")
         except FileNotFoundError as exc:
             logger.warning("sqringest: directory not found for %s — %s", key, exc)
             continue
 
         total = len(files)
-        logger.info("sqringest: indexing %d .%s files from %s:%s", total, ext, alias, sqr_dir)
+        logger.info("sqringest: indexing %d .%s files from %s:%s", total, ext, ssh_host, sqr_dir)
 
         for i, path in enumerate(files):
             if progress_cb:
                 progress_cb(i, total)
             filename = path.split("/")[-1]
             try:
-                raw = sshclient.read_bytes(alias, path, max_bytes=512 * 1024)
+                raw = sshclient.read_bytes(ssh_host, path, max_bytes=512 * 1024)
                 try:
                     content = raw.decode("utf-8", errors="replace")
                 except Exception:
