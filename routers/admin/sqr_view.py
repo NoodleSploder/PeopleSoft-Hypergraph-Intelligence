@@ -411,6 +411,7 @@ function opBadges(ops) {
 }
 
 function render(d) {
+  const isSquc = d.file_type === 'sqc';
   const ftBadge = d.file_type === 'sqr'
     ? '<span style="color:#0f9;font-weight:700;font-size:11px">SQR</span>'
     : '<span style="color:#fa0;font-weight:700;font-size:11px">SQC</span>';
@@ -451,6 +452,14 @@ function render(d) {
     <div class="tab-row" style="margin-bottom:16px">
       <div class="tab on" onclick="switchTab('meta')">Overview</div>
       <div class="tab" onclick="switchTab('src')">Source</div>
+      ${isSquc ? `<div class="tab" onclick="switchTab('inclby')">Included By <span id="inclByBadge" style="font-size:10px;opacity:.7"></span></div>` : ''}
+    </div>
+
+    <div id="paneIncludedBy" style="display:none">
+      <div class="sqr-card">
+        <h3>Programs Including This SQC <span id="inclByCount" style="font-size:11px;font-weight:400;color:#7faab2"></span></h3>
+        <div id="inclByContent" style="color:#7faab2;font-size:12px;padding:8px">Loading\u2026</div>
+      </div>
     </div>
 
     <div id="paneOverview">
@@ -494,15 +503,18 @@ function render(d) {
   _detail = d;
 }
 
-let _detail = null, _srcLoaded = false;
+let _detail = null, _srcLoaded = false, _inclByLoaded = false;
 
 function switchTab(tab) {
-  document.querySelectorAll('.tab-row .tab').forEach((t,i) => {
-    t.classList.toggle('on', (tab==='meta'&&i===0)||(tab==='src'&&i===1));
-  });
+  document.querySelectorAll('.tab-row .tab').forEach(t => t.classList.remove('on'));
+  const idx = {meta:0, src:1, inclby:2}[tab] ?? 0;
+  const tabs = document.querySelectorAll('.tab-row .tab');
+  if (tabs[idx]) tabs[idx].classList.add('on');
   $('paneOverview').style.display = tab === 'meta' ? '' : 'none';
   $('paneSrc').style.display      = tab === 'src'  ? '' : 'none';
-  if (tab === 'src' && !_srcLoaded) loadSource();
+  const ip = $('paneIncludedBy'); if (ip) ip.style.display = tab === 'inclby' ? '' : 'none';
+  if (tab === 'src'    && !_srcLoaded)    loadSource();
+  if (tab === 'inclby' && !_inclByLoaded) loadInclBy();
 }
 
 async function loadSource() {
@@ -519,6 +531,31 @@ async function loadSource() {
     $('srcContent').innerHTML = `<pre style="margin:0;font-size:11px;line-height:1.5;overflow-x:auto;white-space:pre-wrap">${highlightSQR(d.source)}</pre>`;
   } catch(e) {
     $('srcContent').innerHTML = `<span style="color:#f55">Error: ${esc(String(e))}</span>`;
+  }
+}
+
+async function loadInclBy() {
+  _inclByLoaded = true;
+  try {
+    const r = await fetch('/api/sqr/sqc/' + encodeURIComponent(""" + f'"{filename}"' + """) + '/users');
+    if (!r.ok) { $('inclByContent').innerHTML = '<span style="color:#f55">Could not load inclusion data</span>'; return; }
+    const d = await r.json();
+    const progs = d.programs || [];
+    $('inclByCount').textContent = '(' + progs.length + ')';
+    const badge = $('inclByBadge'); if (badge) badge.textContent = progs.length;
+    if (!progs.length) {
+      $('inclByContent').innerHTML = '<span style="color:#4a6a7a">No programs in the index include this SQC</span>';
+      return;
+    }
+    $('inclByContent').innerHTML = `<ul class="sqr-list" style="max-height:520px">${
+      progs.map(p =>
+        `<li><a href="/admin/sqr/${encodeURIComponent(p.filename)}">${esc(p.program_name)}</a>` +
+        (p.description ? ` <span style="color:#556;font-size:10px">— ${esc(p.description.slice(0,90))}</span>` : '') +
+        '</li>'
+      ).join('')
+    }</ul>`;
+  } catch(e) {
+    $('inclByContent').innerHTML = `<span style="color:#f55">Error: ${esc(String(e))}</span>`;
   }
 }
 
