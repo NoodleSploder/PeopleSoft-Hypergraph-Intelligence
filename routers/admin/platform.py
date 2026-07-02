@@ -145,10 +145,10 @@ def admin_prcsdefn(request: Request, env: str = "HCM"):
     nav = _nav_html("prcsdefn", env)
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Process Definitions</title>
+{_NAV_CSS}
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:#0d0d11;color:#ccd;font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}}
-{_NAV_CSS}
 .shell{{display:flex;flex:1;overflow:hidden}}
 .sidebar{{width:300px;min-width:220px;border-right:1px solid #222;display:flex;flex-direction:column;overflow:hidden}}
 .filters{{padding:10px;border-bottom:1px solid #1a1a22}}
@@ -299,10 +299,10 @@ def admin_filelayout(request: Request, env: str = "HCM"):
     nav = _nav_html("filelayout", env)
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>File Layouts</title>
+{_NAV_CSS}
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:#0d0d11;color:#ccd;font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}}
-{_NAV_CSS}
 .shell{{display:flex;flex:1;overflow:hidden}}
 .sidebar{{width:300px;min-width:220px;border-right:1px solid #222;display:flex;flex-direction:column;overflow:hidden}}
 .filters{{padding:10px;border-bottom:1px solid #1a1a22}}
@@ -454,10 +454,10 @@ def admin_xlat(request: Request, env: str = "HCM"):
     nav = _nav_html("xlat", env)
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Translate Values</title>
+{_NAV_CSS}
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:#0d0d11;color:#ccd;font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}}
-{_NAV_CSS}
 .shell{{display:flex;flex:1;overflow:hidden}}
 .sidebar{{width:280px;min-width:200px;border-right:1px solid #222;display:flex;flex-direction:column;overflow:hidden}}
 .filters{{padding:10px;border-bottom:1px solid #1a1a22}}
@@ -575,10 +575,10 @@ def admin_project(request: Request, env: str = "HCM"):
     nav = _nav_html("project", env)
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>App Designer Projects</title>
+{_NAV_CSS}
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:#0d0d11;color:#ccd;font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}}
-{_NAV_CSS}
 .shell{{display:flex;flex:1;overflow:hidden}}
 .sidebar{{width:300px;min-width:220px;border-right:1px solid #222;display:flex;flex-direction:column;overflow:hidden}}
 .filters{{padding:10px;border-bottom:1px solid #1a1a22}}

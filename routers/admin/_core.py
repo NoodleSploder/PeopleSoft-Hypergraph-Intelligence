@@ -90,6 +90,7 @@ _NAV_GROUPS = [
 
 # CSS block embedded inline in standalone pages (no app.css available).
 _NAV_CSS = (
+    "<style>"
     "nav.ds-nav{position:sticky;top:0;z-index:9999;display:flex;align-items:center;"
     "gap:2px;height:42px;padding:0 14px;background:rgba(3,8,18,.97);"
     "border-bottom:1px solid rgba(0,229,255,.25);box-shadow:0 4px 16px rgba(0,0,0,.4);"
@@ -125,6 +126,7 @@ _NAV_CSS = (
     ".ds-env-lbl{font-size:11px;color:#7faab2}"
     ".ds-env-sel{background:rgba(0,20,30,.88);border:1px solid rgba(0,229,255,.25);"
     "color:#d7faff;font-size:12px;padding:3px 8px;border-radius:4px}"
+    "</style>"
 )
 
 

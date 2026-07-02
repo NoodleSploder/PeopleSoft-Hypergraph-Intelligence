@@ -934,10 +934,10 @@ def admin_ibmessage(request: Request, env: str = "HCM"):
     nav = _nav_html("ibmessage", env)
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>IB Messages</title>
+{_NAV_CSS}
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:#0d0d11;color:#ccd;font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}}
-{_NAV_CSS}
 .shell{{display:flex;flex:1;overflow:hidden}}
 .sidebar{{width:300px;min-width:220px;border-right:1px solid #222;display:flex;flex-direction:column;overflow:hidden}}
 .filters{{padding:10px;border-bottom:1px solid #1a1a22}}
