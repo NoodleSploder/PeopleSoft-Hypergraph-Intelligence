@@ -250,11 +250,54 @@ def attach_graph_context(payload, env):
                              src_type="project", edge_type="DEPLOYS",
                              section_name="Projects Deploying This Page",
                              note="Projects that include this page in a deployment (from Knowledge Graph)")
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="ptf_test", edge_type="USES",
+                             section_name="PTF Tests Covering This Page",
+                             note="PTF automated tests that reference this page (from Knowledge Graph)")
     if obj_type == "component":
         _attach_inbound_xref(payload, env, node_id,
                              src_type="project", edge_type="DEPLOYS",
                              section_name="Projects Deploying This Component",
                              note="Projects that include this component in a deployment (from Knowledge Graph)")
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="ptf_test", edge_type="USES",
+                             section_name="PTF Tests Covering This Component",
+                             note="PTF automated tests that reference this component (from Knowledge Graph)")
+    if obj_type == "menu":
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="ptf_test", edge_type="USES",
+                             section_name="PTF Tests Using This Menu",
+                             note="PTF automated tests that navigate through this menu (from Knowledge Graph)")
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="content_service", edge_type="USES",
+                             section_name="Content Services Using This Menu",
+                             note="Content service providers that reference this menu (from Knowledge Graph)")
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="project", edge_type="DEPLOYS",
+                             section_name="Projects Deploying This Menu",
+                             note="Projects that include this menu in a deployment (from Knowledge Graph)")
+    if obj_type == "query":
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="connected_query", edge_type="USES",
+                             section_name="Connected Queries Using This Query",
+                             note="Connected Query definitions that include this query as a member (from Knowledge Graph)")
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="xml_publisher_report", edge_type="USES",
+                             section_name="XML Publisher Reports Using This Query",
+                             note="XML Publisher report definitions that use this query as a data source (from Knowledge Graph)")
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="project", edge_type="DEPLOYS",
+                             section_name="Projects Deploying This Query",
+                             note="Projects that include this query in a deployment (from Knowledge Graph)")
+    if obj_type == "field":
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="ptf_test", edge_type="USES",
+                             section_name="PTF Tests Covering This Field",
+                             note="PTF automated tests that interact with this field (from Knowledge Graph)")
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="query", edge_type="EXPOSES",
+                             section_name="Queries Exposing This Field",
+                             note="PS Query definitions that include this field in their output (from Knowledge Graph)")
 
     return payload
 
