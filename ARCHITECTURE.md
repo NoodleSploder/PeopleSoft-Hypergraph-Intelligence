@@ -307,6 +307,311 @@ Before a migration or deployment, evaluate risk:
 
 ---
 
+# Source Artifact Intelligence
+
+## Philosophy
+
+Not every PeopleSoft object lives inside the Oracle database.
+
+Large portions of a PeopleSoft implementation exist as filesystem artifacts, including:
+
+- SQR programs
+- SQC include files
+- COBOL programs
+- COBOL copybooks
+- Shell scripts
+- Batch utilities
+- SQL scripts
+- Data Mover scripts
+- Configuration templates
+- Custom deployment assets
+
+These artifacts are first-class components of the PeopleSoft enterprise and therefore become
+first-class objects within the PeopleSoft Hypergraph Intelligence Digital Twin.
+
+The platform treats filesystem artifacts exactly like database metadata:
+
+- discoverable
+- searchable
+- graph-aware
+- version-aware
+- environment-aware
+- impact-analyzable
+
+---
+
+## Delivered vs Custom Source Model
+
+PeopleSoft source code typically exists in two logical layers.
+
+### Delivered Source
+
+Vendor-delivered source distributed by Oracle.
+
+Examples:
+
+- delivered SQR
+- delivered COBOL
+- delivered SQC
+- delivered COPY libraries
+
+These files are considered the canonical baseline.
+
+### Custom Source
+
+Customer-developed artifacts.
+
+Custom source may:
+
+- override delivered programs
+- extend delivered functionality
+- introduce entirely new programs
+- replace individual include files
+- introduce custom copybooks
+
+Custom artifacts are maintained separately from delivered source.
+
+PHI models both layers simultaneously.
+
+---
+
+## Configuration
+
+Filesystem locations are configured independently for each environment.
+
+Example:
+
+```json
+{
+  "source_artifacts": {
+    "HCM": {
+      "delivered": {
+        "sqr": "/opt/psoft/hcm/src/sqr",
+        "cobol": "/opt/psoft/hcm/src/cbl",
+        "copybook": "/opt/psoft/hcm/src/cpy"
+      },
+      "custom": {
+        "sqr": "/opt/company/hcm/custom/sqr",
+        "cobol": "/opt/company/hcm/custom/cbl",
+        "copybook": "/opt/company/hcm/custom/cpy"
+      }
+    },
+    "FSCM": {
+      ...
+    }
+  }
+}
+```
+
+Multiple custom source roots may be configured.
+
+Search order is deterministic.
+
+```
+Custom Layer 1
+↓
+Custom Layer 2
+↓
+Delivered Layer
+```
+
+This allows PHI to resolve the effective implementation exactly as PeopleSoft executes it.
+
+---
+
+## Source Resolution
+
+Every source object receives a logical identity independent of its filesystem location.
+
+Example
+
+```
+SQR
+    PAY003
+
+Delivered:
+    /opt/psoft/src/sqr/PAY003.sqr
+
+Custom:
+    /opt/company/custom/sqr/PAY003.sqr
+```
+
+The logical object is:
+
+```
+SQR:PAY003
+```
+
+which may contain multiple physical implementations.
+
+---
+
+## Override Detection
+
+PHI automatically determines:
+
+- delivered only
+- custom only
+- custom override
+- duplicate custom implementations
+- missing delivered source
+- orphaned custom programs
+
+Override status becomes part of the UOM object.
+
+Example
+
+```
+Status
+
+✓ Delivered
+
+✓ Custom Override
+
+Effective Version:
+Custom
+
+Baseline:
+Delivered
+```
+
+---
+
+## Source Comparison
+
+Every source object supports comparison.
+
+Examples
+
+Delivered vs Custom
+
+Environment vs Environment
+
+Custom Layer A vs Layer B
+
+Historical Snapshot vs Current
+
+Capabilities include
+
+- unified diff
+- side-by-side diff
+- syntax-aware diff
+- whitespace ignore
+- comment ignore
+- identifier-aware comparison
+
+---
+
+## Source Relationships
+
+Filesystem objects participate in the Knowledge Graph.
+
+Example edge types
+
+SQR
+
+- CALLS_PROGRAM
+- CALLS_REPORT
+- INCLUDES_SQC
+- READS_RECORD
+- WRITES_RECORD
+- EXECUTES_SQL
+- EXECUTES_AE
+- REFERENCES_PROCESS
+
+COBOL
+
+- CALLS_PROGRAM
+- COPYBOOK
+- READS_RECORD
+- WRITES_RECORD
+- EXECUTES_SQL
+- REFERENCES_FILE
+
+COPYBOOK
+
+- INCLUDED_BY
+
+SQC
+
+- INCLUDED_BY
+
+---
+
+## Source Intelligence
+
+The parser extracts:
+
+- include hierarchy
+- copybook hierarchy
+- embedded SQL
+- dynamic SQL
+- record references
+- field references
+- process references
+- Application Engine launches
+- Process Scheduler relationships
+- database object usage
+- file I/O
+- external command execution
+
+These become graph relationships.
+
+---
+
+## Effective Source View
+
+When an override exists, PHI presents:
+
+- Effective implementation
+- Delivered implementation
+- Custom implementation
+
+Engineers can immediately determine:
+
+- what Oracle delivered
+- what the customer changed
+- exactly where the change occurred
+
+without manually locating files.
+
+---
+
+## Source Analytics
+
+PHI computes metrics including:
+
+- customizations by module
+- delivered override percentage
+- custom code inventory
+- largest custom programs
+- unused programs
+- dead include files
+- duplicate source
+- cyclomatic complexity
+- SQL density
+- include depth
+- dependency fan-out
+- dependency fan-in
+
+---
+
+## Future Intelligence
+
+Future releases may provide:
+
+- automatic source lineage
+- customization heat maps
+- migration impact prediction
+- AI-generated code summaries
+- AI-generated documentation
+- automated refactoring recommendations
+- modernization analysis
+- dead code detection
+- duplicate logic detection
+
+---
+
 ## Module Implementation Order
 
 Modules should be built in an order that fills the provider stack from bottom to top.

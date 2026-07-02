@@ -621,6 +621,7 @@ Integration Gateway logs are configured independently in `config.json`, allowing
     "enabled": true
   }
 ]
+```
 
 ### Process Scheduler Transport Support
 
@@ -680,6 +681,7 @@ Supported transport types:
     "enabled": false
   }
 ]
+```
 
 ---
 
@@ -723,6 +725,197 @@ Support:
 - Custom health checks
 - Organization-specific plugins
 - Third-party integrations
+
+---
+
+# Phase 10 — Source Artifact Intelligence
+
+## Vision
+
+Extend PeopleSoft Hypergraph Intelligence beyond Oracle metadata by incorporating filesystem-based source artifacts into the Digital Twin.
+
+SQR, COBOL, COPYBOOK, and SQC files become first-class UOM objects that fully participate in search, graph traversal, dependency analysis, environment comparison, runtime correlation, and AI engineering workflows.
+
+---
+
+## Source Discovery
+
+### Planned
+
+- Configurable delivered source roots
+- Configurable custom source roots
+- Multiple custom layers
+- Automatic filesystem discovery
+- Incremental filesystem scanning
+- File checksum tracking
+- Change detection
+- Snapshot support
+
+---
+
+## Source Explorer
+
+### Planned
+
+- SQR Explorer
+- COBOL Explorer
+- COPYBOOK Explorer
+- SQC Explorer
+
+Each object includes:
+
+- metadata
+- source preview
+- dependency graph
+- callers
+- include hierarchy
+- override status
+- environment presence
+
+---
+
+## Override Intelligence
+
+### Planned
+
+Automatically identify
+
+- custom overrides
+- delivered-only objects
+- custom-only objects
+- duplicate overrides
+- orphaned customizations
+- missing delivered files
+
+---
+
+## Source Comparison
+
+### Planned
+
+Support comparison between
+
+- Delivered vs Custom
+- HCM vs FSCM
+- DEV vs TEST
+- TEST vs PROD
+- Snapshot vs Current
+
+Comparison modes
+
+- Unified diff
+- Side-by-side diff
+- Syntax-aware diff
+- Ignore comments
+- Ignore whitespace
+
+---
+
+## Dependency Analysis
+
+### Planned
+
+Extract
+
+- SQC includes
+- COBOL COPY libraries
+- embedded SQL
+- record usage
+- table usage
+- Process Scheduler definitions
+- Application Engine launches
+- external executable references
+
+Publish all relationships into the Knowledge Graph.
+
+---
+
+## Search
+
+### Planned
+
+Global search
+
+- filenames
+- program names
+- SQL
+- comments
+- literals
+- identifiers
+- include references
+- COPY references
+
+---
+
+## Environment Intelligence
+
+### Planned
+
+Detect
+
+- customization drift
+- delivered drift
+- override drift
+- deleted customizations
+- added customizations
+- checksum differences
+
+---
+
+## Analytics
+
+### Planned
+
+Dashboards for
+
+- customization inventory
+- override inventory
+- source metrics
+- complexity metrics
+- dependency metrics
+- unused programs
+- duplicate logic
+- customization hotspots
+
+---
+
+## AI Engineering
+
+### Planned
+
+Support
+
+- explain this SQR
+- summarize this COBOL
+- compare customizations
+- identify customization risk
+- modernization recommendations
+- impact prediction
+- code documentation
+- dead code detection
+- dependency explanation
+
+---
+
+## Runtime Correlation
+
+### Planned
+
+Correlate Process Scheduler executions with source artifacts to provide
+
+- executed source
+- execution history
+- runtime metrics
+- SQL generated
+- log correlation
+- performance analysis
+- end-to-end transaction tracing
+
+---
+
+## Status
+
+Planned.
 
 ---
 
