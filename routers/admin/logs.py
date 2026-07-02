@@ -5,13 +5,19 @@ Admin UI for Phase 8 Log Intelligence.
 /admin/log_errors     — error surface grouped by error_code + object_ref
 /admin/log_viewer     — web / app log viewer with filters
 /admin/log_session    — session chain (web→app) for a specific OPRID
+/admin/igw            — Integration Gateway error analytics
 """
 
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
 from typing import Optional
 
+import html as _html
+
 from routers.admin._core import _shell, _ESC_JS
+
+def _esc(s: str) -> str:
+    return _html.escape(str(s or ""), quote=True)
 
 router = APIRouter(prefix="/admin", tags=["Logs UI"])
 
@@ -96,6 +102,7 @@ def logs_overview(request: Request):
 
 <div class="ql-nav">
   <a class="ql-btn" href="/admin/log_errors">Error Surface</a>
+  <a class="ql-btn" href="/admin/igw" style="color:#ff9f43;border-color:rgba(255,159,67,.35)">IGW Errors</a>
   <a class="ql-btn" href="/admin/log_viewer">Log Viewer</a>
   <a class="ql-btn" href="/admin/log_session">Session Chain</a>
   <button class="ql-btn" onclick="triggerIngest()" id="ingest-btn">Trigger Ingest Now</button>
@@ -576,3 +583,265 @@ function applyChain() {{
 </script>
 """
     return HTMLResponse(_shell("Session Chain", "log_session", content))
+
+
+# ---------------------------------------------------------------------------
+# /admin/igw  — Integration Gateway error analytics
+# ---------------------------------------------------------------------------
+
+_IGW_EC_COLORS = {
+    "HTTP_404": "#ffd700",
+    "HTTP_503": "#ff6b6b",
+    "HTTP_500": "#ff6b6b",
+    "IB_EXT_APP":     "#ff6b6b",
+    "IB_GFW":         "#ff9f43",
+    "IB_LISTEN":      "#ff9f43",
+    "IB_HTTP_TC":     "#ffd700",
+    "IB_EXT_CONTACT": "#ffd700",
+}
+
+def _igw_ec_color(code: str) -> str:
+    if not code:
+        return "#7faab2"
+    for prefix, color in _IGW_EC_COLORS.items():
+        if code.startswith(prefix):
+            return color
+    return "#7faab2"
+
+
+@router.get("/igw", response_class=HTMLResponse)
+def igw_view(request: Request, env: Optional[str] = None):
+    db = _logdb()
+
+    import json
+    cfg_path = __import__("pathlib").Path(__file__).parent.parent.parent / "config.json"
+    try:
+        cfg = json.loads(cfg_path.read_text())
+        envs = [e["name"] for e in cfg.get("peoplesoft", {}).get("environments", [])]
+    except Exception:
+        envs = []
+
+    s = db.igw_summary(env=env)
+    total   = s["total"]
+    ops     = s["by_operation"]
+    nodes   = s["by_node"]
+    codes   = s["by_error_code"]
+    recent  = s["recent"]
+    first_s = (s["first_seen"] or "")[:19]
+    last_s  = (s["last_seen"]  or "")[:19]
+
+    env_opts = "".join(
+        f'<option value="{e}" {"selected" if e == env else ""}>{e}</option>'
+        for e in envs
+    )
+
+    # ── Stat cards ────────────────────────────────────────────────────────────
+    unique_ops   = len(ops)
+    unique_nodes = len(nodes)
+    http_404     = next((c["count"] for c in codes if c["code"] == "HTTP_404"), 0)
+    http_other   = sum(c["count"] for c in codes if (c["code"] or "").startswith("HTTP_") and c["code"] != "HTTP_404")
+
+    def stat(val, label, color="#00e5ff", border_color=None):
+        bc = border_color or "rgba(0,229,255,.2)"
+        return (
+            f'<div style="background:rgba(0,229,255,.05);border:1px solid {bc};'
+            f'border-radius:6px;padding:12px 20px;min-width:110px">'
+            f'<div style="font-size:24px;font-weight:700;color:{color}">{val}</div>'
+            f'<div style="font-size:11px;color:#7faab2;margin-top:2px">{label}</div></div>'
+        )
+
+    stats_html = "".join([
+        stat(total,        "IGW Errors",        "#ff6b6b", "rgba(255,107,107,.3)"),
+        stat(unique_ops,   "IB Operations",     "#ff9f43", "rgba(255,159,67,.3)"),
+        stat(unique_nodes, "Requesting Nodes",  "#ffd700", "rgba(255,215,0,.3)"),
+        stat(http_404,     "HTTP 404 Errors",   "#ff6b6b", "rgba(255,107,107,.2)") if http_404 else "",
+        stat(http_other,   "Other HTTP Errors", "#ffd700", "rgba(255,215,0,.2)")   if http_other else "",
+    ])
+
+    # ── Error code chips ──────────────────────────────────────────────────────
+    ec_chips = ""
+    for c_item in codes:
+        code  = c_item["code"] or "—"
+        count = c_item["count"]
+        color = _igw_ec_color(code)
+        ec_chips += (
+            f'<div style="display:inline-flex;align-items:center;gap:6px;'
+            f'background:rgba(0,0,0,.3);border:1px solid {color}40;'
+            f'border-radius:4px;padding:5px 10px;margin:3px">'
+            f'<span style="color:{color};font-weight:600;font-size:12px">{code}</span>'
+            f'<span style="color:#7faab2;font-size:11px">×{count}</span></div>'
+        )
+
+    # ── IB operation breakdown table ──────────────────────────────────────────
+    op_rows = ""
+    max_op_count = ops[0][1] if ops else 1
+    for op_name, op_count in ops:
+        pct = int(op_count / max_op_count * 100)
+        op_link = (
+            f'<a href="/admin/object/ib_service_operation/{op_name}?env={env or ""}" '
+            f'style="color:#ff9f43;font-family:monospace" target="_blank">{op_name}</a>'
+        )
+        bar = (
+            f'<div style="height:6px;border-radius:3px;width:{pct}%;'
+            f'background:rgba(255,159,67,.5);margin-top:4px"></div>'
+        )
+        op_rows += (
+            f'<tr>'
+            f'<td>{op_link}</td>'
+            f'<td style="text-align:right;font-weight:700;color:#ffd700">{op_count}</td>'
+            f'<td><div style="min-width:80px">{bar}</div></td>'
+            f'</tr>'
+        )
+    if not op_rows:
+        op_rows = '<tr><td colspan="3" style="color:#555;text-align:center;padding:16px">No operations found — check raw field format</td></tr>'
+
+    # ── Requesting node breakdown table ───────────────────────────────────────
+    node_rows = ""
+    for node_name, node_count in nodes:
+        node_link = (
+            f'<a href="/admin/ib/node/{node_name}?env={env or ""}" '
+            f'style="color:#00e5ff;font-family:monospace">{node_name}</a>'
+        )
+        ai_q = f"Diagnose IB node {node_name} errors in gateway log for env {env or 'HCM'}"
+        node_rows += (
+            f'<tr>'
+            f'<td>{node_link}</td>'
+            f'<td style="text-align:right;font-weight:700;color:#ffd700">{node_count}</td>'
+            f'<td>'
+            f'<a href="/admin/assistant?q={ai_q}" class="ql-btn" '
+            f'style="font-size:11px;padding:3px 8px" target="_blank">Ask AI</a>'
+            f'</td></tr>'
+        )
+    if not node_rows:
+        node_rows = '<tr><td colspan="3" style="color:#555;text-align:center;padding:16px">No nodes found</td></tr>'
+
+    # ── Recent entries table ──────────────────────────────────────────────────
+    recent_rows = ""
+    for entry in recent[:30]:
+        ts   = (entry["ts"] or "")[:19]
+        desc = entry["description"] or "—"
+        excp = entry["exception"] or "—"
+        op   = entry["operation"] or "—"
+        node = entry["node"] or "—"
+        env_ = entry["env"] or ""
+        op_link = (
+            f'<a href="/admin/object/ib_service_operation/{op}?env={env_}" '
+            f'style="color:#ff9f43;font-family:monospace;font-size:11px" target="_blank">{op}</a>'
+            if op != "—" else "—"
+        )
+        node_link = (
+            f'<a href="/admin/ib/node/{node}?env={env_}" '
+            f'style="color:#00e5ff;font-family:monospace;font-size:11px">{node}</a>'
+            if node != "—" else "—"
+        )
+        desc_short = desc[:80] + ("…" if len(desc) > 80 else "")
+        recent_rows += (
+            f'<tr>'
+            f'<td style="font-size:11px;color:#7faab2;white-space:nowrap">{ts}</td>'
+            f'<td>{op_link}</td>'
+            f'<td>{node_link}</td>'
+            f'<td style="font-size:11px;color:#ff9f43" title="{_esc(desc)}">{desc_short}</td>'
+            f'</tr>'
+        )
+    if not recent_rows:
+        recent_rows = '<tr><td colspan="4" style="color:#555;text-align:center;padding:24px">No IGW entries found.</td></tr>'
+
+    # ── Ask AI prompt ──────────────────────────────────────────────────────────
+    top_op   = ops[0][0]   if ops   else "unknown"
+    top_node = nodes[0][0] if nodes else "unknown"
+    ai_q = (
+        f"Analyze IGW errors in {env or 'HCM'}: {total} errors total. "
+        f"Top operation: {top_op}. Top requesting node: {top_node}. "
+        f"HTTP 404 count: {http_404}. Check ib_diagnostics and explain what is failing."
+    )
+
+    date_range_html = ""
+    if first_s and last_s:
+        date_range_html = f'<span style="color:#7faab2;font-size:12px">{first_s} → {last_s}</span>'
+
+    content = f"""
+<style>
+.ig-table{{width:100%;border-collapse:collapse;font-size:13px}}
+.ig-table th{{text-align:left;padding:7px 10px;border-bottom:1px solid rgba(255,159,67,.25);
+  color:#7faab2;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}}
+.ig-table td{{padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle}}
+.ig-table tr:hover td{{background:rgba(255,159,67,.04)}}
+.ig-section{{background:rgba(0,0,0,.25);border:1px solid rgba(255,159,67,.15);
+  border-radius:6px;padding:16px 20px;margin-bottom:18px}}
+.ig-section h4{{color:#ff9f43;font-size:13px;margin:0 0 12px 0;letter-spacing:.3px}}
+.ql-btn{{padding:6px 12px;border-radius:4px;background:rgba(0,229,255,.08);
+  border:1px solid rgba(0,229,255,.25);color:#00e5ff;font-size:12px;
+  text-decoration:none;display:inline-block;cursor:pointer}}
+.ql-btn:hover{{background:rgba(0,229,255,.15)}}
+.grid2{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
+@media(max-width:900px){{.grid2{{grid-template-columns:1fr}}}}
+</style>
+
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+  <h3 style="color:#ff9f43;margin:0;font-size:15px">IGW Error Analytics</h3>
+  <select id="env-sel" onchange="applyEnv()"
+    style="background:rgba(0,20,30,.88);border:1px solid rgba(255,159,67,.3);
+      color:#d7faff;font-size:12px;padding:4px 8px;border-radius:4px">
+    <option value="">All Envs</option>{env_opts}
+  </select>
+  {date_range_html}
+  <div style="margin-left:auto;display:flex;gap:8px">
+    <a href="/admin/logs" class="ql-btn" style="font-size:12px">← Sources</a>
+    <a href="/admin/log_errors" class="ql-btn" style="font-size:12px">Error Surface</a>
+    <a href="/admin/assistant?q={_esc(ai_q)}" class="ql-btn"
+       style="font-size:12px;background:rgba(255,159,67,.1);border-color:rgba(255,159,67,.4);color:#ff9f43"
+       target="_blank">Ask AI</a>
+  </div>
+</div>
+
+<p style="color:#7faab2;font-size:12px;margin:0 0 14px 0">
+  Integration Gateway errors from <code>errorLog.html</code> — gateway-level IB operation failures,
+  target connector errors, and node connectivity issues. Cross-links to IB Explorer and AI assistant.
+</p>
+
+<!-- Stat cards -->
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+  {stats_html}
+</div>
+
+<!-- Error codes -->
+<div class="ig-section" style="margin-bottom:18px">
+  <h4>Error Codes</h4>
+  <div>{ec_chips}</div>
+</div>
+
+<!-- Operations + Nodes side-by-side -->
+<div class="grid2">
+  <div class="ig-section">
+    <h4>By IB Operation</h4>
+    <table class="ig-table">
+      <thead><tr><th>Operation</th><th style="text-align:right">Count</th><th>Relative</th></tr></thead>
+      <tbody>{op_rows}</tbody>
+    </table>
+  </div>
+  <div class="ig-section">
+    <h4>By Requesting Node</h4>
+    <table class="ig-table">
+      <thead><tr><th>Node</th><th style="text-align:right">Count</th><th>Actions</th></tr></thead>
+      <tbody>{node_rows}</tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Recent entries -->
+<div class="ig-section">
+  <h4>Recent Errors <span style="color:#7faab2;font-weight:400;font-size:11px">(last 30)</span></h4>
+  <table class="ig-table">
+    <thead><tr><th>Time</th><th>Operation</th><th>Node</th><th>Description</th></tr></thead>
+    <tbody>{recent_rows}</tbody>
+  </table>
+</div>
+
+<script>
+function applyEnv() {{
+  var e = document.getElementById('env-sel').value;
+  window.location = '/admin/igw' + (e ? '?env=' + e : '');
+}}
+</script>
+"""
+    return HTMLResponse(_shell("IGW Errors", "igw", content))

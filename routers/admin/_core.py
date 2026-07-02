@@ -21,6 +21,7 @@ _NAV_GROUPS = [
         ("promotions",  "Promotions",     "/admin/promotions"),
         ("logs",        "Logs",           "/admin/logs"),
         ("log_errors",  "Log Errors",     "/admin/log_errors"),
+        ("igw",         "IGW Errors",     "/admin/igw"),
     ]),
     ("Data", [
         ("sqlws",  "SQL Workspace",  "/admin/sqlws"),

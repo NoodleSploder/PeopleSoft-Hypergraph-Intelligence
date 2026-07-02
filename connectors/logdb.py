@@ -460,6 +460,75 @@ def error_summary(env: str | None = None, limit: int = 50) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def igw_summary(env: str | None = None) -> dict:
+    """
+    Aggregate IGW error log entries.
+
+    Returns total count, breakdowns by error_code / IB operation / requesting node,
+    first/last seen timestamps, and the 50 most recent raw entries.
+    """
+    c = _conn()
+    clauses = ["lower(source_name) LIKE '%igw%'"]
+    params: list = []
+    if env:
+        clauses.append("env=?")
+        params.append(env)
+    where = "WHERE " + " AND ".join(clauses)
+
+    # Fetch all IGW app_entries (small dataset — ≤few thousand rows)
+    rows = c.execute(
+        f"SELECT ts, raw, env FROM app_entries {where} ORDER BY ts DESC LIMIT 5000",
+        params
+    ).fetchall()
+
+    by_op:   dict[str, int] = {}
+    by_node: dict[str, int] = {}
+    recent:  list[dict]     = []
+
+    for r in rows:
+        raw = r["raw"] or ""
+        parts = raw.split("|")
+        description = parts[1] if len(parts) > 1 else ""
+        exception   = parts[2] if len(parts) > 2 else ""
+        operation   = parts[3].strip() if len(parts) > 3 else None
+        node        = parts[4].strip() if len(parts) > 4 else None
+
+        if operation:
+            by_op[operation]   = by_op.get(operation, 0) + 1
+        if node:
+            by_node[node] = by_node.get(node, 0) + 1
+
+        if len(recent) < 50:
+            recent.append({
+                "ts":          r["ts"],
+                "description": description[:160],
+                "exception":   exception[:120],
+                "operation":   operation,
+                "node":        node,
+                "env":         r["env"],
+            })
+
+    # Error code breakdown from log_errors (already properly split)
+    ec_rows = c.execute(
+        f"SELECT error_code, count(*) AS n FROM log_errors {where} "
+        f"GROUP BY error_code ORDER BY n DESC",
+        params
+    ).fetchall()
+
+    first_seen = rows[-1]["ts"] if rows else None
+    last_seen  = rows[0]["ts"]  if rows else None
+
+    return {
+        "total":          len(rows),
+        "first_seen":     first_seen,
+        "last_seen":      last_seen,
+        "by_error_code":  [{"code": r["error_code"], "count": r["n"]} for r in ec_rows],
+        "by_operation":   sorted(by_op.items(),   key=lambda x: -x[1]),
+        "by_node":        sorted(by_node.items(),  key=lambda x: -x[1]),
+        "recent":         recent,
+    }
+
+
 _SYSTEM_LOG_SOURCES = ("weblogic", "stdout", "error", "igw")  # source_name substrings for system-level entries
 
 

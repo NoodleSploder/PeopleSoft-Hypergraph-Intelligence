@@ -117,6 +117,13 @@ def re_extract():
     return db.re_extract_errors(limit=10000)
 
 
+@router.get("/igw-summary")
+def igw_summary(env: Optional[str] = Query(None)):
+    """Aggregate IGW error log data: by error code, IB operation, requesting node."""
+    db = _db()
+    return db.igw_summary(env=env)
+
+
 @router.post("/search")
 def search_logs(
     q:     str           = Query(..., description="Text to search in messages/URLs"),

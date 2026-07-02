@@ -699,14 +699,30 @@ Supported transport types:
 - `routers/admin/logs.py` — `/admin/logs` (source overview), `/admin/log_errors` (grouped error surface with Ask AI), `/admin/log_viewer` (filtered web/app/error browser), `/admin/log_session` (OPRID session chain)
 - AI tools: `log_search`, `log_errors`, `session_log_chain` in `connectors/ai_tools.py`
 - 7+ active log sources ingesting live HCM data; error surface groups errors by code+object (HTTP_502, IB_PCODEWOL, WEBPROFILE_ERR, AUTH_FAIL, IB_EXT_APP)
+- Transaction Tracing timeline: sort toggle (ascending/descending), web log entries included via `_SYSTEM_LOG_SOURCES` correlation
+
+### ✅ Completed (2026-07-02) — IGW errorLog.html pipeline
+
+- `connectors/logparser.py` — `parse_igw_error_log()` HTML block parser; 12 regex patterns extract timestamp, description, exception, error_level, stack trace, request XML, IB operation, requesting node, HTTP status, message codes; `_IGW_ERROR_LABELS` maps exception class names to error codes (IB_EXT_APP, IB_GFW, IB_HTTP_TC, IB_EXT_CONTACT, IB_LISTEN)
+- `connectors/logingest.py` — `_BLOCK_TYPES = {"igw_error_log"}` branch; processes entire HTML content, holds back partial trailing `<BODY>` block across ingest cycles
+- `connectors/logdb.py` — `igw_summary()` aggregation: by error_code / IB operation / requesting node; schema migrations `idx_app_unique` (dedup) and `idx_err_unique` (multi-code per entry)
+- `connectors/logdb.py` — `_SYSTEM_LOG_SOURCES` includes `"igw"` so IGW entries appear in session chain timelines
+- `config.json` — `igw_log_sources` array; HCM_IGW_ERROR source ingesting `errorLog*.html` via SSH glob
+- `routers/logs.py` — `GET /api/logs/igw-summary` endpoint
+- `routers/admin/logs.py` — `/admin/igw` IGW Error Analytics page: stat cards, error code chips, IB operation breakdown with relative bars, requesting node breakdown with Ask AI links, recent entries table with IB Explorer cross-links
+- `routers/admin/_core.py` — "IGW Errors" nav entry
+- `routers/assistant.py` — AI system prompt updated: IGW error codes (IB_EXT_APP/HTTP_404 from IGW source) indicate gateway-level failures; AI guided to identify operation, node, and HTTP status from log entries
+- AI diagnostic tools: `environment_health`, `ib_diagnostics`, `process_scheduler_health` added to `connectors/ai_tools.py` with proactive diagnostics system prompt
 
 ### Design Decisions
 
 - **F5**: Supported via `f5_access` type using Apache-combined parser (HSL iRules log in NCSA format)
 - **Future F5 native**: When F5 Analytics/AVR logs become available, add `f5_avr` parser with VS name, pool, irule fields
 - **Retention**: 30 days of web entries, 90 days of app entries, 90 days of errors (configurable)
-- **Dedup**: log_errors has UNIQUE(source_name, ts, raw) — safe to re-ingest overlapping byte ranges
+- **Dedup**: `log_errors` has `UNIQUE(source_name, ts, coalesce(raw,''), coalesce(error_code,''))` — allows multiple error codes per entry; `app_entries` has `UNIQUE(source_name, ts, coalesce(raw,''))` — safe to re-ingest overlapping byte ranges
 - **OPRID extraction**: web logs — second NCSA field (auth user); app logs — context field + message body fallback
+- **IGW raw field format**: pipe-delimited `ts|description|exception|ib_operation|requesting_node` (≤500 chars) — parsed server-side for analytics grouping
+- **msgLog.html** (`igw_msg_log` type): Not implemented — message logging disabled in this HCM environment; no file present to parse against
 
 ---
 
