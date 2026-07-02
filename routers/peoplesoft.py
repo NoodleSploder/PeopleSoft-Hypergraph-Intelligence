@@ -769,6 +769,20 @@ def portal_analysis(portal_name: str = "EMPLOYEE", env: str = "HCM"):
     return psdb.portal_registry_analysis(env, portal_name)
 
 
+@router.get("/api/peoplesoft/portal/subtree")
+def portal_subtree(
+    portal_name: str = "EMPLOYEE",
+    parent: str = "",
+    max_depth: int = 6,
+    max_rows: int = 500,
+    env: str = "HCM",
+):
+    """Full descendant subtree of a portal folder (CONNECT BY, ordered, depth-annotated)."""
+    rows = psdb.portal_registry_subtree(env, portal_name, parent,
+                                        max_depth=max_depth, max_rows=max_rows)
+    return {"items": rows, "count": len(rows)}
+
+
 @router.get("/api/peoplesoft/oprids")
 def search_oprids(env: str = "HCM", q: str = ""):
     return psdb.search_oprids(env, q)

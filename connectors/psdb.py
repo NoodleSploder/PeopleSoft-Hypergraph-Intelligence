@@ -3059,6 +3059,37 @@ def portal_registry_folder_children(env_name, portal_name, parent_objname, inclu
         return []
 
 
+def portal_registry_subtree(env_name, portal_name, parent_objname, max_depth=6, max_rows=1000):
+    """Return the full descendant subtree of a portal folder using CONNECT BY.
+
+    Returns a flat list of rows ordered top-down, each row includes 'depth' for
+    indentation and all standard PSPRSMDEFN columns needed for display.
+    Useful for building a full portal sitemap or comparing two environments'
+    subtree structures in one shot.
+    """
+    try:
+        rows = query(env_name, f"""
+            SELECT PORTAL_OBJNAME, PORTAL_LABEL, PORTAL_REFTYPE,
+                   PORTAL_PRNTOBJNAME, PORTAL_SEQ_NUM,
+                   PORTAL_URI_SEG1, PORTAL_URI_SEG2, PORTAL_URI_SEG3,
+                   PORTAL_URLTEXT, DESCR254, PORTAL_CREF_USGT,
+                   LEVEL AS depth
+              FROM SYSADM.PSPRSMDEFN
+             WHERE LEVEL <= :maxd
+            CONNECT BY NOCYCLE PRIOR PORTAL_OBJNAME = PORTAL_PRNTOBJNAME
+                   AND UPPER(PORTAL_NAME) = UPPER(:pn)
+            START WITH UPPER(PORTAL_PRNTOBJNAME) = UPPER(:parent)
+                   AND UPPER(PORTAL_NAME) = UPPER(:pn)
+             ORDER SIBLINGS BY PORTAL_SEQ_NUM NULLS LAST, PORTAL_LABEL
+             FETCH FIRST :maxr ROWS ONLY
+        """, {"pn": portal_name, "parent": parent_objname,
+              "maxd": max(1, min(int(max_depth), 10)),
+              "maxr": max(10, min(int(max_rows), 2000))})
+        return rows
+    except Exception:
+        return []
+
+
 def portal_registry_portals(env_name):
     """Return the list of portal names and their root-level statistics."""
     try:

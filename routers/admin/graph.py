@@ -2134,6 +2134,7 @@ def admin_portal():
             <option value="">-- Portal Tree --</option>
         </select>
         <button onclick="showAnalysis()">Analyse</button>
+        <button onclick="expandSubtree()" style="background:#8844cc">Expand Subtree</button>
     </div>
 
     <div id="status" class="muted" style="margin-top:12px;">Search or open a Portal Registry content reference.</div>
@@ -2172,6 +2173,11 @@ def admin_portal():
             <div class="card">
                 <h2>Children</h2>
                 <div id="children" class="muted">No content reference loaded.</div>
+            </div>
+
+            <div class="card" id="subtreeCard" style="display:none">
+                <h2>Subtree <span id="subtreeCount" class="muted" style="font-size:11px"></span></h2>
+                <div id="subtreePanel" style="max-height:420px;overflow-y:auto;font-size:11px;font-family:monospace"></div>
             </div>
 
             <div class="card">
@@ -2462,6 +2468,48 @@ async function explainPortal() {
         ${grants.length ? grants.map(row => rowHtml(row, ['portal_permname'], ['matched_by', 'portal_permtype_label', 'classid', 'rolename'])).join('') : ''}
     `;
     setStatus(`Explain complete: ${result.has_access ? 'access granted' : 'no access'}.`);
+}
+
+async function expandSubtree() {
+    const portal = currentPortal || document.getElementById('portalName').value.trim();
+    const portalName = currentTreePortal || document.getElementById('portalSelect').value || 'EMPLOYEE';
+    if (!portal) {
+        setStatus('Load a portal object first, then click Expand Subtree.');
+        return;
+    }
+    setStatus(`Expanding subtree of ${portal}...`);
+    const d = await api(`/api/peoplesoft/portal/subtree?env=${ENV}&portal_name=${encodeURIComponent(portalName)}&parent=${encodeURIComponent(portal)}&max_depth=6&max_rows=500`);
+    if (!d) return;
+    const items = d.items || [];
+    const card = document.getElementById('subtreeCard');
+    const panel = document.getElementById('subtreePanel');
+    const countEl = document.getElementById('subtreeCount');
+    card.style.display = '';
+    countEl.textContent = `(${items.length} items)`;
+    if (!items.length) {
+        panel.innerHTML = '<span class="muted">No descendants found.</span>';
+        setStatus('No subtree items found.');
+        return;
+    }
+    const typeColor = {'F': '#89b4fa', 'C': '#a6e3a1'};
+    panel.innerHTML = items.map(r => {
+        const depth = Number(r.depth || 1);
+        const indent = (depth - 1) * 14;
+        const color = typeColor[String(r.portal_reftype||'').toUpperCase()] || '#cdd6f4';
+        const label = esc(r.portal_label || r.portal_objname || '');
+        const name = esc(r.portal_objname || '');
+        const prefix = String(r.portal_reftype||'').toUpperCase() === 'F' ? '▶ ' : '• ';
+        const url = String(r.portal_reftype||'').toUpperCase() === 'F'
+            ? `/admin/portal?portal=${encodeURIComponent(r.portal_objname)}`
+            : `/admin/portal?portal=${encodeURIComponent(r.portal_objname)}`;
+        return `<div style="padding:2px 4px 2px ${indent+4}px;border-bottom:1px solid #0d1a22;cursor:pointer"
+                     onclick="loadPortal('${name}')"
+                     onmouseenter="this.style.background='#0d1a22'" onmouseleave="this.style.background=''">
+                    <span style="color:${color}">${prefix}</span><span style="color:${color}">${label}</span>
+                    <span style="color:#445;margin-left:6px;font-size:10px">${name}</span>
+                </div>`;
+    }).join('');
+    setStatus(`Loaded subtree: ${items.length} descendants of ${portal}.`);
 }
 
 document.getElementById('searchText').addEventListener('keydown', event => {
