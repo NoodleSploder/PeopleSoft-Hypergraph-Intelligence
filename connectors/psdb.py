@@ -6463,11 +6463,17 @@ def get_app_class(env_name, compound_key):
     defn_rows = query(env_name, """
         SELECT APPCLASSID, PACKAGEROOT, QUALIFYPATH, APPCLASSREF
           FROM SYSADM.PSAPPCLASSDEFN
-         WHERE PACKAGEROOT = :pkg AND QUALIFYPATH = :qp AND APPCLASSID = :cid
+         WHERE UPPER(PACKAGEROOT) = UPPER(:pkg) AND UPPER(QUALIFYPATH) = UPPER(:qp) AND UPPER(APPCLASSID) = UPPER(:cid)
     """, {"pkg": packageroot, "qp": qualifypath, "cid": appclassid})
     if not defn_rows:
         return {"warnings": [f"Class '{compound_key}' not found"]}
     defn = dict(defn_rows[0])
+    defn["full_path"] = _app_class_full_path(packageroot, qualifypath, appclassid)
+
+    # Use DB-correct-case values for all subsequent queries
+    packageroot = defn.get("packageroot", packageroot)
+    qualifypath = defn.get("qualifypath", qualifypath)
+    appclassid = defn.get("appclassid", appclassid)
     defn["full_path"] = _app_class_full_path(packageroot, qualifypath, appclassid)
 
     # Siblings — other classes in same package:sub-path
@@ -6502,10 +6508,41 @@ def get_app_class(env_name, compound_key):
 
     total_in_pkg = sum(sp.get("class_count", 0) for sp in sub_paths)
 
+    # Fetch PeopleCode source from PSPCMTXT
+    # Key: OV1=packageroot, [OV2..n-2]=qualifypath parts, OV(n-1)=classid, OVn=OnExecute
+    source = None
+    try:
+        if ptmetadata.has_table(env_name, "PSPCMTXT"):
+            qp_parts = [p for p in qualifypath.split(":") if p.strip()]
+            ov_values = [packageroot] + qp_parts + [appclassid, "OnExecute"]
+            while len(ov_values) < 7:
+                ov_values.append(" ")
+            ov_values = ov_values[:7]
+
+            txt_columns = select_existing_columns(
+                env_name, "PSPCMTXT",
+                ["PCTEXT", "PROGTXT", "TXT", "TEXT"],
+            )
+            text_col = next((c for c in ("PCTEXT", "PROGTXT", "TXT", "TEXT") if c in txt_columns), None)
+            if text_col:
+                predicates = [f"OBJECTVALUE{i+1} = :ov{i+1}" for i in range(7)]
+                params_ov = {f"ov{i+1}": ov_values[i] for i in range(7)}
+                src_rows = query(env_name, f"""
+                    SELECT {text_col} AS chunk
+                      FROM SYSADM.PSPCMTXT
+                     WHERE {" AND ".join(predicates)}
+                     ORDER BY PROGSEQ
+                """, params_ov)
+                if src_rows:
+                    source = "".join(str(r.get("chunk") or "") for r in src_rows).rstrip()
+    except Exception as exc:
+        warnings.append(f"Source: {exc}")
+
     return {
         "definition": defn,
         "siblings": siblings,
         "sub_paths": sub_paths,
+        "source": source,
         "counts": {
             "siblings": len(siblings),
             "sub_paths": len(sub_paths),

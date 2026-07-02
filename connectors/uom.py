@@ -509,6 +509,9 @@ def sections_for_peoplecode(pc):
 
 
 def object_payload(field):
+    # Objects built via canonical_base may attach their own sections directly;
+    # fall back to sections_for_field only when no custom sections are present.
+    sections = field.get("sections") if field.get("sections") is not None else sections_for_field(field)
     return {
         "type": field["type"],
         "name": field["name"],
@@ -520,7 +523,7 @@ def object_payload(field):
             "status": field["status"],
             **field.get("_metadata", {}).get("raw", {}),
         },
-        "sections": sections_for_field(field),
+        "sections": sections,
         "_links": field["_links"],
         "_uom": field,
     }
@@ -6403,6 +6406,18 @@ def _app_class_sections(data):
             "title": f"Sub-Packages in {pkg} ({len(sub_paths)})",
             "items": sp_items,
         })
+
+    # PeopleCode source
+    source = data.get("source")
+    sections.append({
+        "type": "source",
+        "title": "PeopleCode Source",
+        "data": {
+            "source": source,
+            "warning": "Source unavailable" if not source else "",
+        },
+        "items": [],
+    })
 
     return sections
 
