@@ -244,6 +244,7 @@ Continue enriching graph relationships.
 - Menu UOM compact graph previews now use the shared relationship graph helper and align Menu → Component `CONTAINS` edges with persisted Knowledge Graph semantics
 - Application Package UOM objects now expose classes/PeopleCode relationships and compact graph previews; persisted Knowledge Graph ingestion emits Application Package → App Class `CONTAINS` edges
 - Application Package PeopleCode relationships now use real PSPCMPROG `PROGSEQ` identities and persisted Knowledge Graph ingestion emits App Class → PeopleCode `CONTAINS` edges
+- Standalone App Class UOM objects now expose package/PeopleCode relationships and compact graph previews with App Class → Package `BELONGS_TO` and App Class → PeopleCode `CONTAINS` edges
 - Tree → Record USES edges
 - Impact analysis (forward and reverse dependency traversal with depth control)
 

@@ -525,6 +525,8 @@ def object_payload(field):
         },
         "sections": sections,
         "_links": field["_links"],
+        "_relationships": field.get("_relationships", {}),
+        "_graph": field.get("_graph", {}),
         "_uom": field,
     }
 
@@ -6628,21 +6630,119 @@ def app_class_object(env, compound_key):
 
     full_path = defn.get("full_path") or compound_key
     sections = _app_class_sections(data)
+    pkg = (defn.get("packageroot") or "").strip()
+    qp = (defn.get("qualifypath") or "").strip() or ":"
+    cid = (defn.get("appclassid") or "").strip()
+    class_key = f"{pkg}~{qp}~{cid}" if pkg and cid else compound_key
+
+    package_rows = []
+    if pkg:
+        package_rows.append({
+            "packageroot": pkg,
+            "name": pkg,
+            "_links": {"admin": object_url("application_package", pkg)},
+        })
+
+    peoplecode_rows = []
+    if pkg and cid and ptmetadata.has_table(env, "PSPCMPROG"):
+        try:
+            rows = psdb.query(env, """
+                SELECT OBJECTID1, OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3,
+                       OBJECTVALUE4, OBJECTVALUE5, PROGSEQ
+                  FROM SYSADM.PSPCMPROG
+                 WHERE OBJECTID1 = 104
+                   AND OBJECTVALUE1 = :pkg
+                 ORDER BY OBJECTVALUE2, OBJECTVALUE3, OBJECTVALUE4, PROGSEQ
+            """, {"pkg": pkg})
+            for row in rows or []:
+                parts = [
+                    str(row.get(f"objectvalue{i}") or "").strip()
+                    for i in range(2, 6)
+                    if str(row.get(f"objectvalue{i}") or "").strip()
+                ]
+                if len(parts) < 2:
+                    continue
+                row_class = parts[-2]
+                row_qp = ":".join(parts[:-2]) if len(parts) > 2 else ":"
+                if row_class.upper() != cid.upper() or row_qp.upper() != qp.upper():
+                    continue
+                reference = peoplecode.reference_from_row(row)
+                encoded = peoplecode.encode_reference(reference) if reference else ""
+                if not encoded:
+                    continue
+                peoplecode_rows.append({
+                    **row,
+                    "app_class_key": class_key,
+                    "peoplecode_reference": reference,
+                    "encoded_reference": encoded,
+                    "_links": {"admin": object_url("peoplecode", encoded)},
+                })
+        except Exception as exc:
+            warnings.append(ptmetadata.warning("peoplecode_relationship_error", str(exc)))
+
+    relationships = {
+        "package": package_rows,
+        "peoplecode": peoplecode_rows,
+        "siblings": data.get("siblings") or [],
+    }
+    graph = relationship_graph(
+        "app_class",
+        class_key,
+        limit_relationships(relationships, {"peoplecode": 80}),
+        [
+            {
+                "relationship": "package",
+                "node_type": "application_package",
+                "target_name": lambda row: str(row.get("packageroot") or row.get("name") or "").strip(),
+                "default_edge": "BELONGS_TO",
+            },
+            {
+                "relationship": "peoplecode",
+                "node_type": "peoplecode",
+                "target_name": lambda row: str(row.get("encoded_reference") or "").strip(),
+                "default_edge": "CONTAINS",
+            },
+        ],
+        root_data=defn,
+    )
+
+    if package_rows:
+        sections.insert(1, {
+            "type": "items",
+            "title": "Package",
+            "items": [{"name": pkg, "meta": "Application Package", "_links": package_rows[0].get("_links", {})}],
+        })
+    if peoplecode_rows:
+        sections.append({
+            "type": "items",
+            "title": f"PeopleCode Programs ({len(peoplecode_rows)})",
+            "items": [
+                {
+                    "name": row.get("peoplecode_reference"),
+                    "chips": [{"label": f"PROGSEQ {row.get('progseq')}", "cls": "chip-blue"}],
+                    "meta": row.get("objectvalue5") or row.get("objectvalue4") or "",
+                    "_links": row.get("_links", {}),
+                }
+                for row in peoplecode_rows[:100]
+            ],
+        })
 
     return canonical_base(
         env,
         "app_class",
-        compound_key,
+        class_key,
         display_name=full_path,
         status="active",
         warnings=warnings,
         sections=sections,
         overview={
-            "package": defn.get("packageroot"),
-            "sub_path": defn.get("qualifypath"),
-            "class_name": defn.get("appclassid"),
+            "package": pkg or defn.get("packageroot"),
+            "sub_path": qp or defn.get("qualifypath"),
+            "class_name": cid or defn.get("appclassid"),
             "base_class": (defn.get("appclassref") or "").strip() or None,
         },
+        _relationships=relationships,
+        _graph=graph,
         _metadata={"environment": env.upper(), "source_table": "PSAPPCLASSDEFN"},
     )
 

@@ -6,6 +6,60 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — Standalone App Class UOM Graph
+
+Date/time: 2026-07-01 23:08 CDT
+
+Features implemented:
+- Standalone App Class UOM objects now expose `_relationships.package`,
+  `_relationships.peoplecode`, and `_relationships.siblings`.
+- App Class compact `_graph` previews now show App Class → Application Package
+  `BELONGS_TO` and App Class → PeopleCode `CONTAINS` edges.
+- Generic UOM object payloads now pass `_relationships` and `_graph` through at
+  the top level instead of only hiding them inside `_uom`.
+- App Class detail sections now include a package relationship section and a
+  PeopleCode Programs section with `PROGSEQ` chips.
+
+Files modified:
+- `connectors/uom.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Reused PSPCMPROG `OBJECTID1 = 104` and `peoplecode.reference_from_row()` so
+  standalone App Class graph nodes match the PeopleCode provider identity.
+- Kept the compact graph focused on parent package and owned PeopleCode
+  programs. `APPCLASSREF` inheritance was not modeled because live HCM did not
+  show populated base-class rows during the probe.
+
+Bugs fixed:
+- App Class object pages showed definition/source information but no canonical
+  relationship model or compact graph preview.
+- Generic object payloads did not expose UOM `_relationships` / `_graph` at the
+  top level for canonical objects that use the shared `object_payload()`.
+
+Technical debt:
+- App Class inheritance edges remain future work if `APPCLASSREF` appears in
+  another environment or PeopleTools version.
+
+Verification:
+- `python -m py_compile connectors/uom.py routers/peoplesoft.py` — OK.
+- `python - <<'PY' import main ...` — OK.
+- `uom.app_class_object('HCM',
+  'HRS_CANDIDATE_MANAGER~APPLICANT_EMPLOYEE~APPLICANTAPPLICATIONCONTROLLER')`
+  returned 1 package relationship, 3 PeopleCode relationships, 1 sibling, and
+  a compact graph with 5 nodes and 4 edges.
+- Generic object route helper returned top-level `_relationships` and `_graph`
+  for the App Class payload.
+- `/api/peoplesoft/graph/app_class/HRS_CANDIDATE_MANAGER~APPLICANT_EMPLOYEE~APPLICANTAPPLICATIONCONTROLLER`
+  route helper returned `_source: uom`, `_vocabulary: compact_uom`, 5 nodes,
+  and 4 edges with `BELONGS_TO` / `CONTAINS` type aliases.
+
+Next recommended work:
+- Continue compact UOM graph alignment for another section-only provider.
+- Revisit App Class inheritance if live metadata with `APPCLASSREF` values is
+  found.
+
 ## 2026-07-01 — App Class to PeopleCode Knowledge Graph Edges
 
 Date/time: 2026-07-01 23:03 CDT
