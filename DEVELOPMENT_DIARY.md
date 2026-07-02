@@ -6,6 +6,84 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — HANDOFF #10: Typed KG Edges and READS/WRITES Record Cross-Reference
+
+### HANDOFF #10 — SQL Definition Cross-Reference (Knowledge Graph)
+
+Improved the Knowledge Graph context surfaced in every Object Explorer response.
+
+**Problem 1 — Generic "neighbor" label**: `attach_graph_context()` in
+`routers/peoplesoft.py` built Knowledge Graph Neighbor items from `graph["nodes"]`
+only, hard-coding `relationship: "neighbor"` for every entry.  The actual edge
+types (READS, WRITES, CONTAINS, USES, REFERENCES, …) stored in `graph["edges"]`
+were completely ignored.
+
+**Fix**: Build a two-pass lookup from the `edges` list:
+- `edge_by_target[node_id]` → list of relationship types for edges pointing *to*
+  that node from the root
+- `edge_by_source[node_id]` → list of relationship types for edges pointing *from*
+  that node to the root
+
+Each item now carries the actual primary relationship type.
+
+**Problem 2 — No record-level READS/WRITES summary**: There was no quick way to
+see which Application Engines or SQL programs touched a given record.
+
+**Fix**: New `_attach_record_rw_xref(payload, env, node_id)` helper.  For objects
+of type `record`, it calls `graphdb.neighbors(env, node_id, direction="in",
+edge_types=["READS", "WRITES"])` to get only inbound READS/WRITES edges, then
+appends a "READS / WRITES" section with:
+- WRITES items first (higher impact), then READS, each sorted by type then name
+- Metadata: count, reads count, writes count, note
+
+**Verified**: `curl /api/peoplesoft/object/record/JOB?env=HCM`
+- Knowledge Graph Neighbors: 21 items with correct types
+  (CONTAINS, USES, REFERENCES, READS …)
+- READS / WRITES: 18 Application Engines, all showing `rel: READS`
+
+Commit: `1b1967d`
+
+------------------------------------------------------------------------
+
+## 2026-07-03 — HANDOFF #9: CI Wiring, Syntax Check, Makefile, GitHub Actions
+
+### HANDOFF #9 — CI / Deployment Wiring
+
+Wired a full CI pipeline so the project is ready for automated checks.
+
+**scripts/syntax_check.py** — new script:
+- Sweeps all `.py` files under the project root (skipping `.venv`, `__pycache__`,
+  `.git`)
+- Runs `py_compile.compile(path, doraise=True)` on each file
+- Flags `SyntaxError` and `SyntaxWarning` (treated as errors)
+- CLI flags: `--quiet` (suppress per-file OK lines), `--exit-zero` (always exit 0)
+- Exits 1 if any file fails; currently: all 80 files OK
+
+**Makefile** — new convenience targets:
+- `make lint` — runs syntax_check.py --quiet
+- `make test` — runs `python -m unittest discover -s tests/ -v`
+- `make check` — lint + test (default target via `all`)
+- `make serve` — starts uvicorn on 127.0.0.1:8088
+- `make smoke` — runs smoke_admin_shell.py with --base-url
+
+**.github/workflows/ci.yml** — new GitHub Actions workflow:
+- Triggers on push to main/develop, PR to main
+- ubuntu-latest, Python 3.12
+- pip installs: fastapi pydantic PyYAML oracledb (needed for top-level imports in
+  psdb/oracle/sqlws connectors)
+- Steps: syntax_check.py --quiet, then unittest discover
+
+**routers/admin/portal.py bug fix** (SyntaxWarning):
+- Line 662 had `\-` in a Python string carrying JS regex `/[A-Za-z0-9_.%\-]/`
+- Python 3.14 raises `SyntaxWarning: "\-" is an invalid escape sequence`
+- Fixed by doubling: `%\\-` in Python source → `%\-` in the emitted JS string
+
+**Verified**: `make check` passes; smoke test 56/57 (pre-existing /admin/reports)
+
+Commit: `5adce51`
+
+------------------------------------------------------------------------
+
 ## 2026-07-02 — ADS Definition UOM and Knowledge Graph Relationships
 
 Date/time: 2026-07-02 00:38 CDT
