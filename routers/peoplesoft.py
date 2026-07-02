@@ -224,7 +224,8 @@ def attach_graph_context(payload, env):
     obj_type = payload.get("type")
     if obj_type == "record":
         _attach_record_rw_xref(payload, env, node_id)
-    elif obj_type in ("application_engine", "sql_definition"):
+        _attach_record_components_xref(payload, env, node_id)
+    elif obj_type in ("application_engine", "sql_definition", "peoplecode"):
         _attach_outbound_rw_xref(payload, env, node_id)
     if obj_type == "application_engine":
         _attach_ae_schedulers(payload, env, node_id)
@@ -400,6 +401,56 @@ def _attach_ae_schedulers(payload, env: str, node_id: str) -> None:
         },
     ))
 
+
+def _attach_record_components_xref(payload, env: str, node_id: str) -> None:
+    """Add a 'Components Using This Record' section to record objects.
+
+    Queries inbound USES edges from component nodes to surface which components
+    reference this record (via search record, add search record, or page usage).
+    Silently skips if no component USES edges exist in the current KG build.
+    """
+    section_name = "Components Using This Record"
+    if any(s.get("name") == section_name for s in payload.get("sections", [])):
+        return
+    try:
+        use_graph = graphdb.neighbors(env, node_id, direction="in", depth=1,
+                                      edge_types=["USES"])
+    except Exception:
+        return
+
+    use_edges = use_graph.get("edges", [])
+    use_nodes_by_id = {n["id"]: n for n in use_graph.get("nodes", [])}
+
+    # Filter to only component-type sources
+    comp_items = []
+    seen = set()
+    for edge in use_edges:
+        src_id = edge.get("source", "")
+        if src_id in seen or not src_id.startswith("component:"):
+            continue
+        seen.add(src_id)
+        src_node = use_nodes_by_id.get(src_id, {})
+        comp_items.append({
+            "relationship": "USES",
+            "type": "component",
+            "name": src_node.get("name", src_id.split(":", 1)[-1]),
+            "id": src_id,
+            "_links": {"admin": src_node.get("canonical_url") or ""},
+        })
+
+    if not comp_items:
+        return
+
+    comp_items.sort(key=lambda x: x["name"])
+
+    payload.setdefault("sections", []).append(section(
+        section_name,
+        comp_items,
+        {
+            "count": len(comp_items),
+            "note": "Components that use this record as a search or data record (from Knowledge Graph)",
+        },
+    ))
 
 
 def normalize_object_type(object_type: str) -> str:
