@@ -121,11 +121,8 @@ Interactive infrastructure topology.
 
 - App Server domain enumeration with type classification (App Server, Process Scheduler, Web/PIA, Integration Broker)
 - Runtime graph visualization with force-directed layout connecting all runtime object types
-
-### Remaining
-
-- Interactive topology diagram showing Browser → nginx → WebLogic → App Server → Process Scheduler → Oracle → Integration Broker → OpenSearch
-- Live status indicators per infrastructure component
+- Interactive topology diagram `/admin/topology` — fixed SVG layout: Browser → nginx → WebLogic → App Server → Process Scheduler → Oracle → Integration Broker; kind-colored borders, left-edge status bars, ONLINE/OFFLINE/UNKNOWN indicators (2026-07-02)
+- Live status indicators per infrastructure component — status dot top-right, left status bar, click-to-detail panel (2026-07-02)
 
 ---
 
@@ -275,11 +272,18 @@ Every object should answer:
 - What breaks if I change? (impact analysis via Knowledge Graph traversal)
 - Child records, subrecord derivations, and AE state records for Record objects
 
+### ✅ Completed (2026-07-02)
+
+- Record objects: `READS / WRITES` section — lists every AE/SQL/PeopleCode program that reads or writes this record, sourced from Knowledge Graph inbound READS/WRITES edges; WRITES-first sort
+- Application Engine objects: `Records Read / Written` section — lists every record touched by this AE, sourced from outbound READS/WRITES KG edges
+- SQL Definition objects: `Records Read / Written` section — lists records accessed by this SQL definition, sourced from outbound READS/WRITES KG edges
+- Knowledge Graph Neighbors edge types: all neighbor items now show the actual edge type (CONTAINS, USES, REFERENCES, READS, …) instead of generic 'neighbor'
+
 ### Remaining
 
 - Universal "what references me / what do I reference" coverage across all object types
 - "Who executes me?" for runtime-linked objects (AEs, Service Operations)
-- Consistent cross-reference sections in every UOM provider
+- Consistent cross-reference sections across remaining UOM providers
 
 ---
 

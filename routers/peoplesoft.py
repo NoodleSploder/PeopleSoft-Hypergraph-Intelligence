@@ -220,9 +220,12 @@ def attach_graph_context(payload, env):
     }))
     payload.setdefault("_links", {})["knowledge_graph"] = f"/api/graph/neighbors/{node_id}?env={env}"
 
-    # ── Record-specific cross-reference: who READS / WRITES this record? ────
-    if payload.get("type") == "record":
+    # ── Type-specific cross-reference sections ───────────────────────────
+    obj_type = payload.get("type")
+    if obj_type == "record":
         _attach_record_rw_xref(payload, env, node_id)
+    elif obj_type in ("application_engine", "sql_definition"):
+        _attach_outbound_rw_xref(payload, env, node_id)
 
     return payload
 
@@ -280,6 +283,63 @@ def _attach_record_rw_xref(payload, env: str, node_id: str) -> None:
             "reads": reads_count,
             "writes": writes_count,
             "note": "Objects that read or write this record (from Knowledge Graph)",
+        },
+    ))
+
+
+def _attach_outbound_rw_xref(payload, env: str, node_id: str) -> None:
+    """Add a 'Records Read / Written' section to AE or SQL definition objects.
+
+    Queries outbound READS/WRITES edges from this object to records so engineers
+    can see exactly which tables a program touches without reading its SQL.
+    Silently skips if the graph has not been built or has no matching edges.
+    """
+    section_name = "Records Read / Written"
+    if any(s.get("name") == section_name for s in payload.get("sections", [])):
+        return
+    try:
+        rw_graph = graphdb.neighbors(env, node_id, direction="out", depth=1,
+                                     edge_types=["READS", "WRITES"])
+    except Exception:
+        return
+
+    rw_edges = rw_graph.get("edges", [])
+    rw_nodes_by_id = {n["id"]: n for n in rw_graph.get("nodes", [])}
+
+    if not rw_edges:
+        return
+
+    items = []
+    seen = set()
+    for edge in rw_edges:
+        tgt_id = edge.get("target", "")
+        if tgt_id in seen:
+            continue
+        seen.add(tgt_id)
+        tgt_node = rw_nodes_by_id.get(tgt_id, {})
+        rel = edge.get("type") or edge.get("relationship") or "READS"
+        items.append({
+            "relationship": rel,
+            "type": tgt_node.get("type", tgt_id.split(":")[0] if ":" in tgt_id else ""),
+            "name": tgt_node.get("name", tgt_id),
+            "id": tgt_id,
+            "_links": {"admin": tgt_node.get("canonical_url") or ""},
+        })
+
+    # Sort: WRITES first (higher impact), then READS; within each group alphabetically
+    items.sort(key=lambda x: (0 if x["relationship"] == "WRITES" else 1, x["name"]))
+
+    reads_count = sum(1 for it in items if it["relationship"] == "READS")
+    writes_count = sum(1 for it in items if it["relationship"] == "WRITES")
+
+    payload.setdefault("sections", []).append(section(
+        section_name,
+        items,
+        {
+            "count": len(items),
+            "reads": reads_count,
+            "writes": writes_count,
+            "note": "Records read or written by this object (from Knowledge Graph)",
         },
     ))
 
