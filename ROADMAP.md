@@ -64,7 +64,7 @@ The following major subsystems are production-ready:
 - IB Service Operations Explorer
 - Version-aware metadata adapters
 - Shared frontend shell with grouped dropdown navigation (8 functional groups + Home/Users direct links) and environment selector
-- Admin shell smoke test harness (28+ pages; 23 new providers added in Phase 5)
+- Admin shell smoke test harness (57 pages; 23 new providers added in Phase 5)
 - Scheduled graph snapshots with retention pruning
 
 Development focus now shifts from feature parity toward platform intelligence.
@@ -122,11 +122,11 @@ Persist runtime snapshots.
 - Knowledge Graph snapshots (creation, listing, loading, deletion, scheduled daily builds, retention pruning)
 - Graph-based drift detection comparing live graph to most-recent snapshot
 
-### Remaining
+### ✅ Completed (2026-07-02)
 
-- Runtime history persistence (process history, queue depth history, alert history, Oracle ASH history)
-- Trend graphs over time
-- Runtime snapshot creation (separate from graph snapshots)
+- Runtime history persistence: `connectors/runtimedb.py` SQLite store, 5-minute snapshot loop in scheduler
+- Trend graphs (1h/6h/24h/7d sparklines) on Runtime Monitor for Active Processes, Process Errors, AE Running, IB Pending, Alerts
+- Runtime snapshot creation integrated into scheduler (separate from graph snapshots)
 
 ---
 
@@ -298,6 +298,13 @@ Every object should answer:
 - SQL Definition objects: `Records Read / Written` section — lists records accessed by this SQL definition, sourced from outbound READS/WRITES KG edges
 - PeopleCode objects: `Records Read / Written` section — lists records accessed by PeopleCode programs with READS edges in the KG
 - Knowledge Graph Neighbors edge types: all neighbor items now show the actual edge type (CONTAINS, USES, REFERENCES, READS, …) instead of generic 'neighbor'
+- Record objects: `Pages Using This Record` section — lists pages with inbound USES edges from the KG
+- Record objects: `Projects Deploying This Record` section — lists projects with inbound DEPLOYS edges from the KG
+- Page objects: `Projects Deploying This Page` section — lists projects with inbound DEPLOYS edges
+- Component objects: `Projects Deploying This Component` section — lists projects with inbound DEPLOYS edges
+- Record objects: `Queries Using This Record` section — lists PS Query definitions with USES edges (171 edges in HCM KG)
+- Record objects: `PTF Tests Covering This Record` section — lists PTF automated tests with USES edges (235 edges in HCM KG)
+- Generic `_attach_inbound_xref()` helper in `routers/peoplesoft.py` — reusable cross-reference builder for any (src_type, edge_type) combination; silently skips when no KG edges exist
 
 ### Remaining
 
@@ -328,17 +335,7 @@ Every object should answer:
 
 ### Remaining
 
-Automatically detect changes in:
-
-- PeopleCode (changed programs between environments) — ✅ already done (`/api/envcompare/peoplecode` + deep source diff)
-- SQL definitions — ✅ already done (`/api/envcompare/sql_definitions`)
-- Security (changed permission lists, roles) — ✅ already done (`/api/envcompare/permissions`, `/api/envcompare/roles`)
-- Menus — ✅ added 2026-07-01
-- Trees — ✅ added 2026-07-01
-- Integration Broker metadata — ✅ added 2026-07-01 (routings + messages)
-
-- Component interface comparison (`/api/envcompare/ci`) — diffs PSBCDEFN; shows type, description, backing component — ✅ added 2026-07-01
-- AE program body comparison (`/api/envcompare/ae-body`) — step-level diff of PSAESTEPDEFN + SQL text from PSAESTMTDEFN/PSSQLTEXTDEFN; unified diff per changed step — ✅ added 2026-07-01
+- **Auto-detection from PSPROJECTDEFN**: see Promotion History section below.
 
 ### ✅ Completed (2026-07-01)
 
@@ -1198,11 +1195,37 @@ Phase 5 Knowledge Graph coverage is complete. 23 new providers were added across
 4. Compile-check and smoke-test at each layer before proceeding
 5. Document deprioritization reasons when tables are unimplementable
 
+## ✅ Phase 7 — AI Engineering Assistant (Complete as of 2026-07-01)
+
+3-provider AI assistant (Claude / OpenAI / Ollama) with 12+ tool definitions backed by live connectors.
+Streaming chat at `/admin/assistant`; agentic tool loop up to 8 rounds; collapsible tool-call blocks.
+Tools: `search_objects`, `peoplecode_search`, `graph_dependencies`, `graph_impact`, `who_has_access`,
+`ae_steps`, `sql_lookup`, `envcompare_summary`, `project_impact`, `active_sessions`, `record_usage`,
+`log_search`, `log_errors`, `session_log_chain`, `environment_health`, `ib_diagnostics`, `process_scheduler_health`.
+
+## ✅ Phase 8 — Log Intelligence (Complete as of 2026-07-02)
+
+Full log ingestion pipeline: PIA access/error, APPSRV, Tuxedo, nginx/Apache, F5, IGW errorLog.html, PRCS AE AESRV logs.
+SSH/SFTP fetch with byte-offset tracking; 60s ingest cycle; SQLite `data/logs.db`.
+Admin pages: `/admin/logs`, `/admin/log_errors`, `/admin/log_viewer`, `/admin/log_session`, `/admin/igw`, `/admin/prcs-ae`.
+AI tools for log diagnosis; session chain correlation web→app; error surface with Ask AI deep-links.
+
+**Remaining:** Process Scheduler log ingestion for Windows-hosted schedulers (SMB/WinRM transport) — blocked until a Windows scheduler server is available.
+
+## ✅ Phase 10 — SQR Explorer (Partial, complete as of 2026-07-02)
+
+SQR/SQC source artifact intelligence is live for FSCM (507 SQR + 698 SQC = 1,205 files indexed).
+Admin pages: `/admin/sqr`, `/admin/sqr/{filename}`, `/admin/sqr/table/{table}`, `/admin/sqr/analytics`.
+KG edges: `sqr_program → record` READS/WRITES, `sqr_program → sqr_program` INCLUDES, `prcs_defn → sqr_program` WRAPS.
+Runtime process panel: SQR Report/Process type links directly to source.
+
+**Remaining:** COBOL Explorer, COPYBOOK Explorer, SQR override intelligence, environment side-by-side comparison.
+
 ## Phase 6 — Environment Intelligence (Substantially Complete as of 2026-07-01)
 
 Continuous drift detection, environment history, and impact forecasting are complete.
 
-**Remaining:** Promotion history tracking (DEV → TEST → UAT → PROD) — needs design before implementation.
+**Remaining:** Promotion history tracking (DEV → TEST → UAT → PROD) — needs real promotion-chain DB connections before implementation.
 
 **What was delivered:**
 - 16-type envcompare coverage (records, fields, components, pages, permissions, roles, AE, PeopleCode, SQL defs, portals, queries, menus, trees, IB routings, IB messages, comp. interfaces)
