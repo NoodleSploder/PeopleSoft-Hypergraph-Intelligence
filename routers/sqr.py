@@ -164,6 +164,14 @@ def sqr_ingest_status():
     }
 
 
+@router.get("/program/{filename}/tree")
+def sqr_include_tree(filename: str):
+    """Return recursive SQC include tree for a program."""
+    from connectors import sqrdb
+    sqrdb.init_db()
+    return sqrdb.get_include_tree(filename)
+
+
 @router.get("/program/{filename}/source")
 def sqr_source(filename: str, max_kb: int = Query(128, ge=1, le=512)):
     """Return raw source content for a program (fetched live from SSH)."""

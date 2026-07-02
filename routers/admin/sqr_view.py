@@ -484,8 +484,16 @@ function render(d) {
 
     <div class="tab-row" style="margin-bottom:16px">
       <div class="tab on" onclick="switchTab('meta')">Overview</div>
+      ${d.includes && d.includes.length ? `<div class="tab" onclick="switchTab('tree')">Include Tree</div>` : ''}
       <div class="tab" onclick="switchTab('src')">Source</div>
       ${isSquc ? `<div class="tab" onclick="switchTab('inclby')">Included By <span id="inclByBadge" style="font-size:10px;opacity:.7"></span></div>` : ''}
+    </div>
+
+    <div id="paneTree" style="display:none">
+      <div class="sqr-card">
+        <h3>SQC Include Tree</h3>
+        <div id="treeContent" style="color:#7faab2;font-size:12px;padding:8px">Loading…</div>
+      </div>
     </div>
 
     <div id="paneIncludedBy" style="display:none">
@@ -536,18 +544,20 @@ function render(d) {
   _detail = d;
 }
 
-let _detail = null, _srcLoaded = false, _inclByLoaded = false;
+let _detail = null, _srcLoaded = false, _inclByLoaded = false, _treeLoaded = false;
 
 function switchTab(tab) {
-  document.querySelectorAll('.tab-row .tab').forEach(t => t.classList.remove('on'));
-  const idx = {meta:0, src:1, inclby:2}[tab] ?? 0;
-  const tabs = document.querySelectorAll('.tab-row .tab');
-  if (tabs[idx]) tabs[idx].classList.add('on');
-  $('paneOverview').style.display = tab === 'meta' ? '' : 'none';
-  $('paneSrc').style.display      = tab === 'src'  ? '' : 'none';
+  document.querySelectorAll('.tab-row .tab').forEach(t => {
+    const m = (t.getAttribute('onclick')||'').match(/switchTab\('(\w+)'\)/);
+    if (m) t.classList.toggle('on', m[1] === tab);
+  });
+  $('paneOverview').style.display = tab === 'meta'   ? '' : 'none';
+  const pt = $('paneTree');    if (pt) pt.style.display = tab === 'tree'   ? '' : 'none';
+  $('paneSrc').style.display      = tab === 'src'    ? '' : 'none';
   const ip = $('paneIncludedBy'); if (ip) ip.style.display = tab === 'inclby' ? '' : 'none';
   if (tab === 'src'    && !_srcLoaded)    loadSource();
   if (tab === 'inclby' && !_inclByLoaded) loadInclBy();
+  if (tab === 'tree'   && !_treeLoaded)   loadTree();
 }
 
 async function loadSource() {
@@ -589,6 +599,56 @@ async function loadInclBy() {
     }</ul>`;
   } catch(e) {
     $('inclByContent').innerHTML = `<span style="color:#f55">Error: ${esc(String(e))}</span>`;
+  }
+}
+
+function toggleTree(uid) {
+  const el = document.getElementById(uid);
+  const ch = document.getElementById('ch_' + uid);
+  if (!el) return;
+  const hidden = el.style.display === 'none';
+  el.style.display = hidden ? '' : 'none';
+  if (ch) ch.textContent = hidden ? '▼' : '▶';
+}
+
+function renderNode(node, depth) {
+  const hasKids = node.children && node.children.length;
+  const uid = 'tn_' + Math.random().toString(36).slice(2);
+  let nameHtml;
+  if (node.cyclic) {
+    nameHtml = `<span style="color:#ff6699">${esc(node.filename)}</span>` +
+      `<span style="margin-left:6px;font-size:9px;background:#ff66992a;color:#ff6699;padding:1px 5px;border-radius:3px">CYCLIC</span>`;
+  } else if (!node.indexed) {
+    nameHtml = `<span style="color:#7faab2">${esc(node.filename)}</span>` +
+      `<span style="margin-left:6px;font-size:9px;color:#fa0;opacity:.7">not indexed</span>`;
+  } else {
+    nameHtml = `<a href="/admin/sqr/${encodeURIComponent(node.filename)}" style="color:#0af;text-decoration:none">${esc(node.filename)}</a>`;
+  }
+  let chevron, childrenHtml = '';
+  if (hasKids && !node.cyclic) {
+    chevron = `<span id="ch_${uid}" onclick="toggleTree('${uid}')" style="cursor:pointer;color:#00e5ff;font-size:10px;user-select:none;margin-right:4px;display:inline-block;width:12px">▼</span>`;
+    childrenHtml = `<div id="${uid}" style="margin-left:20px;border-left:1px solid rgba(0,229,255,.12);padding-left:8px;margin-top:2px">` +
+      node.children.map(c => renderNode(c, depth+1)).join('') + `</div>`;
+  } else {
+    chevron = `<span style="display:inline-block;width:16px;margin-right:4px"></span>`;
+  }
+  return `<div style="padding:2px 0">${chevron}${nameHtml}${childrenHtml}</div>`;
+}
+
+async function loadTree() {
+  _treeLoaded = true;
+  const tc = $('treeContent');
+  try {
+    const r = await fetch('/api/sqr/program/' + encodeURIComponent(""" + f'"{filename}"' + """) + '/tree');
+    if (!r.ok) { tc.innerHTML = '<span style="color:#f55">Could not load include tree</span>'; return; }
+    const d = await r.json();
+    if (!d.children || !d.children.length) {
+      tc.innerHTML = '<span style="color:#4a6a7a">No #include dependencies</span>';
+      return;
+    }
+    tc.innerHTML = d.children.map(c => renderNode(c, 0)).join('');
+  } catch(e) {
+    tc.innerHTML = `<span style="color:#f55">Error: ${esc(String(e))}</span>`;
   }
 }
 

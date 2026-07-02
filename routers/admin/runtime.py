@@ -767,6 +767,16 @@ async function showProc(instance) {
     const traceLink = d.oprid
       ? `<a href="/admin/tracing?oprid=${esc(d.oprid)}&env=${esc(env)}" target="_blank">&#8599; Trace ${esc(d.oprid)}</a>`
       : '';
+    // RCA deep-link: pre-fill window ±45 minutes around request time
+    const rcaLink = (() => {
+      const refTs = d.rqstdttm || d.begindttm;
+      if (!refTs) return '';
+      const t = new Date(typeof refTs === 'string' ? refTs.replace(' ','T')+'Z' : refTs);
+      if (isNaN(t)) return '';
+      const fmt = dt => dt.toISOString().replace('T',' ').substring(0,19);
+      const s = fmt(new Date(t-45*60000)), e = fmt(new Date(t+45*60000));
+      return `<a href="/admin/rca?start=${encodeURIComponent(s)}&end=${encodeURIComponent(e)}&env=${esc(env)}" target="_blank">&#128269; RCA</a>`;
+    })();
     const loc = {'1':'Client','2':'Server','3':'Default','4':'PS/nVision'}[String(d.runlocation||'')] || d.runlocation || '—';
     const orig = {'1':'Online','2':'Batch','3':'Default','4':'Daemon','5':'App Engine','6':'CI/IB'}[String(d.origination||'')] || d.origination || '—';
     const dist = {'0':'N/A','1':'Generated','2':'Posted','3':'Not Posted','4':'Content Deleted','5':'Distributed','6':'Error'}[String(d.diststatus||'')] || d.diststatus || '—';
@@ -781,7 +791,7 @@ ${_timelineBar(d)}
 <h2>Identity</h2>
 <div class="p-field"><span class="p-label">Process Type</span><span class="p-value">${esc(d.prcstype||'—')}</span></div>
 <div class="p-field"><span class="p-label">Program</span><span class="p-value">${esc(d.prcsname||'—')} ${aeLink}${sqrLink}</span></div>
-<div class="p-field"><span class="p-label">Operator</span><span class="p-value">${esc(d.oprid||'—')} ${traceLink}</span></div>
+<div class="p-field"><span class="p-label">Operator</span><span class="p-value">${esc(d.oprid||'—')} ${traceLink} ${rcaLink}</span></div>
 <div class="p-field"><span class="p-label">Run Control</span><span class="p-value">${esc(d.runcntlid||'—')}</span></div>
 <div class="p-field"><span class="p-label">Server</span><span class="p-value">${esc(d.serverbatch||'—')}</span></div>
 <div class="p-field"><span class="p-label">Run Location</span><span class="p-value">${esc(loc)}</span></div>

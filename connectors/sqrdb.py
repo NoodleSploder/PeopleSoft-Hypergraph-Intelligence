@@ -329,3 +329,32 @@ def clear_source(source_key: str) -> int:
         c.execute("DELETE FROM sqr_programs WHERE source_key=?", (source_key,))
     c.close()
     return n
+
+
+def get_include_tree(filename: str) -> dict:
+    """Build recursive SQC include tree with cycle detection. Returns nested dict."""
+    c = _conn()
+
+    def _build(fn: str, ancestors: frozenset) -> dict:
+        key = fn.lower()
+        row = c.execute(
+            "SELECT id FROM sqr_programs WHERE lower(filename)=?", (key,)
+        ).fetchone()
+        if not row:
+            return {"filename": fn, "indexed": False, "cyclic": False, "children": []}
+        includes = c.execute(
+            "SELECT include_file FROM sqr_includes WHERE program_id=? ORDER BY include_file",
+            (row["id"],)
+        ).fetchall()
+        children = []
+        for inc_row in includes:
+            inc = inc_row["include_file"]
+            if inc.lower() in ancestors:
+                children.append({"filename": inc, "indexed": True, "cyclic": True, "children": []})
+            else:
+                children.append(_build(inc, ancestors | {inc.lower()}))
+        return {"filename": fn, "indexed": True, "cyclic": False, "children": children}
+
+    tree = _build(filename, frozenset([filename.lower()]))
+    c.close()
+    return tree

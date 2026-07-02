@@ -86,12 +86,22 @@ tr:hover td{background:rgba(0,229,255,.02)}
 <script>
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-// Pre-fill time inputs — default to last 1h
+// Pre-fill time inputs — from URL params or default to last 1h
 (function(){
-  const now=new Date();
-  const ago=new Date(now-3600000);
-  document.getElementById('endDt').value=fmtLocal(now);
-  document.getElementById('startDt').value=fmtLocal(ago);
+  const p=new URLSearchParams(location.search);
+  const s=p.get('start'), e=p.get('end');
+  if(s&&e){
+    // params are UTC ISO — convert to local for datetime-local input
+    const st=new Date(s.replace(' ','T')+'Z'), en=new Date(e.replace(' ','T')+'Z');
+    document.getElementById('startDt').value=fmtLocal(isNaN(st)?new Date(Date.now()-3600000):st);
+    document.getElementById('endDt').value=fmtLocal(isNaN(en)?new Date():en);
+    // auto-run investigation if params provided
+    setTimeout(()=>investigate(),200);
+  }else{
+    const now=new Date();
+    document.getElementById('endDt').value=fmtLocal(now);
+    document.getElementById('startDt').value=fmtLocal(new Date(now-3600000));
+  }
 })();
 
 function fmtLocal(d){
