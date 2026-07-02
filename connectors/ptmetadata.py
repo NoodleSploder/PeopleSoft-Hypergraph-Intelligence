@@ -1581,9 +1581,16 @@ def global_search(env, q, limit=20):
                 table_name = provider["table"]
                 if not has_table(env, table_name):
                     continue
+                cols = psdb.table_columns(env, table_name)
+                if "severity" in cols:
+                    severity_expr = "SEVERITY AS SEVERITY"
+                elif "msg_severity" in cols:
+                    severity_expr = "MSG_SEVERITY AS SEVERITY"
+                else:
+                    severity_expr = "NULL AS SEVERITY"
                 # Search message text; also match numeric set queries like "50" or "50.1180"
                 rows = psdb.query(env, f"""
-                    SELECT MESSAGE_SET_NBR, MESSAGE_NBR, SEVERITY, MESSAGE_TEXT
+                    SELECT MESSAGE_SET_NBR, MESSAGE_NBR, {severity_expr}, MESSAGE_TEXT
                       FROM SYSADM.{table_name}
                      WHERE UPPER(MESSAGE_TEXT) LIKE :pat
                         OR UPPER(DESCRLONG)    LIKE :pat

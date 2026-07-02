@@ -793,12 +793,22 @@ def build(env="HCM", limit=50, persist=True):
     def trees():
         if not ptmetadata.has_table(env, "PSTREEDEFN"):
             return 0
+        cols = psdb.table_columns(env, "PSTREEDEFN")
+        name_col = "TREE_NAME" if "tree_name" in cols else "TREENAME"
+        strct_col = "TREE_STRCT_ID" if "tree_strct_id" in cols else "TREESTRCTPNM"
+        setid_col = "SETID" if "setid" in cols else "NULL AS SETID"
+        setcntrl_col = "SETCNTRLVALUE" if "setcntrlvalue" in cols else "NULL AS SETCNTRLVALUE"
+        descr_col = "DESCR" if "descr" in cols else "NULL AS DESCR"
+        status_col = "EFF_STATUS" if "eff_status" in cols else "NULL AS EFF_STATUS"
+        owner_col = "OBJECTOWNERID" if "objectownerid" in cols else "NULL AS OBJECTOWNERID"
+        leaf_col = "TREE_RECNAME" if "tree_recname" in cols else "NULL AS TREE_RECNAME"
         rows = psdb.query(env, f"""
-            SELECT TREENAME, SETID, SETCNTRLVALUE, TREESTRCTPNM,
-                   TREE_RECNAME, DESCR, EFF_STATUS, OBJECTOWNERID
+            SELECT {name_col} AS TREENAME, {setid_col}, {setcntrl_col},
+                   {strct_col} AS TREESTRCTPNM, {leaf_col}, {descr_col},
+                   {status_col}, {owner_col}
               FROM SYSADM.PSTREEDEFN
              WHERE ROWNUM <= {limit}
-             ORDER BY TREENAME, EFFDT DESC
+             ORDER BY {name_col}
         """) or []
         seen = set()
         for r in rows:
@@ -897,9 +907,21 @@ def build(env="HCM", limit=50, persist=True):
     def component_interfaces():
         if not ptmetadata.has_table(env, "PSBCDEFN"):
             return 0
+        cols = psdb.table_columns(env, "PSBCDEFN")
+        descr_col = "b.DESCR" if "descr" in cols else "NULL AS DESCR"
+        version_col = "b.VERSION" if "version" in cols else "NULL AS VERSION"
+        type_col = "b.BCTYPE" if "bctype" in cols else "NULL AS BCTYPE"
+        if "bcpgname" in cols:
+            component_col = "b.BCPGNAME"
+        elif "pnlgrpname" in cols:
+            component_col = "b.PNLGRPNAME"
+        else:
+            component_col = "NULL"
+        owner_col = "b.OBJECTOWNERID" if "objectownerid" in cols else "NULL AS OBJECTOWNERID"
+        ts_col = "b.LASTUPDDTTM" if "lastupddttm" in cols else "NULL AS LASTUPDDTTM"
         rows = psdb.query(env, f"""
-            SELECT b.BCNAME, b.DESCR, b.VERSION, b.BCTYPE,
-                   b.PNLGRPNAME AS component, b.OBJECTOWNERID, b.LASTUPDDTTM
+            SELECT b.BCNAME, {descr_col}, {version_col}, {type_col},
+                   {component_col} AS component, {owner_col}, {ts_col}
               FROM SYSADM.PSBCDEFN b
              WHERE ROWNUM <= {limit}
              ORDER BY b.BCNAME
@@ -934,8 +956,15 @@ def build(env="HCM", limit=50, persist=True):
     def messages():
         if not ptmetadata.has_table(env, "PSMSGCATDEFN"):
             return 0
+        cols = psdb.table_columns(env, "PSMSGCATDEFN")
+        if "severity" in cols:
+            severity_expr = "SEVERITY AS SEVERITY"
+        elif "msg_severity" in cols:
+            severity_expr = "MSG_SEVERITY AS SEVERITY"
+        else:
+            severity_expr = "NULL AS SEVERITY"
         rows = psdb.query(env, f"""
-            SELECT MESSAGE_SET_NBR, MESSAGE_NBR, SEVERITY, MESSAGE_TEXT
+            SELECT MESSAGE_SET_NBR, MESSAGE_NBR, {severity_expr}, MESSAGE_TEXT
               FROM SYSADM.PSMSGCATDEFN
              WHERE ROWNUM <= {limit}
              ORDER BY MESSAGE_SET_NBR, MESSAGE_NBR

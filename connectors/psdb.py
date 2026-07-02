@@ -3865,21 +3865,27 @@ def search_cis(env_name, q="", limit=100):
     limit = max(1, min(int(limit), 500))
     pattern = f"%{q.upper()}%" if q else "%"
 
-    cols = select_existing_columns(
-        env_name, "PSBCDEFN",
-        ["BCNAME", "DESCR", "BCDISPLAYNAME", "BCTYPE", "PNLGRPNAME",
-         "VERSION", "OBJECTOWNERID", "LASTUPDDTTM"],
-        required=["BCNAME"],
-    )
-    if not cols:
+    available = table_columns(env_name, "PSBCDEFN")
+    if "bcname" not in available:
         return []
 
+    candidates = ["BCNAME", "DESCR", "BCDISPLAYNAME", "BCTYPE",
+                  "VERSION", "OBJECTOWNERID", "LASTUPDDTTM"]
+    select_exprs = [col for col in candidates if col.lower() in available]
+    if "bcpgname" in available:
+        select_exprs.append("BCPGNAME AS PNLGRPNAME")
+    elif "pnlgrpname" in available:
+        select_exprs.append("PNLGRPNAME")
+    else:
+        select_exprs.append("NULL AS PNLGRPNAME")
+
+    descr_filter = "OR UPPER(DESCR) LIKE :pattern" if "descr" in available else ""
     return query(env_name, f"""
         SELECT * FROM (
-            SELECT {", ".join(cols)}
+            SELECT {", ".join(select_exprs)}
               FROM SYSADM.PSBCDEFN
              WHERE UPPER(BCNAME) LIKE :pattern
-                OR UPPER(DESCR) LIKE :pattern
+                {descr_filter}
              ORDER BY BCNAME
         ) WHERE ROWNUM <= {limit}
     """, {"pattern": pattern})
@@ -4561,6 +4567,7 @@ def process_scheduler_servers(env_name):
 # ── Message Catalog ───────────────────────────────────────────────────────────
 
 _MSG_SEVERITY = {0: "Message", 1: "Warning", 2: "Error", 3: "Cancel"}
+_MSG_SEVERITY_CODE = {0: "M", 1: "W", 2: "E", 3: "C"}
 
 
 def _msg_severity_label(value):
@@ -4576,6 +4583,8 @@ def search_messages(env_name, q="", set_nbr=None, severity=None, limit=100):
     if not ptmetadata.has_table(env_name, "PSMSGCATDEFN"):
         return {"items": [], "warnings": ["PSMSGCATDEFN not accessible"]}
 
+    cols = table_columns(env_name, "PSMSGCATDEFN")
+    severity_col = "SEVERITY" if "severity" in cols else "MSG_SEVERITY" if "msg_severity" in cols else None
     clauses = []
     params = {}
     if q:
@@ -4587,13 +4596,20 @@ def search_messages(env_name, q="", set_nbr=None, severity=None, limit=100):
     if set_nbr is not None:
         clauses.append("MESSAGE_SET_NBR = :set_nbr")
         params["set_nbr"] = int(set_nbr)
-    if severity is not None:
-        clauses.append("SEVERITY = :severity")
-        params["severity"] = int(severity)
+    if severity is not None and severity_col:
+        clauses.append(f"{severity_col} = :severity")
+        if severity_col == "MSG_SEVERITY":
+            try:
+                params["severity"] = _MSG_SEVERITY_CODE.get(int(severity), str(severity).upper())
+            except (TypeError, ValueError):
+                params["severity"] = str(severity).upper()
+        else:
+            params["severity"] = int(severity)
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    severity_select = f"{severity_col} AS SEVERITY" if severity_col else "NULL AS SEVERITY"
     sql = f"""
-        SELECT MESSAGE_SET_NBR, MESSAGE_NBR, SEVERITY, MESSAGE_TEXT, DESCRLONG
+        SELECT MESSAGE_SET_NBR, MESSAGE_NBR, {severity_select}, MESSAGE_TEXT, DESCRLONG
           FROM SYSADM.PSMSGCATDEFN
          {where}
          ORDER BY MESSAGE_SET_NBR, MESSAGE_NBR
@@ -4655,9 +4671,12 @@ def get_message(env_name, set_nbr, msg_nbr):
     from connectors import ptmetadata
     if not ptmetadata.has_table(env_name, "PSMSGCATDEFN"):
         return None
+    cols = table_columns(env_name, "PSMSGCATDEFN")
+    severity_col = "SEVERITY" if "severity" in cols else "MSG_SEVERITY" if "msg_severity" in cols else None
+    severity_select = f"{severity_col} AS SEVERITY" if severity_col else "NULL AS SEVERITY"
     try:
-        rows = query(env_name, """
-            SELECT MESSAGE_SET_NBR, MESSAGE_NBR, SEVERITY, MESSAGE_TEXT, DESCRLONG
+        rows = query(env_name, f"""
+            SELECT MESSAGE_SET_NBR, MESSAGE_NBR, {severity_select}, MESSAGE_TEXT, DESCRLONG
               FROM SYSADM.PSMSGCATDEFN
              WHERE MESSAGE_SET_NBR = :sn AND MESSAGE_NBR = :mn
         """, {"sn": int(set_nbr), "mn": int(msg_nbr)})

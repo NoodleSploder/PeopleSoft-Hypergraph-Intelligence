@@ -633,7 +633,12 @@ def compare_ci(env1, env2, q="", limit=500):
         descr_col = "DESCR" if "descr" in cols else "NULL AS DESCR"
         descr_filter = "OR UPPER(DESCR) LIKE :q" if "descr" in cols else ""
         type_col = "BCTYPE" if "bctype" in cols else "NULL AS BCTYPE"
-        pnlgrp_col = "PNLGRPNAME" if "pnlgrpname" in cols else "NULL AS PNLGRPNAME"
+        if "bcpgname" in cols:
+            pnlgrp_col = "BCPGNAME AS PNLGRPNAME"
+        elif "pnlgrpname" in cols:
+            pnlgrp_col = "PNLGRPNAME"
+        else:
+            pnlgrp_col = "NULL AS PNLGRPNAME"
         ts_col = "LASTUPDDTTM" if "lastupddttm" in cols else "NULL AS LASTUPDDTTM"
         sql = f"""
             SELECT BCNAME, {type_col}, {descr_col}, {pnlgrp_col}, {ts_col}

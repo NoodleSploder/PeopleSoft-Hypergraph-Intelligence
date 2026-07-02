@@ -6,6 +6,73 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — Version-Adaptive Graph Provider Column Fixes
+
+Date/time: 2026-07-01 22:15 CDT
+
+Features implemented:
+- Fixed Knowledge Graph providers for Trees, Component Interfaces, and Message
+  Catalog to use live `all_tab_columns` discovery before selecting optional or
+  version-specific columns.
+- Added compatibility aliases so callers continue receiving stable keys:
+  - `TREE_NAME` -> `TREENAME`
+  - `TREE_STRCT_ID` -> `TREESTRCTPNM`
+  - `BCPGNAME` -> `PNLGRPNAME`
+  - `MSG_SEVERITY` -> `SEVERITY`
+- Updated Component Interface environment comparison to compare `BCPGNAME`
+  as the canonical component/page-group field when `PNLGRPNAME` is absent.
+- Updated Message Catalog search/detail/global-search paths to support
+  `MSG_SEVERITY` while preserving existing `severity` response fields.
+
+Files modified:
+- `connectors/graphdb.py`
+- `connectors/psdb.py`
+- `connectors/ptmetadata.py`
+- `connectors/envcompare.py`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Kept routers thin and fixed the connector layer where SQL belongs.
+- Preserved existing response keys and object identities instead of forcing UI
+  or API callers to learn PeopleTools-version-specific column names.
+- Treated absent optional columns as `NULL AS <stable_alias>` rather than
+  failing graph builds.
+
+Bugs fixed:
+- Non-persisted graph builds no longer warn/fail for:
+  - `PSTREEDEFN.OBJECTOWNERID`
+  - `PSBCDEFN.PNLGRPNAME`
+  - `PSMSGCATDEFN.SEVERITY`
+- Message Catalog search and message detail no longer fail on environments
+  where severity is stored as `MSG_SEVERITY`.
+
+Technical debt:
+- Several older helper paths still use local adaptive SQL fragments rather
+  than one shared column-alias helper. This is acceptable for now but could be
+  consolidated if more version-specific aliases appear.
+
+Verification:
+- `python -m py_compile connectors/graphdb.py connectors/psdb.py connectors/ptmetadata.py connectors/envcompare.py` — OK.
+- `psdb.search_trees('HCM', limit=2)` returned tree rows with stable
+  `treename` and `treestrctpnm` keys.
+- `psdb.search_cis('HCM', limit=2)` returned CI rows with stable
+  `pnlgrpname` populated from `BCPGNAME`.
+- `psdb.search_messages('HCM', q='invalid', severity=2, limit=2)` returned
+  `MSG_SEVERITY = 'E'` messages with stable `severity` keys.
+- `psdb.get_message('HCM', 18028, 2108)` returned a Message Catalog detail.
+- `ptmetadata.global_search('HCM', 'invalid', limit=2)` returned Message
+  Catalog hits without SQL errors.
+- `envcompare.compare_ci('HCM', 'FSCM', q='CI_', limit=2)` returned no
+  warnings.
+- Non-persisted `graphdb.build('HCM', limit=1, persist=False)` returned
+  `trees`, `component_interfaces`, and `messages` providers as `ok`, with
+  `warning_count: 0`.
+
+Next recommended work:
+- Continue broader READS/WRITES coverage for PeopleCode dynamic SQL.
+- Consider extracting a small shared alias-expression helper if more provider
+  column compatibility cases appear.
+
 ## 2026-07-01 — SQL Definition READS/WRITES Graph Edges
 
 Date/time: 2026-07-01 17:33 CDT
