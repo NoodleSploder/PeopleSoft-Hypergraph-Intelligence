@@ -19,8 +19,9 @@ from typing import Optional
 
 log = logging.getLogger("logingest")
 
-_WEB_TYPES = {"pia_access", "apache_access", "f5_access"}
-_APP_TYPES  = {"appsrv", "tuxedo", "pia_error", "pia_servlet", "pia_weblogic", "pia_stdout", "apache_error"}
+_WEB_TYPES   = {"pia_access", "apache_access", "f5_access"}
+_APP_TYPES   = {"appsrv", "tuxedo", "pia_error", "pia_servlet", "pia_weblogic", "pia_stdout", "apache_error"}
+_BLOCK_TYPES = {"igw_error_log"}   # multi-line HTML block parsers — not line-by-line
 
 
 def _load_config() -> dict:
@@ -38,21 +39,24 @@ def run_ingest():
         log.error("logingest: missing dependency: %s", exc)
         return
 
-    cfg    = _load_config()
-    sources = cfg.get("log_sources", [])
-    if not sources:
-        return
-
+    cfg = _load_config()
     logdb.init_db()
-    # Skip entries that are pure comment stubs (have _comment but no name)
-    logdb.upsert_sources([s for s in sources if s.get("name")])
 
-    enabled = logdb.get_sources(enabled_only=True)
-    if not enabled:
-        return
+    # Standard log sources
+    sources = cfg.get("log_sources", [])
+    if sources:
+        logdb.upsert_sources([s for s in sources if s.get("name")])
+        for src in logdb.get_sources(enabled_only=True):
+            if src["type"] not in _BLOCK_TYPES:
+                _ingest_source(src, logdb, sshclient, parse_line)
 
-    for src in enabled:
-        _ingest_source(src, logdb, sshclient, parse_line)
+    # IGW log sources (block-based HTML parsers)
+    igw_sources = cfg.get("igw_log_sources", [])
+    if igw_sources:
+        logdb.upsert_sources([s for s in igw_sources if s.get("name")])
+        for src in logdb.get_sources(enabled_only=True):
+            if src["type"] in _BLOCK_TYPES:
+                _ingest_source(src, logdb, sshclient, parse_line)
 
 
 def _ingest_source(src: dict, logdb, sshclient, parse_line):
@@ -109,42 +113,60 @@ def _ingest_file(source_name: str, env: str, ssh_host: str, filepath: str,
         return None
 
     text = raw_bytes.decode("utf-8", errors="replace")
-    lines = text.splitlines()
-
-    # If the read ended mid-line (i.e. EOF was in the middle of a line),
-    # track how many bytes the complete lines account for so we don't
-    # re-process or skip on the next cycle.
-    if not text.endswith("\n"):
-        # last element is partial — drop it and don't advance offset past it
-        complete_lines = lines[:-1]
-        partial_tail   = lines[-1].encode("utf-8", errors="replace")
-        consumed_bytes = len(raw_bytes) - len(partial_tail)
-    else:
-        complete_lines = lines
-        consumed_bytes = len(raw_bytes)
 
     web_rows:   list[dict] = []
     app_rows:   list[dict] = []
     error_rows: list[dict] = []
 
-    for line in complete_lines:
-        if not line.strip():
-            continue
-        try:
-            row = parse_line(log_type, line)
-        except Exception:
-            row = None
-        if row is None:
-            continue
-
-        if log_type in _WEB_TYPES:
-            web_rows.append(row)
-            if row.get("is_error"):
-                error_rows.append(row)
+    if log_type in _BLOCK_TYPES:
+        # Block parsers consume the entire content at once.
+        # For HTML logs, we can only safely consume complete entries.
+        # Entries are bounded by <BODY> tags; keep any partial trailing block.
+        from connectors.logparser import parse_igw_error_log
+        if log_type == "igw_error_log":
+            # Find the last complete entry boundary before EOF
+            last_body = text.rfind("<BODY", 0, len(text) - 1)
+            if last_body > 0:
+                safe_text      = text[:last_body]
+                partial_bytes  = text[last_body:].encode("utf-8", errors="replace")
+                consumed_bytes = len(raw_bytes) - len(partial_bytes)
+            else:
+                safe_text      = text
+                consumed_bytes = len(raw_bytes)
+            rows = parse_igw_error_log(safe_text)
+            for row in rows:
+                row.pop("_igw", None)   # don't store the extra detail dict
+                app_rows.append(row)
+                error_rows.append(row)  # IGW entries are always errors
+    else:
+        lines = text.splitlines()
+        # If the read ended mid-line keep the partial tail for next cycle
+        if not text.endswith("\n"):
+            complete_lines = lines[:-1]
+            partial_tail   = lines[-1].encode("utf-8", errors="replace")
+            consumed_bytes = len(raw_bytes) - len(partial_tail)
         else:
-            app_rows.append(row)
-            if row.get("is_error"):
-                error_rows.append(row)
+            complete_lines = lines
+            consumed_bytes = len(raw_bytes)
+
+        for line in complete_lines:
+            if not line.strip():
+                continue
+            try:
+                row = parse_line(log_type, line)
+            except Exception:
+                row = None
+            if row is None:
+                continue
+
+            if log_type in _WEB_TYPES:
+                web_rows.append(row)
+                if row.get("is_error"):
+                    error_rows.append(row)
+            else:
+                app_rows.append(row)
+                if row.get("is_error"):
+                    error_rows.append(row)
 
     if web_rows:
         logdb.insert_web_entries(source_name, env, web_rows)

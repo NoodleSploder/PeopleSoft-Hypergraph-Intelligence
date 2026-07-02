@@ -2,6 +2,7 @@
 Log line parsers for each supported log type.
 
 Each parser accepts a single text line and returns a dict (or None to skip).
+Block parsers (igw_error_log) accept an entire content chunk and return list[dict].
 
 Supported types:
   pia_access    — WebLogic PIA NCSA extended access log (PIA_access.log)
@@ -14,8 +15,10 @@ Supported types:
   apache_access — Apache / nginx combined access log (also F5 HSL iRule)
   apache_error  — Apache / nginx error log
   f5_access     — alias for apache_access (HSL iRules output NCSA combined)
+  igw_error_log — Integration Gateway errorLog.html (block parser)
 """
 
+import json
 import re
 from datetime import datetime, timezone
 from typing import Optional
@@ -609,6 +612,167 @@ def parse_apache_error(line: str) -> Optional[dict]:
         "is_error":    level in ("ERROR", "CRIT", "ALERT", "EMERG"),
         "raw":         line,
     }
+
+
+# ---------------------------------------------------------------------------
+# Integration Gateway errorLog.html  (block parser — NOT line-by-line)
+# ---------------------------------------------------------------------------
+# Format: each error entry starts with <BODY ...><H4>TIMESTAMP</H4> and
+# runs ~100 HTML lines until the next <BODY> tag or EOF.
+# Fields extracted via regex on the HTML block:
+#   Description  — INPUT VALUE attr after "Description"
+#   Exception    — INPUT VALUE attr after "Exception"
+#   ErrorLevel   — SPAN text after "ErrorLevel"
+#   Stack Trace  — first <TEXTAREA> content
+#   Request XML  — second <TEXTAREA> (IBInfo + MIME body)
+# ---------------------------------------------------------------------------
+
+_IGW_ENTRY_SPLIT_RE  = re.compile(r'<BODY\b[^>]*>', re.IGNORECASE)
+_IGW_TS_RE           = re.compile(r'<H4>(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}[.\d]*)</H4>',
+                                   re.IGNORECASE)
+_IGW_INPUT_VAL_RE    = re.compile(r'VALUE="([^"]*)"', re.IGNORECASE)
+_IGW_ERR_LEVEL_RE    = re.compile(
+    r'ErrorLevel\s*&nbsp;.*?<SPAN[^>]*>(.*?)</SPAN>', re.IGNORECASE | re.DOTALL)
+_IGW_TEXTAREA_RE     = re.compile(
+    r'<TEXTAREA\b[^>]*>(.*?)</TEXTAREA>', re.IGNORECASE | re.DOTALL)
+_IGW_IB_OP_RE        = re.compile(
+    r'<ExternalOperationName>\s*<!\[CDATA\[([^\]]+)\]\]>', re.IGNORECASE)
+_IGW_QUEUE_RE        = re.compile(
+    r'<Queue>\s*<!\[CDATA\[([^\]]+)\]\]>', re.IGNORECASE)
+_IGW_FROM_NODE_RE    = re.compile(
+    r'<RequestingNode>\s*<!\[CDATA\[([^\]]+)\]\]>', re.IGNORECASE)
+_IGW_HTTP_STATUS_RE  = re.compile(r'HttpStatusCode\s+Returned\s*=\s*(\d{3})')
+_IGW_MSGSET_RE       = re.compile(r'MessageSet:\s*<INPUT[^>]+VALUE="(\d+)"', re.IGNORECASE)
+_IGW_MSGID_RE        = re.compile(r'MessageID:\s*<INPUT[^>]+VALUE="(\d+)"', re.IGNORECASE)
+_IGW_MSGPARMS_RE     = re.compile(r'MessageParms:\s*<INPUT[^>]+VALUE="([^"]*)"', re.IGNORECASE)
+
+# Error-code labels specific to IGW
+_IGW_ERROR_LABELS = {
+    "ExternalApplicationException": "IB_EXT_APP",
+    "GeneralFrameworkException":    "IB_GFW",
+    "ExternalSystemContactException": "IB_EXT_CONTACT",
+    "PeoplesoftListeningConnector": "IB_LISTEN",
+    "HttpTargetConnector":          "IB_HTTP_TC",
+}
+
+_IGW_DT_FMTS = ["%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"]
+
+
+def _igw_parse_block(block: str) -> Optional[dict]:
+    """Parse a single IGW error entry HTML block. Returns None if invalid."""
+    ts_m = _IGW_TS_RE.search(block)
+    if not ts_m:
+        return None
+
+    ts_raw = ts_m.group(1).strip()
+    ts = None
+    for fmt in _IGW_DT_FMTS:
+        try:
+            ts = datetime.strptime(ts_raw[:len(fmt) + 3], fmt)
+            break
+        except ValueError:
+            pass
+    if ts is None:
+        return None
+
+    # All INPUT VALUE= matches — [0]=Description, [1]=Exception (if present)
+    input_vals = _IGW_INPUT_VAL_RE.findall(block)
+    description = input_vals[0].strip() if len(input_vals) > 0 else ""
+    exception   = input_vals[1].strip() if len(input_vals) > 1 else ""
+
+    # ErrorLevel span text
+    el_m = _IGW_ERR_LEVEL_RE.search(block)
+    error_level = el_m.group(1).strip() if el_m else "Error"
+
+    # TextAreas: [0] = Stack Trace, [1] = Request (IB MIME)
+    textareas = _IGW_TEXTAREA_RE.findall(block)
+    stack_trace = textareas[0].strip() if len(textareas) > 0 else ""
+    request_xml = textareas[1].strip() if len(textareas) > 1 else ""
+
+    # Extract IB context from request XML
+    _m = _IGW_IB_OP_RE.search(request_xml);    ib_operation    = _m.group(1) if _m else None
+    _m = _IGW_QUEUE_RE.search(request_xml);    queue_name      = _m.group(1) if _m else None
+    _m = _IGW_FROM_NODE_RE.search(request_xml); requesting_node = _m.group(1) if _m else None
+
+    # HTTP status from description
+    http_m = _IGW_HTTP_STATUS_RE.search(description)
+    http_status = http_m.group(1) if http_m else None
+
+    # Message catalog
+    _m = _IGW_MSGSET_RE.search(block);  msgset   = _m.group(1) if _m else None
+    _m = _IGW_MSGID_RE.search(block);   msgid    = _m.group(1) if _m else None
+    _m = _IGW_MSGPARMS_RE.search(block); msgparms = _m.group(1) if _m else None
+
+    # Build error code list — match only in description/exception, not the full stack
+    error_codes = []
+    if http_status:
+        error_codes.append(f"HTTP_{http_status}")
+    check_text = f"{description} {exception}"
+    for key, label in _IGW_ERROR_LABELS.items():
+        if key in check_text and label not in error_codes:
+            error_codes.append(label)
+    if msgset and msgid:
+        error_codes.append(f"MSG_{msgset}_{msgid}")
+
+    # Object ref — IB operation name takes priority
+    obj_ref = (ib_operation or "").split(".")[0] or None
+
+    # Primary message: description is most useful; fall back to msgparms
+    message = description or msgparms or exception or error_level
+    if requesting_node:
+        message += f" [node:{requesting_node}]"
+    if queue_name and queue_name != ib_operation:
+        message += f" [queue:{queue_name}]"
+
+    # raw = compact 1-line representation (not storing full HTML)
+    raw = f"{ts_raw}|{description}|{exception}|{ib_operation or ''}|{requesting_node or ''}"
+
+    return {
+        "log_type":       "igw_error_log",
+        "ts":             ts,
+        "oprid":          None,
+        "level":          "ERROR",
+        "message":        message[:2000],
+        "error_codes":    error_codes,
+        "object_ref":     obj_ref,
+        "is_error":       True,
+        "raw":            raw[:500],
+        # Extra IGW fields stored in message; full detail below for caller use
+        "_igw": {
+            "description":     description,
+            "exception":       exception,
+            "error_level":     error_level,
+            "stack_trace":     stack_trace[:1000],
+            "ib_operation":    ib_operation,
+            "queue_name":      queue_name,
+            "requesting_node": requesting_node,
+            "http_status":     http_status,
+            "msg_set":         msgset,
+            "msg_id":          msgid,
+            "msg_parms":       msgparms,
+        },
+    }
+
+
+def parse_igw_error_log(content: str) -> list[dict]:
+    """
+    Block parser for IGW errorLog.html content.
+    Splits on <BODY> tags and parses each entry block.
+    Returns a list of dicts (may be empty).
+    """
+    results = []
+    # Split on <BODY> to get individual entry blocks
+    blocks = _IGW_ENTRY_SPLIT_RE.split(content)
+    for block in blocks:
+        if not block.strip() or '<H4>' not in block:
+            continue
+        try:
+            row = _igw_parse_block(block)
+            if row:
+                results.append(row)
+        except Exception:
+            pass
+    return results
 
 
 # ---------------------------------------------------------------------------

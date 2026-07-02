@@ -126,6 +126,63 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_err_env       ON log_errors(env);
     """)
     c.commit()
+    _migrate_schema(c)
+
+
+def _migrate_schema(c: sqlite3.Connection):
+    """One-time schema migrations that can't be expressed as CREATE IF NOT EXISTS."""
+    # app_entries: add unique dedup index (dedup rows first if needed)
+    idx = c.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_app_unique'"
+    ).fetchone()
+    if idx is None:
+        # Remove duplicate rows, keeping the lowest id for each (source_name, ts, raw) group
+        c.execute("""
+            DELETE FROM app_entries WHERE id NOT IN (
+                SELECT min(id) FROM app_entries GROUP BY source_name, ts, coalesce(raw,'')
+            )
+        """)
+        c.execute(
+            "CREATE UNIQUE INDEX idx_app_unique ON app_entries(source_name, ts, coalesce(raw,''))"
+        )
+
+    # log_errors: expand UNIQUE to include error_code so multiple codes per entry are stored
+    old = c.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='log_errors'"
+    ).fetchone()
+    needs_migrate = old and "UNIQUE(source_name, ts, raw)" in old["sql"]
+    old_exists = c.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='log_errors_old'"
+    ).fetchone()
+    if needs_migrate or old_exists:
+        c.executescript("""
+            DROP TABLE IF EXISTS log_errors_old;
+            ALTER TABLE log_errors RENAME TO log_errors_old;
+            CREATE TABLE log_errors (
+                id          INTEGER PRIMARY KEY,
+                source_name TEXT NOT NULL,
+                env         TEXT NOT NULL,
+                ts          TEXT NOT NULL,
+                log_type    TEXT NOT NULL,
+                error_code  TEXT,
+                object_ref  TEXT,
+                oprid       TEXT,
+                level       TEXT,
+                message     TEXT,
+                raw         TEXT
+            );
+            INSERT OR IGNORE INTO log_errors
+                SELECT * FROM log_errors_old;
+            DROP TABLE log_errors_old;
+            CREATE INDEX IF NOT EXISTS idx_err_ts     ON log_errors(ts);
+            CREATE INDEX IF NOT EXISTS idx_err_oprid  ON log_errors(oprid);
+            CREATE INDEX IF NOT EXISTS idx_err_code   ON log_errors(error_code);
+            CREATE INDEX IF NOT EXISTS idx_err_object ON log_errors(object_ref);
+            CREATE INDEX IF NOT EXISTS idx_err_env    ON log_errors(env);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_err_unique
+                ON log_errors(source_name, ts, coalesce(raw,''), coalesce(error_code,''));
+        """)
+    c.commit()
 
 
 def _ts(dt: datetime | None) -> str:
@@ -403,7 +460,7 @@ def error_summary(env: str | None = None, limit: int = 50) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-_SYSTEM_LOG_SOURCES = ("weblogic", "stdout", "error")  # source_name substrings for system-level entries
+_SYSTEM_LOG_SOURCES = ("weblogic", "stdout", "error", "igw")  # source_name substrings for system-level entries
 
 
 def session_chain(oprid: str, start: str, end: str) -> dict:

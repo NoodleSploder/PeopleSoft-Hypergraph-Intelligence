@@ -52,6 +52,12 @@ Guidelines:
   how to start it (PIA → PeopleTools → Process Scheduler → Servers, or start server from command line).
 - If IB errors found → use ib_diagnostics with the specific node mentioned in errors (e.g. FSCMDMO, \
   PSFT_EP) to find what is failing. Quote actual error strings from failed_transactions.
+- IGW (Integration Gateway) errors appear in log_errors with codes IB_EXT_APP, IB_GFW, IB_HTTP_TC, \
+  IB_EXT_CONTACT, or HTTP_4XX/5XX from source names containing "IGW". These come from the gateway \
+  errorLog.html and show the actual HTTP status, IB operation name, and requesting node. \
+  When you see these, tell the user exactly which IB operation failed, which node sent it, \
+  and what HTTP status the target returned. If HTTP_404 → the target URL is wrong or the service \
+  doesn't exist on the remote node. If HTTP_503 → the remote app server is down.
 - If environment appears fully offline (DB down + IB down + no sessions) → tell the user directly: \
   "This environment appears to be fully offline. You need to start the App Server, Web Server, \
   and Process Scheduler before anyone can use it."

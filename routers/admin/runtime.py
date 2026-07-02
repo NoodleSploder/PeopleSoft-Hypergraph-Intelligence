@@ -2220,6 +2220,7 @@ function renderTrace(d, logData) {
   const logErrors = logEvents.filter(e => e.status === 'error').length;
   const webLogs   = logEvents.filter(e => e.logTier === 'web').length;
   const appLogs   = logEvents.filter(e => e.logTier === 'app').length;
+  const igwLogs   = logEvents.filter(e => e.type === 'igw_error_log').length;
 
   let h = `<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;">
     <span style="font-family:monospace;font-size:15px;color:#00e5ff;">${esc(oprid)}</span>
@@ -2245,6 +2246,7 @@ function renderTrace(d, logData) {
     ${sBox(logTotal, 'Log Events', 's-log')}
     ${webLogs ? sBox(webLogs, 'Web Logs', 's-web') : ''}
     ${appLogs ? sBox(appLogs, 'App Logs', 's-log') : ''}
+    ${igwLogs ? sBox(igwLogs, 'IGW Errors', 's-err') : ''}
     ${logErrors ? sBox(logErrors, 'Log Errors', 's-err') : ''}
   </div>`;
 
@@ -2268,6 +2270,7 @@ function renderTrace(d, logData) {
     ${logTotal ? `<button class="sec" style="font-size:10px;color:#9d5fff;border-color:#9d5fff44;" onclick="filterEvents('log')">Logs (${logTotal})</button>` : ''}
     ${webLogs ? `<button class="sec" style="font-size:10px;color:#00e5cc;border-color:#00e5cc44;" onclick="filterEvents('web_log')">Web Logs (${webLogs})</button>` : ''}
     ${appLogs ? `<button class="sec" style="font-size:10px;color:#9d5fff;border-color:#9d5fff44;" onclick="filterEvents('app_log')">App Logs (${appLogs})</button>` : ''}
+    ${igwLogs ? `<button class="sec" style="font-size:10px;color:#ff6600;border-color:#ff660044;" onclick="filterEvents('igw_error_log')">IGW (${igwLogs})</button>` : ''}
     <span style="margin-left:auto;display:flex;gap:4px;align-items:center;">
       <button class="sec" style="font-size:10px;font-family:monospace;letter-spacing:.5px;"
               onclick="toggleSort()" title="Toggle sort order">
@@ -2293,7 +2296,7 @@ function renderTrace(d, logData) {
     const dotColor   = isLogErr ? '#ff4444' : isLogWrn ? '#ffaa00' : color;
     const titleColor = isLogErr ? '#ff8888' : isLogWrn ? '#ffcc66' : '';
 
-    h += `<div class="tl-event" data-type="${esc(cat)}" data-log-tier="${esc(ev.logTier || '')}">
+    h += `<div class="tl-event" data-type="${esc(cat)}" data-log-tier="${esc(ev.logTier || '')}" data-log-subtype="${esc(typeKey)}">
       <div class="tl-dot" style="border-color:${dotColor};background:${dotColor}33;"></div>
       <div class="${cardCls}" onclick="toggleEvent(this)">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
@@ -2313,20 +2316,23 @@ function renderTrace(d, logData) {
 
 // ─── Log session chain → timeline events ──────────────────────────────────
 const LOG_TYPE_META = {
-  appsrv:       { label: 'App Server',  color: '#9d5fff' },
-  pia_servlet:  { label: 'Web Servlet', color: '#00e5cc' },
-  pia_weblogic: { label: 'WebLogic',    color: '#4488bb' },
-  pia_error:    { label: 'Web Error',   color: '#ff4444' },
-  pia_stdout:   { label: 'JVM',         color: '#556677' },
-  pia_access:   { label: 'Web Access',  color: '#447799' },
-  apache_access:{ label: 'Web Access',  color: '#447799' },
-  tuxedo:       { label: 'Tuxedo',      color: '#dd9900' },
+  appsrv:        { label: 'App Server',  color: '#9d5fff' },
+  pia_servlet:   { label: 'Web Servlet', color: '#00e5cc' },
+  pia_weblogic:  { label: 'WebLogic',    color: '#4488bb' },
+  pia_error:     { label: 'Web Error',   color: '#ff4444' },
+  pia_stdout:    { label: 'JVM',         color: '#556677' },
+  pia_access:    { label: 'Web Access',  color: '#447799' },
+  apache_access: { label: 'Web Access',  color: '#447799' },
+  tuxedo:        { label: 'Tuxedo',      color: '#dd9900' },
+  igw_error_log: { label: 'IGW',         color: '#ff6600' },
 };
 
 function classifyLogSource(sourceName) {
   const src = (sourceName || '').toLowerCase();
-  const isWeb = src.includes('_web') || src.includes('web_') || src.includes('servlet') || src.includes('weblogic') || src.includes('stdout');
-  const type = src.includes('servlet')  ? 'pia_servlet'
+  const isWeb = src.includes('_web') || src.includes('web_') || src.includes('servlet')
+             || src.includes('weblogic') || src.includes('stdout') || src.includes('igw');
+  const type = src.includes('igw')      ? 'igw_error_log'
+             : src.includes('servlet')  ? 'pia_servlet'
              : src.includes('weblogic') ? 'pia_weblogic'
              : src.includes('error') && isWeb ? 'pia_error'
              : src.includes('stdout')   ? 'pia_stdout'
@@ -2406,6 +2412,15 @@ function buildDetail(ev) {
       h += kv('IP', d.ip) + kv('Method', d.method) + kv('URL', d.url)
          + kv('Status', d.status) + kv('Component', d.component) + kv('Page', d.page)
          + kv('Response Time', d.ms != null ? d.ms + ' ms' : null) + kv('User Agent', d.useragent);
+    } else if (type === 'igw_error_log') {
+      const parts = (d.raw || '').split('|');
+      h += kv('Source', d.source_name)
+         + kv('Description', parts[1] || d.message || '')
+         + kv('Exception', parts[2] || null)
+         + kv('IB Operation', parts[3] || null)
+         + kv('Requesting Node', parts[4] || null)
+         + kv('Error Codes', (d.error_codes && d.error_codes !== '[]') ? d.error_codes : null)
+         + kv('Object', d.object_ref);
     } else {
       h += kv('Tier', ev.logTier === 'web' ? 'Web' : 'App') + kv('Source', d.source_name) + kv('Level', d.level) + kv('OPRID', d.oprid)
          + kv('Object', d.object_ref) + kv('Process', d.process)
@@ -2440,13 +2455,15 @@ function toggleEvent(card) {
 
 function filterEvents(type) {
   document.querySelectorAll('.tl-event').forEach(el => {
-    const t = el.dataset.type;
+    const t    = el.dataset.type;
     const tier = el.dataset.logTier;
+    const sub  = el.dataset.logSubtype;
     el.style.display = (
       type === 'all' ||
       t === type ||
       (type === 'web_log' && t === 'log' && tier === 'web') ||
-      (type === 'app_log' && t === 'log' && tier === 'app')
+      (type === 'app_log' && t === 'log' && tier === 'app') ||
+      (type === 'igw_error_log' && sub === 'igw_error_log')
     ) ? '' : 'none';
   });
 }
