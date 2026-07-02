@@ -226,6 +226,8 @@ def attach_graph_context(payload, env):
         _attach_record_rw_xref(payload, env, node_id)
     elif obj_type in ("application_engine", "sql_definition"):
         _attach_outbound_rw_xref(payload, env, node_id)
+    if obj_type == "application_engine":
+        _attach_ae_schedulers(payload, env, node_id)
 
     return payload
 
@@ -340,6 +342,61 @@ def _attach_outbound_rw_xref(payload, env: str, node_id: str) -> None:
             "reads": reads_count,
             "writes": writes_count,
             "note": "Records read or written by this object (from Knowledge Graph)",
+        },
+    ))
+
+
+def _attach_ae_schedulers(payload, env: str, node_id: str) -> None:
+    """Add a 'Process Definitions' cross-reference section to AE objects.
+
+    Queries inbound WRAPS edges to find Process Scheduler definitions that
+    wrap / invoke this Application Engine.  Silently skips if none exist in
+    the current Knowledge Graph build.
+    """
+    section_name = "Invoked By (Process Definitions)"
+    if any(s.get("name") == section_name for s in payload.get("sections", [])):
+        return
+    try:
+        wrap_graph = graphdb.neighbors(env, node_id, direction="in", depth=1,
+                                       edge_types=["WRAPS"])
+    except Exception:
+        return
+
+    wrap_nodes_by_id = {n["id"]: n for n in wrap_graph.get("nodes", [])}
+    wrap_edges = wrap_graph.get("edges", [])
+
+    if not wrap_edges:
+        return
+
+    items = []
+    seen = set()
+    for edge in wrap_edges:
+        src_id = edge.get("source", "")
+        if src_id in seen:
+            continue
+        seen.add(src_id)
+        src_node = wrap_nodes_by_id.get(src_id, {})
+        # prcs_defn node name is "PTYPE~PNAME"; display the process name cleanly
+        raw_name = src_node.get("name", src_id)
+        display_name = raw_name.split("~", 1)[-1] if "~" in raw_name else raw_name
+        prcs_type = raw_name.split("~", 1)[0] if "~" in raw_name else ""
+        items.append({
+            "relationship": "WRAPS",
+            "type": "prcs_defn",
+            "name": display_name,
+            "prcs_type": prcs_type,
+            "id": src_id,
+            "_links": {"admin": src_node.get("canonical_url") or ""},
+        })
+
+    items.sort(key=lambda x: x["name"])
+
+    payload.setdefault("sections", []).append(section(
+        section_name,
+        items,
+        {
+            "count": len(items),
+            "note": "Process Scheduler definitions that invoke this Application Engine",
         },
     ))
 
