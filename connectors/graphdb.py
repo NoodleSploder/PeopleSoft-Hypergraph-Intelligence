@@ -1227,11 +1227,38 @@ def build(env="HCM", limit=50, persist=True):
              WHERE ROWNUM <= {limit}
              ORDER BY CONQRSNAME
         """) or []
+        conqrs_names = [str(r.get("conqrsname") or "").strip().upper() for r in rows if r.get("conqrsname")]
+        maps_by_conqrs = defaultdict(list)
+        if conqrs_names and ptmetadata.has_table(env, "PSCONQRSMAP"):
+            for start in range(0, len(conqrs_names), 900):
+                chunk = conqrs_names[start:start + 900]
+                quoted = ",".join("'" + name.replace("'", "''") + "'" for name in chunk)
+                map_rows = psdb.query(env, f"""
+                    SELECT CONQRSNAME, SEQNUM, QRYNAMEPARENT, QRYNAMECHILD,
+                           EFFDTCONDTYPE, CQ_SUPPORTSORDERBY, RECNAME
+                      FROM SYSADM.PSCONQRSMAP
+                     WHERE CONQRSNAME IN ({quoted})
+                     ORDER BY CONQRSNAME, SEQNUM
+                """) or []
+                for item in map_rows:
+                    cq = str(item.get("conqrsname") or "").strip().upper()
+                    if cq:
+                        maps_by_conqrs[cq].append(item)
         for r in rows:
             cid = r.get("conqrsname")
             if not cid:
                 continue
             add_node(graph, "connected_query", cid, r.get("descr") or cid, r)
+            cq_key = str(cid).strip().upper()
+            for item in maps_by_conqrs.get(cq_key, []):
+                child = str(item.get("qrynamechild") or "").strip()
+                parent = str(item.get("qrynameparent") or "").strip()
+                if child:
+                    add_node(graph, "query", child, child, item)
+                    add_edge(graph, "connected_query", cid, "query", child, "USES", item)
+                if parent and child:
+                    add_node(graph, "query", parent, parent, item)
+                    add_edge(graph, "query", parent, "query", child, "CONTAINS", item)
         return len(rows)
 
     def ptf_tests():

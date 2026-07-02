@@ -246,6 +246,7 @@ Continue enriching graph relationships.
 - Application Package PeopleCode relationships now use real PSPCMPROG `PROGSEQ` identities and persisted Knowledge Graph ingestion emits App Class → PeopleCode `CONTAINS` edges
 - Standalone App Class UOM objects now expose package/PeopleCode relationships and compact graph previews with App Class → Package `BELONGS_TO` and App Class → PeopleCode `CONTAINS` edges
 - Content Service UOM objects now expose component/menu/app-class/query/portal usage relationships and compact graph previews; persisted Knowledge Graph ingestion emits Content Service → target `USES` edges
+- Connected Query UOM objects now expose component query and field-join relationships with compact graph previews; persisted Knowledge Graph ingestion emits Connected Query → PS Query `USES` and parent Query → child Query `CONTAINS` edges
 - Tree → Record USES edges
 - Impact analysis (forward and reverse dependency traversal with depth control)
 

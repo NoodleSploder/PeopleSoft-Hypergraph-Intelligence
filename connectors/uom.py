@@ -5494,6 +5494,33 @@ def connected_query_object(env, conqrsname):
         return None
     defn = data.get("definition", {})
     status = str(defn.get("pt_report_status") or "").strip()
+    query_map = data.get("query_map") or []
+    relationships = {
+        "queries": query_map,
+        "field_joins": data.get("field_rels") or [],
+    }
+    graph = relationship_graph(
+        "connected_query",
+        conqrsname.upper(),
+        limit_relationships(relationships, {"queries": 80}),
+        [
+            {
+                "relationship": "queries",
+                "node_type": "query",
+                "target_name": lambda row: str(row.get("qrynamechild") or "").strip(),
+                "default_edge": "USES",
+            },
+            {
+                "relationship": "queries",
+                "source_node_type": "query",
+                "source_name": lambda row: str(row.get("qrynameparent") or "").strip(),
+                "node_type": "query",
+                "target_name": lambda row: str(row.get("qrynamechild") or "").strip(),
+                "default_edge": "CONTAINS",
+            },
+        ],
+        root_data=defn,
+    )
     return {
         "type": "connected_query",
         "name": defn.get("conqrsname", conqrsname),
@@ -5503,6 +5530,8 @@ def connected_query_object(env, conqrsname):
         "owner": str(defn.get("objectownerid") or "").strip() or None,
         "_raw": data,
         "_links": {"admin": object_url("connected_query", conqrsname.upper())},
+        "_relationships": relationships,
+        "_graph": graph,
         "warnings": data.get("warnings", []),
     }
 
@@ -5579,6 +5608,8 @@ def connected_query_payload(env, conqrsname):
         "sections": sections_for_connected_query(obj),
         "warnings": obj.get("warnings", []),
         "_links": obj["_links"],
+        "_relationships": obj.get("_relationships", {}),
+        "_graph": obj.get("_graph", {}),
         "_uom": obj,
     }
 

@@ -6,6 +6,60 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — Connected Query UOM and Knowledge Graph Relationships
+
+Date/time: 2026-07-01 23:24 CDT
+
+Features implemented:
+- Connected Query UOM objects now expose `_relationships.queries` and
+  `_relationships.field_joins`.
+- Connected Query compact `_graph` previews now show Connected Query → PS Query
+  `USES` edges and parent Query → child Query `CONTAINS` composition edges.
+- Persisted Knowledge Graph ingestion now batch-loads PSCONQRSMAP rows and
+  emits the same Connected Query → Query and Query → Query relationship model.
+
+Files modified:
+- `connectors/uom.py`
+- `connectors/graphdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Modeled each PSCONQRSMAP child as a query used by the connected query.
+- Modeled non-root PSCONQRSMAP parent/child rows as Query → Query `CONTAINS`
+  edges to preserve the composition tree.
+- Left field joins as UOM relationships/sections only for now because
+  PSCONQRSFLDREL field names are not record-qualified.
+
+Bugs fixed:
+- Connected Query object pages exposed query-map sections but no canonical
+  relationship model or compact graph preview.
+- Persisted KG connected-query provider created nodes without edges to the PS
+  Queries composing the connected query.
+
+Technical debt:
+- Field joins need a verified record/alias resolution pass before they become
+  graph field edges.
+
+Verification:
+- `python -m py_compile connectors/uom.py connectors/graphdb.py routers/peoplesoft.py` — OK.
+- `python - <<'PY' import main ...` — OK.
+- Live HCM probe found `ERE_RPT_ESP` with 35 component queries.
+- `uom.connected_query_payload('HCM', 'ERE_RPT_ESP')` returned 35 query
+  relationships, 59 field joins, and a compact graph with 36 nodes and 69
+  edges.
+- `/api/peoplesoft/graph/connected_query/ERE_RPT_ESP` route helper returned
+  `_source: uom`, `_vocabulary: compact_uom`, 36 nodes, and 69 edges with
+  `USES` / `CONTAINS` type aliases.
+- Non-persisted `graphdb.build('HCM', limit=20, persist=False)` completed with
+  `_source: knowledge_graph`, `_vocabulary: knowledge_graph`,
+  `warning_count: 0`, and 88 connected-query/query composition edges.
+
+Next recommended work:
+- Resolve PSCONQRSFLDREL field joins to record-qualified field nodes if the
+  query-map aliases can be safely joined.
+- Continue compact UOM graph alignment for XML Publisher reports or PTF tests.
+
 ## 2026-07-01 — Content Service UOM and Knowledge Graph Relationships
 
 Date/time: 2026-07-01 23:21 CDT
