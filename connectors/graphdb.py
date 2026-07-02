@@ -1822,6 +1822,32 @@ def build(env="HCM", limit=50, persist=True):
              WHERE ROWNUM <= {limit}
              ORDER BY PRCSTYPE, PRCSNAME
         """) or []
+        keys = [
+            (str(r.get("prcstype") or "").strip(), str(r.get("prcsname") or "").strip().upper())
+            for r in rows
+            if r.get("prcsname")
+        ]
+        components_by_key = defaultdict(list)
+        if keys and ptmetadata.has_table(env, "PS_PRCSDEFNPNL"):
+            clauses = []
+            params = {}
+            for idx, (ptype, pname) in enumerate(keys[:900]):
+                clauses.append(f"(PRCSTYPE = :pt{idx} AND PRCSNAME = :pn{idx})")
+                params[f"pt{idx}"] = ptype
+                params[f"pn{idx}"] = pname
+            pnl_rows = psdb.query(env, f"""
+                SELECT PRCSTYPE, PRCSNAME, PNLGRPNAME
+                  FROM SYSADM.PS_PRCSDEFNPNL
+                 WHERE ({' OR '.join(clauses)})
+                   AND TRIM(PNLGRPNAME) IS NOT NULL
+                 ORDER BY PRCSTYPE, PRCSNAME, PNLGRPNAME
+            """, params) or []
+            for pnl in pnl_rows:
+                ptype = str(pnl.get("prcstype") or "").strip()
+                pname = str(pnl.get("prcsname") or "").strip().upper()
+                component = str(pnl.get("pnlgrpname") or "").strip().upper()
+                if component:
+                    components_by_key[(ptype, pname)].append({**pnl, "component": component})
         for r in rows:
             pname = r.get("prcsname")
             ptype = r.get("prcstype", "")
@@ -1829,6 +1855,22 @@ def build(env="HCM", limit=50, persist=True):
                 continue
             key = f"{ptype}~{pname}"
             add_node(graph, "prcs_defn", key, r.get("descr") or pname, r)
+            ptype_clean = str(ptype or "").strip()
+            pname_clean = str(pname or "").strip().upper()
+            if ptype_clean == "Application Engine":
+                add_node(graph, "application_engine", pname_clean, pname_clean, r)
+                add_edge(graph, "prcs_defn", key, "application_engine", pname_clean, "WRAPS", r)
+            elif ptype_clean == "XML Publisher":
+                add_node(graph, "xml_publisher_report", pname_clean, pname_clean, r)
+                add_edge(graph, "prcs_defn", key, "xml_publisher_report", pname_clean, "WRAPS", r)
+            seen_components = set()
+            for pnl in components_by_key.get((ptype_clean, pname_clean), []):
+                component = pnl.get("component")
+                if not component or component in seen_components:
+                    continue
+                seen_components.add(component)
+                add_node(graph, "component", component, component, pnl)
+                add_edge(graph, "prcs_defn", key, "component", component, "USES", pnl)
         return len(rows)
 
     for name, loader in (

@@ -6,6 +6,72 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-02 — Process Definition UOM and Knowledge Graph Relationships
+
+Date/time: 2026-07-02 00:08 CDT
+
+Features implemented:
+- Process Definition UOM objects now expose
+  `_relationships.run_control_components`, `_relationships.application_engines`,
+  and `_relationships.xml_publisher_reports`.
+- Process Definition compact `_graph` previews now show Process Definition →
+  run-control Component `USES` edges plus Process Definition → Application
+  Engine / XML Publisher Report `WRAPS` implementation edges.
+- Persisted Knowledge Graph ingestion now batch-loads PS_PRCSDEFNPNL rows for
+  sampled process definitions and emits the same run-control and implementation
+  relationships.
+
+Files modified:
+- `connectors/uom.py`
+- `connectors/graphdb.py`
+- `connectors/psdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Modeled `Application Engine` process definitions as wrapping the same-named
+  Application Engine program.
+- Modeled `XML Publisher` process definitions as wrapping the same-named XML
+  Publisher Report when present.
+- Kept Process Groups as section metadata only because process groups are not a
+  registered canonical Object Explorer type today.
+
+Bugs fixed:
+- Process Definition object pages had run-control page metadata but no
+  canonical relationship model or compact graph preview.
+- Persisted KG process-definition provider created only Process Definition
+  nodes without edges to run-control components or implementation objects.
+- `get_process_definition()` now resolves compound keys case-insensitively so
+  generic graph route uppercase normalization does not break Process Definition
+  lookups.
+
+Technical debt:
+- SQR, COBOL, and Data Mover implementation artifacts are still metadata-only
+  until their source/object metadata tables are verified and registered.
+
+Verification:
+- `python -m py_compile connectors/uom.py connectors/graphdb.py connectors/psdb.py routers/peoplesoft.py` — OK.
+- `uom.process_defn_payload('HCM', 'Application Engine~ACA_EXTRACT')` returned
+  a run-control component relationship to `ACA_DTEX_RUNCTL` and a `WRAPS` edge
+  to `application_engine:ACA_EXTRACT`.
+- `uom.process_defn_payload('HCM', 'XML Publisher~BREREG02')` returned a
+  `WRAPS` edge to `xml_publisher_report:BREREG02`.
+- `uom.process_defn_payload('HCM', 'SQR Report~ABS001')` returned a
+  run-control component relationship to `RUN_ABS001` without inventing an SQR
+  implementation node.
+- `/api/peoplesoft/graph/prcs_defn/Application Engine~ACA_EXTRACT` route helper
+  returned `_source: uom`, `_vocabulary: compact_uom`, and `USES` / `WRAPS`
+  edges. Uppercase `APPLICATION ENGINE~ACA_EXTRACT` also resolves.
+- Direct graphdb edge construction check confirmed Process Definition →
+  Component `USES` and Process Definition → Application Engine / XML Publisher
+  `WRAPS` edge shapes.
+
+Next recommended work:
+- Continue compact UOM graph alignment for IB Message Definitions or File
+  Layout Definitions.
+- Register process-group objects only after verifying meaningful metadata and
+  navigation value.
+
 ## 2026-07-01 — PTF Test UOM and Knowledge Graph Relationships
 
 Date/time: 2026-07-01 23:56 CDT

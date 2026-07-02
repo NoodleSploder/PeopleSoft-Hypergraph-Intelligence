@@ -6236,6 +6236,40 @@ def _prcs_type_chip(prcstype):
     return {"label": prcstype, "cls": _PRCS_TYPE_CLS.get(prcstype, "chip-muted")}
 
 
+def _process_defn_relationships(defn, run_cntl_pages):
+    prcstype = str((defn or {}).get("prcstype") or "").strip()
+    prcsname = str((defn or {}).get("prcsname") or "").strip().upper()
+    relationships = {
+        "run_control_components": [],
+        "application_engines": [],
+        "xml_publisher_reports": [],
+    }
+
+    seen_pages = set()
+    for page in run_cntl_pages or []:
+        component = str(page or "").strip().upper()
+        if not component or component in seen_pages:
+            continue
+        seen_pages.add(component)
+        relationships["run_control_components"].append({
+            "name": component,
+            "_links": {"admin": object_url("component", component)},
+        })
+
+    if prcsname and prcstype == "Application Engine":
+        relationships["application_engines"].append({
+            "name": prcsname,
+            "_links": {"admin": object_url("application_engine", prcsname)},
+        })
+    elif prcsname and prcstype == "XML Publisher":
+        relationships["xml_publisher_reports"].append({
+            "name": prcsname,
+            "_links": {"admin": object_url("xml_publisher_report", prcsname)},
+        })
+
+    return relationships
+
+
 def process_defn_object(env, compound_key):
     data = psdb.get_process_definition(env, compound_key)
     if "error" in data:
@@ -6243,6 +6277,37 @@ def process_defn_object(env, compound_key):
     defn = data.get("definition", {})
     prcstype = defn.get("prcstype", "")
     prcsname = defn.get("prcsname", compound_key)
+    relationships = _process_defn_relationships(defn, data.get("run_cntl_pages", []))
+    graph = relationship_graph(
+        "prcs_defn",
+        compound_key.upper(),
+        limit_relationships(relationships, {
+            "run_control_components": 30,
+            "application_engines": 1,
+            "xml_publisher_reports": 1,
+        }),
+        [
+            {
+                "relationship": "run_control_components",
+                "node_type": "component",
+                "target_name": "name",
+                "default_edge": "USES",
+            },
+            {
+                "relationship": "application_engines",
+                "node_type": "application_engine",
+                "target_name": "name",
+                "default_edge": "WRAPS",
+            },
+            {
+                "relationship": "xml_publisher_reports",
+                "node_type": "xml_publisher_report",
+                "target_name": "name",
+                "default_edge": "WRAPS",
+            },
+        ],
+        root_data=defn,
+    )
     return {
         "type": "prcs_defn",
         "name": compound_key,
@@ -6267,6 +6332,8 @@ def process_defn_object(env, compound_key):
         "counts": data.get("counts", {}),
         "_raw": data,
         "_links": {"admin": f"/admin/prcsdefn"},
+        "_relationships": relationships,
+        "_graph": graph,
         "warnings": data.get("warnings", []),
     }
 
@@ -6351,6 +6418,8 @@ def process_defn_payload(env, compound_key):
         "sections": sections_for_process_defn(obj),
         "warnings": obj.get("warnings", []),
         "_links": obj["_links"],
+        "_relationships": obj.get("_relationships", {}),
+        "_graph": obj.get("_graph", {}),
         "_uom": obj,
     }
 

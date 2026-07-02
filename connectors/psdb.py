@@ -5872,7 +5872,7 @@ def get_process_definition(env_name, compound_key):
                    RETENTIONDAYS, PT_RETENTIONDAYS, OUTDESTTYPE, OUTDEST,
                    PRCSPRIORITY, PRCSFILENAME, LASTUPDDTTM, LASTUPDOPRID
               FROM SYSADM.PS_PRCSDEFN
-             WHERE PRCSTYPE = :pt AND PRCSNAME = :pn
+             WHERE UPPER(PRCSTYPE) = UPPER(:pt) AND UPPER(PRCSNAME) = UPPER(:pn)
         """, {"pt": prcstype, "pn": prcsname})
         if not rows:
             return {"error": f"Process definition not found: {compound_key}"}
@@ -5886,7 +5886,7 @@ def get_process_definition(env_name, compound_key):
         try:
             pnl_rows = query(env_name, """
                 SELECT PNLGRPNAME FROM SYSADM.PS_PRCSDEFNPNL
-                 WHERE PRCSTYPE = :pt AND PRCSNAME = :pn
+                 WHERE UPPER(PRCSTYPE) = UPPER(:pt) AND UPPER(PRCSNAME) = UPPER(:pn)
                    AND TRIM(PNLGRPNAME) IS NOT NULL
                    AND TRIM(PNLGRPNAME) != ' '
                  ORDER BY PNLGRPNAME
@@ -5901,7 +5901,7 @@ def get_process_definition(env_name, compound_key):
         try:
             grp_rows = query(env_name, """
                 SELECT PRCSGRP FROM SYSADM.PS_PRCSDEFNGRP
-                 WHERE PRCSTYPE = :pt AND PRCSNAME = :pn
+                 WHERE UPPER(PRCSTYPE) = UPPER(:pt) AND UPPER(PRCSNAME) = UPPER(:pn)
                  ORDER BY PRCSGRP
             """, {"pt": prcstype, "pn": prcsname})
             prcs_groups = [r["prcsgrp"].strip() for r in (grp_rows or []) if r.get("prcsgrp", "").strip()]
