@@ -1040,3 +1040,147 @@ doSearch();
 </body></html>""")
 
 
+
+
+@router.get("/objects", response_class=HTMLResponse)
+def admin_objects(request: Request, env: str = "HCM"):
+    nav = _nav_html("objects", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>Object Explorer</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+<style>
+*{{box-sizing:border-box}}
+body{{margin:0;background:#050b12;color:#c8d8e8;font-family:Arial,sans-serif}}
+.muted{{color:#446;font-style:italic;font-size:12px}}
+.search-bar{{display:flex;gap:8px;align-items:center;padding:12px 20px;border-bottom:1px solid #1a2a3a;background:#060d18;flex-wrap:wrap}}
+input.main-q{{flex:1;min-width:240px;background:#0a1520;border:1px solid #1a3a5a;color:#d7faff;padding:8px 12px;border-radius:4px;font-size:14px}}
+input.main-q:focus{{outline:none;border-color:#00e5ff}}
+.filter-row{{display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:7px 20px;background:#060d18;border-bottom:1px solid #0d1520}}
+.filter-lbl{{font-size:10px;color:#334;margin-right:4px}}
+.type-pill{{display:inline-block;padding:2px 9px;border-radius:12px;font-size:11px;font-weight:bold;cursor:pointer;border:1px solid transparent;margin:1px}}
+.type-pill.on{{border-color:currentColor}}
+.results-area{{padding:14px 20px;overflow-y:auto;height:calc(100vh - 115px)}}
+.result-group{{margin-bottom:18px}}
+.group-hdr{{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#445;margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid #0d1520;display:flex;align-items:center;gap:6px}}
+.result-item{{display:flex;align-items:baseline;gap:8px;padding:4px 8px;border-radius:3px;border-bottom:1px solid #090f17;text-decoration:none}}
+.result-item:hover{{background:rgba(0,229,255,.06)}}
+.result-name{{font-family:monospace;font-size:12px;font-weight:bold}}
+.result-desc{{font-size:11px;color:#445;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.total-note{{font-size:11px;color:#334;margin-bottom:10px}}
+</style>
+</head><body class="ds-body">
+{nav}
+<div class="search-bar">
+  <input class="main-q" id="q" placeholder="Search across all PeopleSoft object types…" autofocus
+    onkeydown="if(event.key==='Enter')doSearch()" oninput="debounce()">
+  <button onclick="doSearch()"
+    style="background:#00e5ff;border:none;padding:7px 16px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:bold;color:#000">Search</button>
+  <span id="status" class="muted" style="font-size:11px"></span>
+</div>
+<div class="filter-row" id="frow" style="display:none">
+  <span class="filter-lbl">TYPE:</span>
+  <span class="type-pill on" style="color:#778" id="p-all" onclick="setType('')">All</span>
+  <span id="pills"></span>
+</div>
+<div class="results-area" id="results">
+  <div class="muted" style="margin-top:48px;text-align:center">Enter a search term to find PeopleSoft objects across all types.</div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = {repr(env)};
+let _rows = [], _type = '', _timer = null;
+
+const TC = {{
+  record:'#44ddff', field:'#00e5ff', component:'#44aaff', page:'#8888ff',
+  operator:'#ffdd44', role:'#ffaa22', permissionlist:'#ff9900',
+  application_engine:'#22cc88', peoplecode:'#aa66ff',
+  application_class:'#cc88ff', application_package:'#cc88ff', app_class:'#cc88ff',
+  sql_definition:'#4488ff', query:'#88ddff', ci:'#22ddaa',
+  menu:'#8899aa', portal_registry:'#7799bb', xlat_field:'#99aa66',
+  message:'#ff6688', routing:'#ff4488', ib_routing:'#ff4488',
+  service_operation:'#ff4488', ib_operation:'#ff6688',
+  ib_service_group:'#cc4466', message_catalog:'#aa3355',
+  file_layout:'#77aacc', xml_publisher_report:'#aa7755',
+  xml_publisher_datasource:'#996655', prcs_defn:'#88cc44',
+}};
+const tc = t => TC[t] || '#778';
+
+function debounce() {{ clearTimeout(_timer); _timer = setTimeout(doSearch, 280); }}
+
+async function doSearch() {{
+  const q = document.getElementById('q').value.trim();
+  const res = document.getElementById('results');
+  if (!q) {{
+    res.innerHTML = '<div class="muted" style="margin-top:48px;text-align:center">Enter a search term.</div>';
+    document.getElementById('frow').style.display = 'none';
+    return;
+  }}
+  document.getElementById('status').textContent = 'Searching…';
+  _rows = await fetch(`/api/peoplesoft/search?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&limit=300`).then(r=>r.json()).catch(()=>[]);
+  _type = '';
+  render();
+  document.getElementById('status').textContent = `${{_rows.length}} result${{_rows.length===1?'':'s'}}`;
+}}
+
+function setType(t) {{
+  _type = t;
+  document.querySelectorAll('.type-pill').forEach(p => {{
+    const isAll = p.id==='p-all', match = isAll ? !t : p.dataset.t===t;
+    p.classList.toggle('on', match);
+    if (match && !isAll) {{ const col=tc(t); p.style.background=col+'22'; p.style.borderColor=col; }}
+    else if (!isAll) {{ p.style.background=''; p.style.borderColor='transparent'; }}
+  }});
+  render();
+}}
+
+function render() {{
+  const byType = {{}};
+  for (const r of _rows) {{ (byType[r.type]||(byType[r.type]=[])).push(r); }}
+  const typeOrder = Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t])=>t);
+
+  const frow = document.getElementById('frow');
+  frow.style.display = _rows.length ? '' : 'none';
+  document.getElementById('p-all').classList.toggle('on', !_type);
+  document.getElementById('pills').innerHTML = typeOrder.map(t => {{
+    const col = tc(t);
+    const on = _type===t;
+    return `<span class="type-pill${{on?' on':''}}" style="color:${{col}};background:${{on?col+'22':''}};border-color:${{on?col:'transparent'}}"
+      id="p-${{esc(t)}}" data-t="${{esc(t)}}" onclick="setType('${{esc(t)}}')">${{t.replace(/_/g,' ')}} ${{byType[t].length}}</span>`;
+  }}).join('');
+
+  const filtered = _type ? _rows.filter(r=>r.type===_type) : _rows;
+  const byFilt = {{}};
+  for (const r of filtered) {{ if (!r.error) (byFilt[r.type]||(byFilt[r.type]=[])).push(r); }}
+  const filtOrder = _type ? [_type] : typeOrder.filter(t=>byFilt[t]);
+
+  if (!filtered.length) {{ document.getElementById('results').innerHTML = '<div class="muted">No results.</div>'; return; }}
+
+  let html = `<div class="total-note">${{filtered.length}} result${{filtered.length===1?'':'s'}}${{_type?' &mdash; type <b>'+esc(_type.replace(/_/g,' '))+'</b>':''}}</div>`;
+  for (const t of filtOrder) {{
+    const items = byFilt[t]||[];
+    if (!items.length) continue;
+    const col = tc(t);
+    const lbl = t.replace(/_/g,' ').replace(/\b./g,c=>c.toUpperCase());
+    html += `<div class="result-group"><div class="group-hdr">
+      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${{col}};flex-shrink:0"></span>
+      <span style="color:${{col}}">${{esc(lbl)}}</span>
+      <span style="color:#334">(${{items.length}})</span></div>`;
+    for (const r of items) {{
+      const link = (r._links&&r._links.admin)||'#';
+      html += `<a class="result-item" href="${{esc(link)}}">
+        <span class="result-name" style="color:${{col}}">${{esc(r.name||'')}}</span>
+        <span class="result-desc">${{esc((r.description||'').trim())}}</span>
+      </a>`;
+    }}
+    html += '</div>';
+  }}
+  document.getElementById('results').innerHTML = html;
+}}
+
+(function(){{
+  const q = new URLSearchParams(location.search).get('q');
+  if (q) {{ document.getElementById('q').value=q; doSearch(); }}
+}})();
+</script>
+</body></html>""")
