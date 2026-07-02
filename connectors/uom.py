@@ -4061,6 +4061,14 @@ def app_package_object(env, package_name):
         except Exception as exc:
             warnings.append(ptmetadata.warning("classes_error", str(exc)))
 
+    for cls in classes:
+        classid = str(cls.get("appclassid") or "").strip()
+        qpath = str(cls.get("qualifypath") or "").strip() or ":"
+        if classid:
+            cls["class_key"] = f"{package_name}~{qpath}~{classid}"
+            cls["full_path"] = _app_class_full_path(package_name, qpath, classid)
+            cls.setdefault("_links", {})["admin"] = object_url("app_class", cls["class_key"])
+
     if ptmetadata.has_table(env, "PSPCMPROG"):
         try:
             pc_rows = psdb.query(env, """
@@ -4075,9 +4083,52 @@ def app_package_object(env, package_name):
         except Exception as exc:
             warnings.append(ptmetadata.warning("peoplecode_error", str(exc)))
 
+    from connectors import peoplecode as _pc
+    for row in peoplecode_items:
+        parts = [
+            str(row.get(f"objectvalue{i}") or "").strip()
+            for i in range(2, 6)
+            if str(row.get(f"objectvalue{i}") or "").strip()
+        ]
+        if len(parts) >= 2:
+            class_name = parts[-2]
+            event = parts[-1]
+            sub_path = ":".join(parts[:-2]) if len(parts) > 2 else ":"
+            row["app_class_key"] = f"{package_name}~{sub_path or ':'}~{class_name}"
+            row["encoded_reference"] = _pc.encode_reference(f"{package_name}.{'.'.join(parts)}.0")
+            row["event"] = event
+            row["full_path"] = f"{package_name}:{':'.join(parts[:-1])}"
+
     descr = str(defn.get("descr") or "").strip() or None
     owner = str(defn.get("objectownerid") or "").strip() or None
     version = str(defn.get("version") or "").strip() or None
+    relationships = {
+        "classes": classes,
+        "peoplecode": peoplecode_items,
+        "sub_packages": sub_packages,
+    }
+    graph = relationship_graph(
+        "application_package",
+        package_name,
+        limit_relationships(relationships, {"classes": 80, "peoplecode": 80}),
+        [
+            {
+                "relationship": "classes",
+                "node_type": "app_class",
+                "target_name": lambda row: str(row.get("class_key") or "").strip(),
+                "default_edge": "CONTAINS",
+            },
+            {
+                "relationship": "peoplecode",
+                "source_node_type": "app_class",
+                "source_name": lambda row: str(row.get("app_class_key") or "").strip(),
+                "node_type": "peoplecode",
+                "target_name": lambda row: str(row.get("encoded_reference") or "").strip(),
+                "default_edge": "CONTAINS",
+            },
+        ],
+        root_data=defn,
+    )
 
     return {
         "environment": env.upper(),
@@ -4100,6 +4151,8 @@ def app_package_object(env, package_name):
         },
         "warnings": warnings,
         "_links": {"admin": object_url("application_package", package_name)},
+        "_relationships": relationships,
+        "_graph": graph,
         "_metadata": {
             "environment": env.upper(),
             "descr": descr,
@@ -4254,7 +4307,10 @@ def app_package_payload(env, package_name):
             "peoplecode_programs": counts.get("peoplecode_programs", 0),
         },
         "sections": sections_for_app_package(pkg),
-        "_links": pkg["_links"], "_uom": pkg,
+        "_links": pkg["_links"],
+        "_relationships": pkg.get("_relationships", {}),
+        "_graph": pkg.get("_graph", {}),
+        "_uom": pkg,
     }
 
 

@@ -1269,6 +1269,50 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "content_service", sid, label, r)
         return len(rows)
 
+    def app_packages():
+        if not ptmetadata.has_table(env, "PSPACKAGEDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT PACKAGEROOT, DESCR, VERSION, OBJECTOWNERID
+              FROM SYSADM.PSPACKAGEDEFN
+             WHERE PACKAGELEVEL = 0
+               AND ROWNUM <= {limit}
+             ORDER BY PACKAGEROOT
+        """) or []
+        package_names = [str(r.get("packageroot") or "").strip().upper() for r in rows if r.get("packageroot")]
+        classes_by_package = defaultdict(list)
+        if package_names and ptmetadata.has_table(env, "PSAPPCLASSDEFN"):
+            for start in range(0, len(package_names), 900):
+                chunk = package_names[start:start + 900]
+                quoted = ",".join("'" + name.replace("'", "''") + "'" for name in chunk)
+                cls_rows = psdb.query(env, f"""
+                    SELECT PACKAGEROOT, QUALIFYPATH, APPCLASSID, APPCLASSREF
+                      FROM SYSADM.PSAPPCLASSDEFN
+                     WHERE PACKAGEROOT IN ({quoted})
+                     ORDER BY PACKAGEROOT, QUALIFYPATH, APPCLASSID
+                """) or []
+                for cls in cls_rows:
+                    pkg = str(cls.get("packageroot") or "").strip().upper()
+                    if pkg:
+                        classes_by_package[pkg].append(cls)
+
+        for r in rows:
+            pkg = str(r.get("packageroot") or "").strip().upper()
+            if not pkg:
+                continue
+            add_node(graph, "application_package", pkg, r.get("descr") or pkg, r)
+            for cls in classes_by_package.get(pkg, []):
+                qpath = str(cls.get("qualifypath") or "").strip() or ":"
+                classid = str(cls.get("appclassid") or "").strip()
+                if not classid:
+                    continue
+                key = f"{pkg}~{qpath}~{classid}"
+                label = f"{pkg}:{classid}" if qpath == ":" else f"{pkg}:{qpath}:{classid}"
+                metadata = {**cls, "packageroot": pkg}
+                add_node(graph, "app_class", key, label, metadata)
+                add_edge(graph, "application_package", pkg, "app_class", key, "CONTAINS", metadata)
+        return len(rows)
+
     def app_classes():
         if not ptmetadata.has_table(env, "PSAPPCLASSDEFN"):
             return 0
@@ -1686,6 +1730,7 @@ def build(env="HCM", limit=50, persist=True):
         ("file_layouts", file_layouts),
         ("process_definitions", process_definitions),
         ("ib_applications", ib_applications),
+        ("app_packages", app_packages),
         ("app_classes", app_classes),
         ("content_services", content_services),
         ("ptf_tests", ptf_tests),
