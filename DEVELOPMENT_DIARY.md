@@ -3594,3 +3594,46 @@ Commits:
 - `a7ef5dd` feat(app-class): add PeopleCode source code to App Class Object Explorer
 - `a76f1c9` feat(portal): rich portal reconstruction — deep subtree expansion
 - `4c5ceff` fix(security): support BARITEMNAME as component source in PSAUTHITEM
+
+---
+
+## 2026-07-02 (session 2) — HANDOFF #5 Graph Indexing + HANDOFF #7 Topology Diagram
+
+### HANDOFF #5: Graph Compaction and Large-Environment Indexing
+
+The knowledge graph build already supported `limit=50..2000` (batch mode at 250+), but the Graph Management admin page hardcoded `limit=50` in the Rebuild button. Graph search had no type filtering.
+
+**Changes:**
+- `connectors/graphdb.py` — `search()` now accepts optional `node_types` (comma-separated string); pre-filters nodes before scoring, eliminating O(n) work for irrelevant types
+- `routers/graphdb.py` — `GET /api/graph/search` exposes `node_types` query param (forwarded to `graphdb.search()`)
+- `routers/admin/graph.py` — "Rebuild Graph" now has a limit selector: 50 / 250 (batch) / 1000 (batch) / 2000 (batch, full); "Graph Search" card now has type filter input (e.g. `component,record`) and result limit selector (50/100/200)
+
+**Verification:** `curl "/api/graph/search?env=HCM&q=JOB&limit=5&node_types=component,record"` → 5 results of types component/record only; unfiltered search returns mix of types as before.
+
+### HANDOFF #7: App Server Monitoring and Runtime Alerts
+
+Runtime alerts (process_errors, long_processes, queue_depth, blocking, ash_waits, domains) were already complete. The remaining ROADMAP item was the interactive topology diagram with live status indicators.
+
+**Changes:**
+- `routers/topology.py` — expanded `/api/topology` from 8 nodes/10 links to 12 nodes/17 links; added Browser, Process Scheduler (HCM/FSCM), and IB (HCM/FSCM) nodes; IB nodes inherit status from their corresponding App Server since IB runs in the same domain; links now carry protocol labels (Jolt, SQL\*Net, RPC, IB, REST, HTTPS); kind classification: client/proxy/weblogic/appserver/prcs/ib/database/search
+- `routers/admin/runtime.py` — added `/admin/topology`: SVG-based fixed-layout diagram showing full PeopleSoft infrastructure flow (Browser → NGINX → WebLogic → App Server → Process Scheduler + IB → Oracle / OpenSearch); each node has a kind-coloured border, left-edge status bar, and top-right status dot in ONLINE (green) / OFFLINE (red) / UNKNOWN (yellow); click a node to see details in the info panel; kind + status legend below SVG
+- `routers/admin/_core.py` — "Topology" added to Runtime nav dropdown
+
+**Verification:**
+- `/api/topology` → 12 nodes; HCMDMO_PRCS OFFLINE, HCMDMO_IB ONLINE (inherits HCMDMO_APP), FSCMDMO_* OFFLINE
+- `/admin/topology` → 200 OK with `#topoSvg`
+- Smoke: 56 OK, 1 FAIL (`/admin/reports` pre-existing SyntaxError)
+
+**Note:** `admin_promotions` in runtime.py briefly had a duplication bug (double table row from a bad oldString match in replace_string_in_file); fixed before commit.
+
+Files changed:
+- `connectors/graphdb.py` — `search()` type filter
+- `routers/graphdb.py` — `node_types` param forwarding
+- `routers/admin/graph.py` — limit selector + graph search type filter
+- `routers/topology.py` — expanded topology API
+- `routers/admin/runtime.py` — `/admin/topology` page
+- `routers/admin/_core.py` — Topology in Runtime nav
+- `scripts/smoke_admin_shell.py` — `/admin/topology` added to suite
+
+Commits:
+- `72c4311` feat(graph,topology): HANDOFF #5 graph indexing + HANDOFF #7 topology diagram
