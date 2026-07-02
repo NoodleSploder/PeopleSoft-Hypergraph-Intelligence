@@ -190,13 +190,27 @@ def attach_graph_context(payload, env):
     if not graph.get("nodes") and not graph.get("edges"):
         return payload
 
+    # Build a lookup from node id → edge relationships for richer display
+    edge_by_target: dict[str, list[str]] = {}
+    edge_by_source: dict[str, list[str]] = {}
+    for edge in graph.get("edges", []):
+        rel = edge.get("type") or edge.get("relationship") or "neighbor"
+        tgt = edge.get("target", "")
+        src = edge.get("source", "")
+        edge_by_target.setdefault(tgt, []).append(rel)
+        edge_by_source.setdefault(src, []).append(rel)
+
     items = []
     for node_row in graph.get("nodes", []):
+        nid = node_row.get("id", "")
+        # Prefer the relationship that points *to* this neighbor (outgoing from root)
+        rels = edge_by_target.get(nid) or edge_by_source.get(nid) or ["neighbor"]
+        primary_rel = rels[0]
         items.append({
-            "relationship": "neighbor",
+            "relationship": primary_rel,
             "type": node_row.get("type"),
             "name": node_row.get("name"),
-            "id": node_row.get("id"),
+            "id": nid,
             "_links": {"admin": node_row.get("canonical_url")},
         })
 
@@ -205,7 +219,70 @@ def attach_graph_context(payload, env):
         "edge_count": len(graph.get("edges", [])),
     }))
     payload.setdefault("_links", {})["knowledge_graph"] = f"/api/graph/neighbors/{node_id}?env={env}"
+
+    # ── Record-specific cross-reference: who READS / WRITES this record? ────
+    if payload.get("type") == "record":
+        _attach_record_rw_xref(payload, env, node_id)
+
     return payload
+
+
+def _attach_record_rw_xref(payload, env: str, node_id: str) -> None:
+    """Add a 'READS / WRITES' cross-reference section to a record object.
+
+    Queries the persisted Knowledge Graph for all READS and WRITES edges that
+    point to this record and groups them by source object type.  Silently skips
+    if the graph has not been built or has no matching edges.
+    """
+    # Already present — guard against double-add
+    if any(s.get("name") == "READS / WRITES" for s in payload.get("sections", [])):
+        return
+    try:
+        rw_graph = graphdb.neighbors(env, node_id, direction="in", depth=1,
+                                     edge_types=["READS", "WRITES"])
+    except Exception:
+        return
+
+    rw_edges = rw_graph.get("edges", [])
+    rw_nodes_by_id = {n["id"]: n for n in rw_graph.get("nodes", [])}
+
+    if not rw_edges:
+        return
+
+    items = []
+    seen = set()
+    for edge in rw_edges:
+        src_id = edge.get("source", "")
+        if src_id in seen:
+            continue
+        seen.add(src_id)
+        src_node = rw_nodes_by_id.get(src_id, {})
+        rel = edge.get("type") or edge.get("relationship") or "READS"
+        items.append({
+            "relationship": rel,
+            "type": src_node.get("type", src_id.split(":")[0] if ":" in src_id else ""),
+            "name": src_node.get("name", src_id),
+            "id": src_id,
+            "_links": {"admin": src_node.get("canonical_url") or f"/admin/object/{src_node.get('type','')}/{src_node.get('name','')}"},
+        })
+
+    # Sort: WRITES first (higher impact), then READS; within each group by type then name
+    items.sort(key=lambda x: (0 if x["relationship"] == "WRITES" else 1, x["type"], x["name"]))
+
+    reads_count = sum(1 for it in items if it["relationship"] == "READS")
+    writes_count = sum(1 for it in items if it["relationship"] == "WRITES")
+
+    payload.setdefault("sections", []).append(section(
+        "READS / WRITES",
+        items,
+        {
+            "count": len(items),
+            "reads": reads_count,
+            "writes": writes_count,
+            "note": "Objects that read or write this record (from Knowledge Graph)",
+        },
+    ))
+
 
 
 def normalize_object_type(object_type: str) -> str:
