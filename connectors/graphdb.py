@@ -1278,12 +1278,52 @@ def build(env="HCM", limit=50, persist=True):
              WHERE ROWNUM <= {limit}
              ORDER BY PTTST_NAME
         """) or []
+        test_names = [str(r.get("pttst_name") or "").strip().upper() for r in rows if r.get("pttst_name")]
+        commands_by_test = defaultdict(list)
+        if test_names and ptmetadata.has_table(env, "PSPTTSTCOMMAND"):
+            for start_idx in range(0, len(test_names), 900):
+                chunk = test_names[start_idx:start_idx + 900]
+                quoted = ",".join("'" + name.replace("'", "''") + "'" for name in chunk)
+                cmd_rows = psdb.query(env, f"""
+                    SELECT PTTST_NAME, SEQNBR, PTTST_CMD_ID, PTTST_CMD_TYPE,
+                           PTTST_CMD_OBJ_ID, MENUNAME, PNLGRPNAME, PNLNAME,
+                           PTTST_PAGEFIELD_NM, RECNAME, FIELDNAME
+                      FROM SYSADM.PSPTTSTCOMMAND
+                     WHERE PTTST_NAME IN ({quoted}) AND PTTST_LANG_CD IN (' ', 'ENG')
+                     ORDER BY PTTST_NAME, SEQNBR
+                """) or []
+                for item in cmd_rows:
+                    test_name = str(item.get("pttst_name") or "").strip().upper()
+                    if test_name:
+                        commands_by_test[test_name].append(item)
         for r in rows:
             tid = r.get("pttst_name")
             if not tid:
                 continue
             label = (r.get("descr") or "").strip() or tid
             add_node(graph, "ptf_test", tid, label, r)
+            seen = set()
+            for cmd in commands_by_test.get(str(tid).strip().upper(), []):
+                metadata = dict(cmd)
+                targets = [
+                    ("menu", str(cmd.get("menuname") or "").strip().upper()),
+                    ("component", str(cmd.get("pnlgrpname") or "").strip().upper()),
+                    ("page", str(cmd.get("pnlname") or "").strip().upper()),
+                    ("record", str(cmd.get("recname") or "").strip().upper()),
+                ]
+                recname = str(cmd.get("recname") or "").strip().upper()
+                fieldname = str(cmd.get("fieldname") or "").strip().upper()
+                if recname and fieldname:
+                    targets.append(("field", f"{recname}.{fieldname}"))
+                for target_type, target_name in targets:
+                    if not target_name:
+                        continue
+                    edge_key = (target_type, target_name)
+                    if edge_key in seen:
+                        continue
+                    seen.add(edge_key)
+                    add_node(graph, target_type, target_name, target_name, metadata)
+                    add_edge(graph, "ptf_test", tid, target_type, target_name, "USES", metadata)
         return len(rows)
 
     def content_services():

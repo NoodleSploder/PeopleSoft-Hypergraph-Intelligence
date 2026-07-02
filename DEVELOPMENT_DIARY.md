@@ -6,6 +6,62 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — PTF Test UOM and Knowledge Graph Relationships
+
+Date/time: 2026-07-01 23:56 CDT
+
+Features implemented:
+- PTF Test UOM objects now expose `_relationships.menus`,
+  `_relationships.components`, `_relationships.pages`, `_relationships.records`,
+  and `_relationships.fields` from PSPTTSTCOMMAND command metadata.
+- PTF Test compact `_graph` previews now show PTF Test → touched object `USES`
+  edges for menu, component, page, record, and record-qualified field targets.
+- Persisted Knowledge Graph ingestion now batch-loads PSPTTSTCOMMAND rows for
+  sampled PTF tests and emits the same PTF Test → touched object `USES` edges.
+
+Files modified:
+- `connectors/uom.py`
+- `connectors/graphdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Treated PeopleTools single-space command columns as blank, then deduplicated
+  relationships by target object name.
+- Kept command sequence/id/type metadata on relationship rows so UI and graph
+  consumers can explain where a touched object first appears in the script.
+- Limited compact graph previews separately by object category to keep large
+  PTF scripts navigable.
+
+Bugs fixed:
+- PTF Test object pages showed command summaries but had no canonical
+  relationship model or compact graph preview.
+- Persisted KG PTF provider created only test nodes, losing the pages,
+  components, records, and fields exercised by the tests.
+
+Technical debt:
+- PTF shell commands that call child scripts are still displayed as commands
+  only; a future pass can model Script/Shell → child PTF Test relationships
+  after command type `35001` semantics are documented.
+
+Verification:
+- `python -m py_compile connectors/uom.py connectors/graphdb.py` — OK.
+- `uom.ptf_test_object('HCM', 'NUI_10430_JOB_SEARCH_APP_01')` returned
+  2 menus, 3 components, 11 pages, 9 records, 22 fields, and a compact graph
+  with 48 nodes / 47 edges.
+- `uom.ptf_test_object('HCM', 'A_10270_LOCATION_CHANGE_SHELL')` returned no
+  touched-object relationships because its page/record/field columns are blank
+  single-space values.
+- `/api/peoplesoft/graph/ptf_test/NUI_10430_JOB_SEARCH_APP_01` route helper
+  returned `_source: uom`, `_vocabulary: compact_uom`, and PTF Test → Menu /
+  Component / Page `USES` edges.
+
+Next recommended work:
+- Continue compact UOM graph alignment for Process Definitions or IB Message
+  Definitions.
+- Add child PTF script relationships after validating PTF command type
+  semantics across shell/library/script rows.
+
 ## 2026-07-01 — XML Publisher UOM and Knowledge Graph Relationships
 
 Date/time: 2026-07-01 23:39 CDT

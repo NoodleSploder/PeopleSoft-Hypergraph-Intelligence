@@ -7056,6 +7056,63 @@ _PTF_TYPE_LABEL = {"S": "Script", "H": "Shell", "L": "Library"}
 _PTF_PV_ACTN = {"N": "None", "A": "Abort", "P": "Pass"}
 
 
+def _ptf_clean(value):
+    return str(value or "").strip().upper()
+
+
+def _ptf_relationship_rows(commands):
+    relationships = {
+        "menus": [],
+        "components": [],
+        "pages": [],
+        "records": [],
+        "fields": [],
+    }
+    seen = {key: set() for key in relationships}
+
+    def add(rel, name, cmd, **extra):
+        name = _ptf_clean(name)
+        if not name or name in seen[rel]:
+            return
+        seen[rel].add(name)
+        row = {
+            "name": name,
+            "seqnbr": cmd.get("seqnbr"),
+            "pttst_cmd_id": cmd.get("pttst_cmd_id"),
+            "pttst_cmd_type": cmd.get("pttst_cmd_type"),
+            "pttst_cmd_obj_id": str(cmd.get("pttst_cmd_obj_id") or "").strip(),
+            **extra,
+        }
+        relationships[rel].append(row)
+
+    for cmd in commands or []:
+        menu = _ptf_clean(cmd.get("menuname"))
+        component = _ptf_clean(cmd.get("pnlgrpname"))
+        page = _ptf_clean(cmd.get("pnlname"))
+        record = _ptf_clean(cmd.get("recname"))
+        field = _ptf_clean(cmd.get("fieldname"))
+        page_field = _ptf_clean(cmd.get("pttst_pagefield_nm"))
+
+        add("menus", menu, cmd)
+        add("components", component, cmd, menuname=menu or None)
+        add("pages", page, cmd, component=component or None, menuname=menu or None)
+        add("records", record, cmd)
+        if record and field:
+            add("fields", f"{record}.{field}", cmd, recname=record, fieldname=field, pagefield=page_field or None)
+
+    for row in relationships["menus"]:
+        row["_links"] = {"admin": object_url("menu", row["name"])}
+    for row in relationships["components"]:
+        row["_links"] = {"admin": object_url("component", row["name"])}
+    for row in relationships["pages"]:
+        row["_links"] = {"admin": object_url("page", row["name"])}
+    for row in relationships["records"]:
+        row["_links"] = {"admin": object_url("record", row["name"])}
+    for row in relationships["fields"]:
+        row["_links"] = {"admin": object_url("field", row["name"])}
+    return relationships
+
+
 def _ptf_test_sections(data):
     sections = []
     defn = data.get("definition") or {}
@@ -7140,6 +7197,51 @@ def ptf_test_object(env, test_name):
     defn = data.get("definition") or {}
     warnings = data.get("warnings") or []
     counts = data.get("counts") or {}
+    relationships = _ptf_relationship_rows(data.get("commands") or [])
+    graph = relationship_graph(
+        "ptf_test",
+        test_name.upper(),
+        limit_relationships(relationships, {
+            "menus": 20,
+            "components": 30,
+            "pages": 40,
+            "records": 30,
+            "fields": 50,
+        }),
+        [
+            {
+                "relationship": "menus",
+                "node_type": "menu",
+                "target_name": "name",
+                "default_edge": "USES",
+            },
+            {
+                "relationship": "components",
+                "node_type": "component",
+                "target_name": "name",
+                "default_edge": "USES",
+            },
+            {
+                "relationship": "pages",
+                "node_type": "page",
+                "target_name": "name",
+                "default_edge": "USES",
+            },
+            {
+                "relationship": "records",
+                "node_type": "record",
+                "target_name": "name",
+                "default_edge": "USES",
+            },
+            {
+                "relationship": "fields",
+                "node_type": "field",
+                "target_name": "name",
+                "default_edge": "USES",
+            },
+        ],
+        root_data=defn,
+    )
 
     pttst_type = (defn.get("pttst_type") or "").strip()
     type_label = _PTF_TYPE_LABEL.get(pttst_type, pttst_type or "Test")
@@ -7160,7 +7262,14 @@ def ptf_test_object(env, test_name):
             "type": type_label,
             "command_count": counts.get("commands", 0),
             "case_count": counts.get("cases", 0),
+            "menu_count": len(relationships["menus"]),
+            "component_count": len(relationships["components"]),
+            "page_count": len(relationships["pages"]),
+            "record_count": len(relationships["records"]),
+            "field_count": len(relationships["fields"]),
         },
+        _relationships=relationships,
+        _graph=graph,
         _metadata={"environment": env.upper(), "source_table": "PSPTTSTDEFN"},
     )
 
