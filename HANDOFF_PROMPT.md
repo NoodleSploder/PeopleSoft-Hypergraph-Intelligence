@@ -8,73 +8,133 @@ Before changing code, read and reconcile:
 4. `README.md`
 5. Existing code patterns in `connectors/`, `routers/`, `static/`, and `scripts/`
 
-**Admin UI package structure** (split 2026-07-01): `routers/admin.py` no longer exists.
-The admin UI is now the package `routers/admin/` with these files:
+---
+
+## Admin UI package structure
+
+`routers/admin.py` no longer exists. The admin UI is the package `routers/admin/` with:
+
 - `_core.py` — router object, `_NAV_GROUPS`, `_NAV_CSS`, `_ESC_JS`, `_nav_html()`, `_shell()`
 - `__init__.py` — re-exports `router`; importing it registers all sub-module routes
 - `home.py`, `security.py`, `graph.py`, `runtime.py`, `data.py`, `integration.py`,
-  `objects.py`, `portal.py`, `platform.py`, `perf.py`, `tools.py`
+  `objects.py`, `portal.py`, `platform.py`, `perf.py`, `logs.py`, `tools.py`
 - Each sub-module imports `router, _shell, _nav_html, _NAV_CSS, _ESC_JS` from `._core`
 - New admin pages go in the sub-module matching their nav group (see `_NAV_GROUPS` in `_core.py`)
 
-**Nav bar** (redesigned 2026-07-01): was 49 flat links; now a grouped CSS-only dropdown bar.
-Groups: Runtime · Data · Integration · Objects · Portal · Platform · Perf · Tools
+## Nav bar
+
+Grouped CSS-only dropdown bar. Groups: Runtime · Data · Integration · Objects · Portal · Platform · Perf · Tools.
 Direct links: Home · Users. Active group highlights on any child page.
 Styles in `/static/app.css` (`.ds-nav-group`, `.ds-nav-dropdown`, `.ds-nav-drop-link`).
-Standalone pages (no `app.css`) embed `_NAV_CSS` inline and call `_nav_html(active, env)`.
-`_ESC_JS` provides the `esc()` HTML-escape helper embedded in standalone page `<script>` blocks.
 
-Follow the architecture exactly:
+**`_NAV_CSS` rule:** `_NAV_CSS` is a complete `<style>…</style>` block. Always place `{_NAV_CSS}`
+directly in `<head>`, never inside another `<style>` block. Standalone pages (no `app.css`) call
+`_nav_html(active, env)` to render the nav bar. `_ESC_JS` provides the `esc()` HTML-escape helper
+for inline `<script>` blocks.
 
-* SQL belongs in `connectors/`, not routers.
-* Routers stay thin.
-* All database access must be grant-aware and read-only.
-* Missing PeopleSoft tables, Oracle views, grants, or optional metadata must produce warnings, not crashes.
-* Preserve existing endpoint shapes and URLs.
-* Prefer UOM/provider-based object implementation.
-* Keep `/` redirect, `/static`, `/admin`, and port `8088` assumptions intact unless explicitly instructed otherwise.
+Pages using `_shell()` get the nav, page header, and `/static/app.css` automatically — do not
+embed `_NAV_CSS` on those pages.
 
-Documentation rules:
+## Connectors
 
-* `ARCHITECTURE.md` = design rules, subsystem boundaries, provider contracts.
-* `ROADMAP.md` = current status and remaining work only.
-* `DEVELOPMENT_DIARY.md` = dated chronological engineering journal.
-* Do not duplicate large blocks between them.
-* Update `ARCHITECTURE.md` only for architecture changes.
-* Update `ROADMAP.md` when status or remaining work changes.
-* Append to `DEVELOPMENT_DIARY.md` after meaningful work with changed files, reason, behavior, verification, blockers, and next step.
+All database/file/AI logic lives in `connectors/`. Key modules:
 
-Current development priorities:
+| Module | Purpose |
+|--------|---------|
+| `psdb.py` | Core PeopleSoft DB metadata queries |
+| `ptmetadata.py` | PeopleTools/version-aware metadata discovery |
+| `graphdb.py` | Knowledge graph store; `neighbors()`, `adjacency()`, `build()` |
+| `graphshape.py` | Shared graph payload annotations and edge type aliases |
+| `uom.py` | Unified Object Model providers |
+| `ae.py` | Application Engine metadata/runtime |
+| `peoplecode.py` | PeopleCode decoding/source helpers |
+| `envcompare.py` | Cross-environment comparison logic |
+| `driftdb.py` | SQLite drift snapshot store (`data/drift.db`) |
+| `impact.py` | Impact forecasting: project KG traversal + env risk scoring |
+| `logparser.py` | Line parsers: PIA, APPSRV, Tuxedo, Apache, F5, IGW, PRCS AE |
+| `logdb.py` | SQLite log store (`data/logs.db`) |
+| `logingest.py` | Log ingestion orchestrator (SSH → parse → store) |
+| `sqrparser.py` | SQR/SQC file parser (description, tables, includes, procedures) |
+| `sqrdb.py` | SQLite SQR index (`data/sqr.db`) |
+| `sqringest.py` | SSH-based SQR filesystem indexer |
+| `sshclient.py` | Paramiko SSH/SFTP wrapper with per-host connection pooling |
+| `runtimedb.py` | SQLite runtime snapshot store |
+| `promotiondb.py` | SQLite promotion event log (`data/promotions.db`) |
+| `ai.py` / `ai_tools.py` | AI provider abstraction and tool dispatch |
+| `scheduler.py` | Background scheduler: graph snapshots + 60s log ingest |
 
-1. Improve Object Explorer visual hierarchy.
-2. Extract/shared relationship provider registration for UOM and graph relationships.
-3. Improve rich portal reconstruction and portal comparison.
-4. Improve access-path visualization and broader permission decoding.
-5. Add graph compaction and large-environment indexing.
-6. Improve Application Engine runtime detail and restart analysis.
-7. Add App Server monitoring and runtime alerts.
-8. Expand PeopleCode parsing, especially Application Package parsing and larger-source pagination.
-9. Add CI/deployment wiring for the admin shell smoke harness.
-10. Continue SQL Definition Explorer only where grants allow, especially PeopleCode cross-reference if feasible.
+---
 
-Verification expectations:
+## Architecture rules
 
-* Run syntax checks/tests available in the repo.
-* At minimum, run `python -m py_compile` or equivalent against touched Python files.
-* Run/import `main.py` if possible.
-* Use `scripts/smoke_admin_shell.py` when frontend/admin shell behavior changes.
-* Verify affected API endpoints with `curl`.
-* Verify affected `/admin` pages in browser when practical.
-* Record verification results in `DEVELOPMENT_DIARY.md`.
+- SQL belongs in `connectors/`, not routers.
+- Routers stay thin.
+- All database access must be grant-aware and read-only.
+- Missing PeopleSoft tables, Oracle views, grants, or optional metadata must produce warnings, not crashes.
+- Preserve existing endpoint shapes and URLs.
+- Prefer UOM/provider-based object implementation.
+- Keep `/` redirect, `/static`, `/admin`, and port `8088` assumptions intact unless explicitly instructed otherwise.
+- New admin pages: add a `_NAV_GROUPS` entry in `_core.py` and a route in the appropriate sub-module.
 
-Working style:
+## Documentation rules
 
-* Work in small vertical slices.
-* Inspect existing implementation before changing anything.
-* Prefer existing project patterns over new abstractions.
-* Do not broad-rewrite working modules.
-* Leave the repo runnable.
-* If blocked by grants, missing tables, or unavailable metadata, implement graceful degradation and document the blocker.
+- `ARCHITECTURE.md` = design rules, subsystem boundaries, provider contracts.
+- `ROADMAP.md` = current status and remaining work only.
+- `DEVELOPMENT_DIARY.md` = dated chronological engineering journal.
+- Do not duplicate large blocks between them.
+- Update `ARCHITECTURE.md` only for architecture changes.
+- Update `ROADMAP.md` when status or remaining work changes.
+- Append to `DEVELOPMENT_DIARY.md` after meaningful work: changed files, reason, behavior, verification, blockers, next step.
 
+---
 
-A lot of changes have been made since you last looked at this.  Please pickup from here.
+## Verification and CI
+
+- `make check` — runs syntax check on all Python files
+- `python3 scripts/smoke_admin_shell.py` — headless Chrome smoke test for all 57 admin pages (expect 57/57)
+- `.github/workflows/ci.yml` — runs `make check` on push/PR
+- Always run `python3 -c "import py_compile; py_compile.compile('path/to/file.py', doraise=True)"` on touched files before restart
+- Restart server with `pkill -f "uvicorn main:app"; .venv/bin/uvicorn main:app --host 127.0.0.1 --port 8088 &`
+- Verify affected API endpoints with `curl`
+- Record verification results in `DEVELOPMENT_DIARY.md`
+
+---
+
+## Current development priorities
+
+Drawn from `ROADMAP.md` remaining sections — pick the highest-value slice:
+
+### Phase 4 — Runtime Intelligence (remaining)
+- Browser session tracking
+- WebLogic session tracking
+- App server process tracking beyond domain enumeration
+- Runtime history persistence (process history, queue depth over time, alert history)
+- Incident recording with full runtime state capture
+
+### Phase 5 — Knowledge Graph (remaining)
+- Broader READS/WRITES coverage for non-literal PeopleCode dynamic SQL
+- Universal cross-reference sections across remaining UOM providers (message, tree, project, portal)
+
+### Phase 6 — Environment Intelligence (remaining)
+- Auto-detect promotions from `PSPROJECTDEFN.LASTUPDDTTM` across environments
+  (needs real DV/TST/UAT/PRD Oracle connections — blocked until available)
+
+### Phase 9 — Platform Extensibility (remaining)
+- Plugin SDK: custom object/graph/runtime providers, custom dashboards
+
+### Phase 10 — Source Artifact Intelligence (remaining)
+- COBOL Explorer, COPYBOOK Explorer
+- SQR dependency graph (SQC include tree, visual)
+- SQR environment presence (HCM vs FSCM side-by-side)
+- Incremental SQR scanning (checksum-based change detection)
+
+---
+
+## Working style
+
+- Work in small vertical slices.
+- Inspect existing implementation before changing anything.
+- Prefer existing project patterns over new abstractions.
+- Do not broad-rewrite working modules.
+- Leave the repo runnable at all times.
+- If blocked by grants, missing tables, or unavailable metadata, implement graceful degradation and document the blocker.
