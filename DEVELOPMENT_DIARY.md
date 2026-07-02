@@ -6,6 +6,58 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — Knowledge Graph Vocabulary Contract Alignment
+
+Date/time: 2026-07-01 22:48 CDT
+
+Features implemented:
+- Persisted Knowledge Graph payloads now expose `_source`, `_vocabulary`, and
+  `_semantics` metadata using the same graph contract as compact UOM and domain
+  graph responses.
+- Knowledge Graph edges now include a `relationship` alias alongside `type`,
+  preserving existing KG consumers while matching UOM/domain graph payloads.
+- Loaded legacy graph files and graph snapshots are normalized in memory so
+  older persisted data gains the same metadata and edge alias shape without an
+  immediate rebuild.
+- Lightweight snapshot payloads now preserve the graph vocabulary metadata.
+
+Files modified:
+- `connectors/graphdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Centralized the alignment in `graphdb.normalize_graph_shape()` and
+  `add_edge()` instead of patching every provider individually.
+- Kept provider-specific relationship reuse as separate work; this slice only
+  standardizes the graph payload contract and edge alias shape.
+
+Bugs fixed:
+- Persisted KG exports/stats lacked the vocabulary metadata already present in
+  UOM compact graphs and domain graph endpoints.
+- Persisted KG edges exposed only `type`, requiring callers to special-case
+  Knowledge Graph edges versus UOM/domain graph edges.
+
+Technical debt:
+- Provider-specific Knowledge Graph ingestion still needs to reuse more UOM
+  `_relationships` definitions directly where practical.
+
+Verification:
+- `python -m py_compile connectors/graphdb.py connectors/graphshape.py routers/graphdb.py routers/peoplesoft.py` — OK.
+- Source-level check verified new graph edges expose `CONTAINS` as both `type`
+  and `relationship`, and legacy edges normalize `uses` to `USES`.
+- `python - <<'PY' import main ...` — OK.
+- Non-persisted `graphdb.build('HCM', limit=1, persist=False)` completed with
+  `_source: knowledge_graph`, `_vocabulary: knowledge_graph`,
+  `_semantics: persisted enterprise relationship graph`, 86 nodes, 42 edges,
+  `warning_count: 0`, and edge `OWNS` exposed as both `type` and
+  `relationship`.
+
+Next recommended work:
+- Continue provider-specific KG/UOM relationship alignment, starting with
+  object families that already have mature compact UOM `_graph` definitions.
+- Expand safe READS/WRITES extraction for non-literal PeopleCode SQL.
+
 ## 2026-07-01 — Project UOM DEPLOYS Graph Alignment
 
 Date/time: 2026-07-01 22:43 CDT

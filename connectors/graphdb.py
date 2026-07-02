@@ -11,6 +11,9 @@ SNAPSHOT_DIR = DATA_DIR / "graph_snapshots"
 SNAPSHOT_MANIFEST = SNAPSHOT_DIR / "manifest.json"
 GRAPHS = {}
 BUILD_STATE = {}
+GRAPH_SOURCE = "knowledge_graph"
+GRAPH_VOCABULARY = "knowledge_graph"
+GRAPH_SEMANTICS = "persisted enterprise relationship graph"
 
 EDGE_TYPES = {
     "USES",
@@ -74,7 +77,29 @@ def empty_graph(env="HCM"):
         "built_at": None,
         "build_seconds": 0,
         "providers": [],
+        "_source": GRAPH_SOURCE,
+        "_vocabulary": GRAPH_VOCABULARY,
+        "_semantics": GRAPH_SEMANTICS,
     }
+
+
+def normalize_graph_shape(graph):
+    """Apply the shared graph payload contract to persisted KG graphs.
+
+    Older snapshots may only have edge `type`, while UOM/domain graph payloads
+    expose both `type` and `relationship` plus graph vocabulary metadata.
+    Normalize in memory so exports and loaded snapshots share the same shape
+    without requiring an immediate rebuild.
+    """
+    graph.setdefault("_source", GRAPH_SOURCE)
+    graph.setdefault("_vocabulary", GRAPH_VOCABULARY)
+    graph.setdefault("_semantics", GRAPH_SEMANTICS)
+    for edge in graph.get("edges", []) or []:
+        edge_type = str(edge.get("type") or edge.get("relationship") or "").strip().upper()
+        if edge_type:
+            edge["type"] = edge_type
+            edge.setdefault("relationship", edge_type)
+    return graph
 
 
 def _strip_sql_for_table_scan(sql_text):
@@ -189,6 +214,7 @@ def current(env="HCM"):
         path = graph_path(env)
         if path.exists():
             g = json.loads(path.read_text())
+            normalize_graph_shape(g)
             g["_edge_ids"] = {e["id"] for e in g.get("edges", [])}
             GRAPHS[env] = g
         else:
@@ -198,6 +224,7 @@ def current(env="HCM"):
 
 def save(env="HCM"):
     graph = current(env)
+    normalize_graph_shape(graph)
     saveable = {k: v for k, v in graph.items() if k != "_edge_ids"}
     graph_path(env).write_text(json.dumps(saveable, indent=2, default=str))
     return graph
@@ -206,6 +233,7 @@ def save(env="HCM"):
 def create_snapshot(env="HCM", name="", note="", include_graph=True):
     env = env.upper()
     graph = current(env)
+    normalize_graph_shape(graph)
     safe_name = _safe_snapshot_name(name)
     created_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     filename = f"{env}_{created_at.replace(':', '').replace('-', '')}_{safe_name}.json"
@@ -219,6 +247,9 @@ def create_snapshot(env="HCM", name="", note="", include_graph=True):
         "built_at": graph.get("built_at"),
         "build_seconds": graph.get("build_seconds", 0),
         "providers": graph.get("providers", []),
+        "_source": graph.get("_source", GRAPH_SOURCE),
+        "_vocabulary": graph.get("_vocabulary", GRAPH_VOCABULARY),
+        "_semantics": graph.get("_semantics", GRAPH_SEMANTICS),
     }
     path.write_text(json.dumps(payload, indent=2, default=str))
 
@@ -268,6 +299,7 @@ def load_snapshot(snapshot_id):
     if not path.exists():
         raise FileNotFoundError(f"Graph snapshot file missing: {path}")
     graph = json.loads(path.read_text())
+    normalize_graph_shape(graph)
     return {"snapshot": entry, "graph": graph}
 
 
@@ -406,6 +438,7 @@ def add_edge(graph, source_type, source_name, target_type, target_name, edge_typ
         "source": source["id"],
         "target": target["id"],
         "type": edge_type,
+        "relationship": edge_type,
         "metadata": dict(metadata or {}),
     }
 
@@ -1614,6 +1647,7 @@ def build(env="HCM", limit=50, persist=True):
 
     graph["built_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     graph["build_seconds"] = round(time.time() - start, 3)
+    normalize_graph_shape(graph)
     GRAPHS[env] = graph
     if persist:
         save(env)
@@ -1657,6 +1691,9 @@ def stats(env="HCM"):
 
     return {
         "environment": graph["environment"],
+        "_source": graph.get("_source", GRAPH_SOURCE),
+        "_vocabulary": graph.get("_vocabulary", GRAPH_VOCABULARY),
+        "_semantics": graph.get("_semantics", GRAPH_SEMANTICS),
         "node_count": len(graph["nodes"]),
         "edge_count": len(graph["edges"]),
         "object_counts": dict(sorted(by_type.items())),

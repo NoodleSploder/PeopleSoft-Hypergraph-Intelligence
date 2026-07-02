@@ -239,12 +239,13 @@ Continue enriching graph relationships.
 - PeopleCode literal SQL READS/WRITES edges in persisted Knowledge Graph ingestion for direct `SQLExec("...")` and `CreateSQL("...")` calls
 - Project → object DEPLOYS edges in persisted Knowledge Graph ingestion for safely mapped PSPROJECTITEM object types
 - Project UOM object pages and compact graph previews expose the same Project → object DEPLOYS relationship model
+- Persisted Knowledge Graph payloads now advertise `_source`, `_vocabulary`, and `_semantics`, and normalize edge `relationship` aliases to match UOM/domain graph contracts
 - Tree → Record USES edges
 - Impact analysis (forward and reverse dependency traversal with depth control)
 
 ### Remaining
 
-- Align persisted Knowledge Graph ingestion with UOM `_relationships`, UOM `_graph`, and domain graph vocabulary metadata
+- Continue aligning provider-specific Knowledge Graph ingestion with UOM `_relationships` / `_graph` relationship definitions
 - Broader READS/WRITES coverage for non-literal PeopleCode dynamic SQL
 
 ---
