@@ -370,12 +370,13 @@ def add_node(graph, node_type, name, display_name=None, metadata=None, warnings=
 
     node_type = node_type.lower()
     name = str(name).upper()
+    node_metadata = dict(metadata or {})
     node = {
         "id": node_id(node_type, name),
         "type": node_type,
         "name": name,
         "display_name": display_name or name,
-        "metadata": metadata or {},
+        "metadata": node_metadata,
         "canonical_url": node_url(node_type, name),
         "icon": icon_for(node_type),
         "warnings": warnings or [],
@@ -404,7 +405,7 @@ def add_edge(graph, source_type, source_name, target_type, target_name, edge_typ
         "source": source["id"],
         "target": target["id"],
         "type": edge_type,
-        "metadata": metadata or {},
+        "metadata": dict(metadata or {}),
     }
 
     edge_ids = graph.setdefault("_edge_ids", set())
@@ -582,33 +583,49 @@ def build(env="HCM", limit=50, persist=True):
             if not reference:
                 continue
 
-            add_node(graph, "peoplecode", row.get("encoded_reference") or peoplecode.encode_reference(reference), reference, row, rows.get("warnings", []))
+            refs = peoplecode.references_for_program(env, row)
+            pc_reference = refs.get("reference") or reference
+            pc_node_name = peoplecode.encode_reference(pc_reference)
+
+            add_node(graph, "peoplecode", pc_node_name, pc_reference, row, rows.get("warnings", []))
 
             if row.get("parent_type") and row.get("parent_name"):
                 add_node(graph, row["parent_type"], row["parent_name"], row["parent_name"], {})
                 add_edge(
                     graph,
                     "peoplecode",
-                    row.get("encoded_reference") or peoplecode.encode_reference(reference),
+                    pc_node_name,
                     row["parent_type"],
                     row["parent_name"],
                     "BELONGS_TO",
                     row,
                 )
 
-            refs = peoplecode.references(reference, env)
             for record in refs["references"].get("records", []):
                 add_node(graph, "record", record, record, {})
-                add_edge(graph, "peoplecode", row.get("encoded_reference") or peoplecode.encode_reference(reference), "record", record, "REFERENCES")
+                add_edge(graph, "peoplecode", pc_node_name, "record", record, "REFERENCES")
             for field in refs["references"].get("fields", []):
                 add_node(graph, "field", field, field, {})
-                add_edge(graph, "peoplecode", row.get("encoded_reference") or peoplecode.encode_reference(reference), "field", field, "REFERENCES")
+                add_edge(graph, "peoplecode", pc_node_name, "field", field, "REFERENCES")
             for sql_name in refs["references"].get("sql_definitions", []):
                 add_node(graph, "sql_definition", sql_name, sql_name, {})
-                add_edge(graph, "peoplecode", row.get("encoded_reference") or peoplecode.encode_reference(reference), "sql_definition", sql_name, "USES")
+                add_edge(graph, "peoplecode", pc_node_name, "sql_definition", sql_name, "USES")
+            for statement in refs.get("literal_sql", []):
+                access = sql_record_access(statement.get("sql_text", ""))
+                edge_meta = {
+                    "peoplecode_reference": pc_reference,
+                    "call": statement.get("call"),
+                    "source": "peoplecode_literal_sql",
+                }
+                for recname in access["reads"]:
+                    add_node(graph, "record", recname, recname, edge_meta)
+                    add_edge(graph, "peoplecode", pc_node_name, "record", recname, "READS", edge_meta)
+                for recname in access["writes"]:
+                    add_node(graph, "record", recname, recname, edge_meta)
+                    add_edge(graph, "peoplecode", pc_node_name, "record", recname, "WRITES", edge_meta)
             for call in refs.get("calls", []):
                 add_node(graph, "function", call.get("name"), call.get("name"), call)
-                add_edge(graph, "peoplecode", row.get("encoded_reference") or peoplecode.encode_reference(reference), "function", call.get("name"), "CALLS", call)
+                add_edge(graph, "peoplecode", pc_node_name, "function", call.get("name"), "CALLS", call)
 
         if rows["warnings"]:
             for item in rows["warnings"]:

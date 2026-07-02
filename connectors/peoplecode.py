@@ -83,6 +83,10 @@ REFERENCE_PATTERNS = {
     "application_package": re.compile(r"\bimport\s+([A-Z0-9_:]+)", re.I),
     "service_operation": re.compile(r"\b(?:CreateMessage|GetMessage)\s*\(\s*(?:Operation\.)?([A-Z0-9_]+)", re.I),
 }
+LITERAL_SQL_CALL_RE = re.compile(
+    r"\b(?P<call>SQLExec|CreateSQL)\s*\(\s*(?P<literal>\"(?:\"\"|[^\"])*\"|'(?:''|[^'])*')",
+    re.I | re.S,
+)
 
 
 def encode_reference(reference):
@@ -542,6 +546,10 @@ def source_for_reference(env, program_row):
             predicates.append(f"UPPER({col}) = UPPER(:{key})")
             params[key] = program_row.get(key)
 
+    if "PROGSEQ" in columns and program_row.get("progseq") not in (None, "", " "):
+        predicates.append("PROGSEQ = :progseq")
+        params["progseq"] = program_row.get("progseq")
+
     if not predicates:
         return {
             "source": program_row.get("source"),
@@ -612,6 +620,36 @@ def extract_references(source):
     return refs
 
 
+def _decode_peoplecode_string_literal(literal):
+    literal = str(literal or "")
+    if len(literal) < 2:
+        return ""
+    quote = literal[0]
+    body = literal[1:-1]
+    if quote == '"':
+        return body.replace('""', '"')
+    if quote == "'":
+        return body.replace("''", "'")
+    return body
+
+
+def extract_literal_sql(source):
+    """Return literal SQL strings passed directly to SQLExec/CreateSQL."""
+    if not source:
+        return []
+
+    statements = []
+    for match in LITERAL_SQL_CALL_RE.finditer(source):
+        sql_text = _decode_peoplecode_string_literal(match.group("literal")).strip()
+        if not sql_text:
+            continue
+        statements.append({
+            "call": match.group("call"),
+            "sql_text": sql_text,
+        })
+    return statements
+
+
 def references(reference, env):
     result = program(reference, env)
     source = result["item"].get("source")
@@ -619,7 +657,27 @@ def references(reference, env):
         "reference": result["item"]["reference"],
         "references": extract_references(source),
         "calls": extract_calls(source),
+        "literal_sql": extract_literal_sql(source),
         "warnings": result["warnings"],
+    }
+
+
+def references_for_program(env, program_row):
+    """Extract references using an already-loaded PSPCMPROG row."""
+    item = normalize_program(program_row, source=program_row.get("source"))
+    source = item.get("source")
+    warnings = []
+    if source is None:
+        source_result = source_for_reference(env, item)
+        source = source_result.get("source")
+        warnings = source_result.get("warnings", [])
+
+    return {
+        "reference": item["reference"],
+        "references": extract_references(source),
+        "calls": extract_calls(source),
+        "literal_sql": extract_literal_sql(source),
+        "warnings": warnings,
     }
 
 

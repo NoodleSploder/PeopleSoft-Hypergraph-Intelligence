@@ -6,6 +6,67 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — PeopleCode Literal SQL READS/WRITES Edges
+
+Date/time: 2026-07-01 22:29 CDT
+
+Features implemented:
+- Added PeopleCode literal SQL extraction for direct `SQLExec("...")` and
+  `CreateSQL("...")` calls.
+- Knowledge Graph PeopleCode ingestion now parses those literal SQL strings
+  with the existing conservative SQL record-access extractor and emits
+  `READS` / `WRITES` edges from PeopleCode programs to records.
+- Added `peoplecode.references_for_program()` so graph ingestion can reuse an
+  already-loaded PSPCMPROG row instead of re-searching metadata for each row.
+- Tightened PeopleCode source reconstruction by including `PROGSEQ` in the
+  PSPCMTXT lookup predicate when available.
+- Fixed graph metadata aliasing by copying metadata dictionaries when creating
+  graph nodes and edges.
+
+Files modified:
+- `connectors/peoplecode.py`
+- `connectors/graphdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Only literal first-argument SQL is parsed. Fully dynamic PeopleCode SQL is
+  still intentionally skipped unless it can be resolved safely.
+- Kept SQL parsing in `connectors/graphdb.py`; PeopleCode only exposes literal
+  SQL snippets and remains independent of graph internals.
+- Preserved existing PeopleCode reference API shape with an additive
+  `literal_sql` field.
+
+Bugs fixed:
+- Graph edge metadata could be mutated later because nodes and edges shared the
+  same metadata dict object. Edge metadata is now copied on creation.
+- PeopleCode graph ingestion no longer performs an expensive metadata search
+  for every row in the build loop.
+
+Technical debt:
+- Non-literal PeopleCode SQL assembled in variables or helper functions still
+  needs future static analysis.
+- PeopleCode source reconstruction remains dependent on PSPCMTXT key quality;
+  `PROGSEQ` improves precision, but other PeopleTools variants may need more
+  key columns if discovered.
+
+Verification:
+- `python -m py_compile connectors/peoplecode.py connectors/graphdb.py` — OK.
+- Parser check extracted literal SQL from `SQLExec("select ...")` and
+  `CreateSQL("insert into ... select ...")` while ignoring `SQLExec(SQL.X)`.
+- Live source check on
+  `HRS_SITE_ID.GBL.HRS_SITE_WRK.HRS_SITE_VIEW_LNK1.FIELDCHANGE.0` extracted
+  its `SQLExec` text and resolved `READS HR_SSTEXT_MSGID`.
+- Non-persisted `graphdb.build('HCM', limit=50, persist=False)` completed with
+  5131 nodes, 5833 edges, `warning_count: 0`, and 12 PeopleCode
+  `READS`/`WRITES` edges.
+- Verified PeopleCode edge metadata alignment: `metadata_mismatches: 0`.
+
+Next recommended work:
+- Continue relationship alignment between UOM compact graphs and persisted KG
+  providers.
+- Investigate safe static analysis for non-literal PeopleCode dynamic SQL.
+
 ## 2026-07-01 — Version-Adaptive Graph Provider Column Fixes
 
 Date/time: 2026-07-01 22:15 CDT
