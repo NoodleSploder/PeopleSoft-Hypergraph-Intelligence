@@ -3190,6 +3190,46 @@ def query_object(env, qryname):
         "createdttm": str(defn.get("createdttm") or ""),
     }
 
+    relationships = {
+        "records": enriched_records,
+        "output_fields": output_fields,
+        "binds": enriched_binds,
+    }
+    graph = relationship_graph("query", qryname, limit_relationships(relationships, {
+        "records": 30,
+        "output_fields": 50,
+    }), [
+        {
+            "relationship": "records",
+            "node_type": "record",
+            "target_name": lambda row: str(row.get("recname") or "").strip(),
+            "default_edge": "USES",
+        },
+        {
+            "relationship": "output_fields",
+            "node_type": "field",
+            "target_name": lambda row: (
+                f"{str(row.get('recname_resolved') or '').strip()}.{str(row.get('fieldname') or '').strip()}"
+                if str(row.get("recname_resolved") or "").strip()
+                else str(row.get("fieldname") or "").strip()
+            ),
+            "default_edge": "EXPOSES",
+            "extra_edges": [
+                {
+                    "source_node_type": "record",
+                    "source_name": lambda row: str(row.get("recname_resolved") or "").strip(),
+                    "target_node_type": "field",
+                    "target_name": lambda row: (
+                        f"{str(row.get('recname_resolved') or '').strip()}.{str(row.get('fieldname') or '').strip()}"
+                        if str(row.get("recname_resolved") or "").strip()
+                        else str(row.get("fieldname") or "").strip()
+                    ),
+                    "edge": "CONTAINS",
+                },
+            ],
+        },
+    ], root_data=defn)
+
     return canonical_base(
         env, "query", qryname,
         display_name=qryname,
@@ -3197,6 +3237,8 @@ def query_object(env, qryname):
         status="ok" if defn else "partial",
         warnings=warnings,
         _links={"admin": object_url("query", qryname)},
+        _relationships=relationships,
+        _graph=graph,
         _metadata={
             "environment": env.upper(),
             "raw": raw,
@@ -3321,7 +3363,10 @@ def query_payload(q_obj):
             "status": q_obj["status"], **raw,
         },
         "sections": sections_for_query(q_obj),
-        "_links": q_obj["_links"], "_uom": q_obj,
+        "_links": q_obj["_links"],
+        "_relationships": q_obj.get("_relationships", {}),
+        "_graph": q_obj.get("_graph", {}),
+        "_uom": q_obj,
     }
 
 

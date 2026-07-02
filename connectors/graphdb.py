@@ -949,10 +949,70 @@ def build(env="HCM", limit=50, persist=True):
                AND ROWNUM <= {limit}
              ORDER BY QRYNAME
         """) or []
+        query_names = [str(r.get("qryname") or "").strip().upper() for r in rows if r.get("qryname")]
+        records_by_query = defaultdict(list)
+        record_by_number = {}
+        fields_by_query = defaultdict(list)
+        if query_names and ptmetadata.has_table(env, "PSQRYRECORD"):
+            for start in range(0, len(query_names), 900):
+                chunk = query_names[start:start + 900]
+                quoted = ",".join("'" + name.replace("'", "''") + "'" for name in chunk)
+                rec_rows = psdb.query(env, f"""
+                    SELECT QRYNAME, RCDNUM, RECNAME, CORRNAME, JOINTYPE
+                      FROM SYSADM.PSQRYRECORD
+                     WHERE OPRID = ' '
+                       AND QRYNAME IN ({quoted})
+                     ORDER BY QRYNAME, RCDNUM
+                """) or []
+                for rec in rec_rows:
+                    qn = str(rec.get("qryname") or "").strip().upper()
+                    rcdnum = rec.get("rcdnum")
+                    recname = str(rec.get("recname") or "").strip().upper()
+                    if not qn or not recname:
+                        continue
+                    records_by_query[qn].append(rec)
+                    record_by_number[(qn, str(rcdnum))] = recname
+
+        if query_names and ptmetadata.has_table(env, "PSQRYFIELD"):
+            for start in range(0, len(query_names), 900):
+                chunk = query_names[start:start + 900]
+                quoted = ",".join("'" + name.replace("'", "''") + "'" for name in chunk)
+                field_rows = psdb.query(env, f"""
+                    SELECT QRYNAME, FLDNUM, FIELDNAME, RECNAME, FLDRCDNUM,
+                           COLUMNNUM, HEADING, AGGREGATEFUNC
+                      FROM SYSADM.PSQRYFIELD
+                     WHERE OPRID = ' '
+                       AND QRYNAME IN ({quoted})
+                       AND NVL(COLUMNNUM, 0) > 0
+                     ORDER BY QRYNAME, COLUMNNUM, FLDNUM
+                """) or []
+                for field in field_rows:
+                    qn = str(field.get("qryname") or "").strip().upper()
+                    fieldname = str(field.get("fieldname") or "").strip().upper()
+                    if qn and fieldname:
+                        fields_by_query[qn].append(field)
+
         for r in rows:
             qn = r.get("qryname")
             if qn:
                 add_node(graph, "query", qn, r.get("descr") or qn, r)
+                qn_key = str(qn).strip().upper()
+                for rec in records_by_query.get(qn_key, []):
+                    recname = str(rec.get("recname") or "").strip().upper()
+                    add_node(graph, "record", recname, recname, rec)
+                    add_edge(graph, "query", qn, "record", recname, "USES", rec)
+                for field in fields_by_query.get(qn_key, []):
+                    fieldname = str(field.get("fieldname") or "").strip().upper()
+                    recname = str(field.get("recname") or "").strip().upper()
+                    if not recname:
+                        recname = record_by_number.get((qn_key, str(field.get("fldrcdnum"))), "")
+                    field_ref = f"{recname}.{fieldname}" if recname else fieldname
+                    metadata = {**field, "recname_resolved": recname}
+                    add_node(graph, "field", field_ref, field_ref, metadata)
+                    add_edge(graph, "query", qn, "field", field_ref, "EXPOSES", metadata)
+                    if recname:
+                        add_node(graph, "record", recname, recname, metadata)
+                        add_edge(graph, "record", recname, "field", field_ref, "CONTAINS", metadata)
         return len(rows)
 
     def component_interfaces():

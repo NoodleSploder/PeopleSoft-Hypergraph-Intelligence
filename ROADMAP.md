@@ -240,6 +240,7 @@ Continue enriching graph relationships.
 - Project → object DEPLOYS edges in persisted Knowledge Graph ingestion for safely mapped PSPROJECTITEM object types
 - Project UOM object pages and compact graph previews expose the same Project → object DEPLOYS relationship model
 - Persisted Knowledge Graph payloads now advertise `_source`, `_vocabulary`, and `_semantics`, and normalize edge `relationship` aliases to match UOM/domain graph contracts
+- PS Query UOM objects now expose records/output fields as `_relationships` and compact graph previews; persisted Knowledge Graph ingestion emits Query → Record `USES`, Query → Field `EXPOSES`, and Record → Field `CONTAINS` edges for public queries
 - Tree → Record USES edges
 - Impact analysis (forward and reverse dependency traversal with depth control)
 

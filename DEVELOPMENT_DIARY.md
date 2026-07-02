@@ -6,6 +6,63 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — PS Query UOM and Knowledge Graph Relationships
+
+Date/time: 2026-07-01 22:51 CDT
+
+Features implemented:
+- PS Query UOM objects now expose `_relationships.records`,
+  `_relationships.output_fields`, and `_relationships.binds`.
+- PS Query payloads now include a compact `_graph` showing Query → Record
+  `USES`, Query → Field `EXPOSES`, and Record → Field `CONTAINS`
+  relationships for output columns.
+- Generic `/api/peoplesoft/graph/query/{name}` now returns the PS Query compact
+  UOM graph with the shared `uom` / `compact_uom` vocabulary metadata.
+- Persisted Knowledge Graph query ingestion now emits public-query edges:
+  Query → Record `USES`, Query → Field `EXPOSES`, and Record → Field
+  `CONTAINS`, guarded by PSQRYRECORD/PSQRYFIELD table availability.
+
+Files modified:
+- `connectors/uom.py`
+- `connectors/graphdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Used public PS Queries only (`OPRID = ' '`) to preserve the existing
+  public-query boundary.
+- Limited compact UOM graph previews to 30 records and 50 output fields, while
+  preserving full relationships in the payload.
+- Resolved query output field graph nodes as `RECNAME.FIELDNAME` when the
+  record could be determined from PSQRYFIELD or PSQRYRECORD.
+
+Bugs fixed:
+- PS Query object pages showed records/columns in sections but did not expose
+  canonical `_relationships` or a compact graph preview.
+- Persisted Knowledge Graph query provider created query nodes without the
+  records or output fields they depend on.
+
+Technical debt:
+- Query criteria, expressions, and prompt-to-record/field relationships are
+  still not modeled as graph edges.
+
+Verification:
+- `python -m py_compile connectors/uom.py connectors/graphdb.py` — OK.
+- Live HCM query probe found `POSITION_DATA_SRCH_QRY` with 24 records.
+- `uom.query_payload(uom.query_object('HCM', 'POSITION_DATA_SRCH_QRY'))`
+  returned 24 record relationships, 85 output field relationships, 1 bind, and
+  a compact graph with 61 nodes and 114 edges.
+- `/api/peoplesoft/graph/query/POSITION_DATA_SRCH_QRY` route helper returned
+  `_source: uom`, `_vocabulary: compact_uom`, 61 nodes, and 114 edges.
+- Non-persisted `graphdb.build('HCM', limit=10, persist=False)` completed with
+  `_source: knowledge_graph`, `_vocabulary: knowledge_graph`,
+  `warning_count: 0`, and 153 query relationship edges.
+
+Next recommended work:
+- Continue provider-specific KG/UOM alignment for another mature object family.
+- Consider PS Query criteria/expression modeling after validating the relevant
+  PeopleTools tables and keys.
+
 ## 2026-07-01 — Knowledge Graph Vocabulary Contract Alignment
 
 Date/time: 2026-07-01 22:48 CDT
