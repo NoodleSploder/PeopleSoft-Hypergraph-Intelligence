@@ -233,6 +233,14 @@ def attach_graph_context(payload, env):
                              src_type="project", edge_type="DEPLOYS",
                              section_name="Projects Deploying This Record",
                              note="Projects that include this record in a deployment (from Knowledge Graph)")
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="query", edge_type="USES",
+                             section_name="Queries Using This Record",
+                             note="PS Query definitions that include this record (from Knowledge Graph)")
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="ptf_test", edge_type="USES",
+                             section_name="PTF Tests Covering This Record",
+                             note="PTF automated tests that reference this record (from Knowledge Graph)")
     elif obj_type in ("application_engine", "sql_definition", "peoplecode"):
         _attach_outbound_rw_xref(payload, env, node_id)
     if obj_type == "application_engine":
