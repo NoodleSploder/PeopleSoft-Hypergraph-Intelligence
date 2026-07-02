@@ -6,6 +6,52 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — Menu Compact UOM Graph Alignment
+
+Date/time: 2026-07-01 22:55 CDT
+
+Features implemented:
+- Menu UOM objects now build compact `_graph` previews with the shared
+  `relationship_graph()` helper.
+- Menu graph previews now emit Menu → Component `CONTAINS` edges, matching the
+  persisted Knowledge Graph menu provider semantics.
+- Menu payloads now expose `_relationships` and `_graph` at the top level for
+  API and UI consumers.
+
+Files modified:
+- `connectors/uom.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- De-duplicated repeated component menu items before building the compact graph,
+  then capped preview edges at 80 to match other compact UOM previews.
+- Preserved the full menu item list in `_relationships.items`; only the compact
+  graph is capped.
+
+Bugs fixed:
+- Menu UOM graphs used a legacy custom shape with no `nodes` list and `LISTS`
+  edges, so generic graph consumers could not treat Menu previews like other
+  compact UOM graphs.
+
+Technical debt:
+- Menu graph previews still show component relationships only. Bar/item
+  hierarchy and search records could be modeled later if useful.
+
+Verification:
+- `python -m py_compile connectors/uom.py routers/peoplesoft.py` — OK.
+- `python - <<'PY' import main ...` — OK.
+- Live HCM menu probe found `SETUP_HRMS` with 657 component references.
+- `uom.menu_payload('HCM', 'SETUP_HRMS')` returned 659 raw menu item
+  relationships and a compact graph with 81 nodes and 80 `CONTAINS` edges.
+- `/api/peoplesoft/graph/menu/SETUP_HRMS` route helper returned `_source: uom`,
+  `_vocabulary: compact_uom`, 81 nodes, and 80 `CONTAINS` edges with `type`
+  aliases.
+
+Next recommended work:
+- Continue compact UOM graph alignment for older custom payloads that still use
+  non-shared graph shapes or no `_graph` preview.
+
 ## 2026-07-01 — PS Query UOM and Knowledge Graph Relationships
 
 Date/time: 2026-07-01 22:51 CDT

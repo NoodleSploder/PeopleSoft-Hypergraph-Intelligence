@@ -4299,14 +4299,28 @@ def menu_object(env, menuname):
     )
 
     obj["_relationships"]["items"] = items or []
-    obj["_graph"] = {
-        "node": {"id": object_id("menu", menuname), "type": "menu", "label": menuname, "description": descr},
-        "edges": [
-            {"source": object_id("menu", menuname), "target": object_id("component", str(r.get("pnlgrpname") or "").strip().upper()), "type": "LISTS", "label": "Lists"}
-            for r in (items or [])
-            if str(r.get("pnlgrpname") or "").strip()
+    graph_items = []
+    seen_components = set()
+    for item in items or []:
+        component = str(item.get("pnlgrpname") or "").strip().upper()
+        if not component or component in seen_components:
+            continue
+        seen_components.add(component)
+        graph_items.append(item)
+    obj["_graph"] = relationship_graph(
+        "menu",
+        menuname,
+        {"items": graph_items[:80]},
+        [
+            {
+                "relationship": "items",
+                "node_type": "component",
+                "target_name": lambda row: str(row.get("pnlgrpname") or "").strip(),
+                "default_edge": "CONTAINS",
+            },
         ],
-    }
+        root_data=defn,
+    )
     return obj
 
 
@@ -4374,6 +4388,8 @@ def menu_payload(env, menuname):
         },
         "sections": sections_for_menu(obj),
         "_links": obj["_links"],
+        "_relationships": obj.get("_relationships", {}),
+        "_graph": obj.get("_graph", {}),
         "_uom": obj,
     }
 
