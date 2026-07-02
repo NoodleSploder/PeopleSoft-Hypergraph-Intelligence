@@ -225,10 +225,28 @@ def attach_graph_context(payload, env):
     if obj_type == "record":
         _attach_record_rw_xref(payload, env, node_id)
         _attach_record_components_xref(payload, env, node_id)
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="page", edge_type="USES",
+                             section_name="Pages Using This Record",
+                             note="Pages that use this record as their data source (from Knowledge Graph)")
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="project", edge_type="DEPLOYS",
+                             section_name="Projects Deploying This Record",
+                             note="Projects that include this record in a deployment (from Knowledge Graph)")
     elif obj_type in ("application_engine", "sql_definition", "peoplecode"):
         _attach_outbound_rw_xref(payload, env, node_id)
     if obj_type == "application_engine":
         _attach_ae_schedulers(payload, env, node_id)
+    if obj_type == "page":
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="project", edge_type="DEPLOYS",
+                             section_name="Projects Deploying This Page",
+                             note="Projects that include this page in a deployment (from Knowledge Graph)")
+    if obj_type == "component":
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="project", edge_type="DEPLOYS",
+                             section_name="Projects Deploying This Component",
+                             note="Projects that include this component in a deployment (from Knowledge Graph)")
 
     return payload
 
@@ -450,6 +468,52 @@ def _attach_record_components_xref(payload, env: str, node_id: str) -> None:
             "count": len(comp_items),
             "note": "Components that use this record as a search or data record (from Knowledge Graph)",
         },
+    ))
+
+
+def _attach_inbound_xref(payload, env: str, node_id: str,
+                          src_type: str, edge_type: str,
+                          section_name: str, note: str = "") -> None:
+    """Generic inbound cross-reference section builder.
+
+    Queries the KG for all edges of ``edge_type`` pointing *to* ``node_id``
+    whose source type matches ``src_type``, then appends a section.
+    Silently skips if no matching edges exist or on any error.
+    """
+    if any(s.get("name") == section_name for s in payload.get("sections", [])):
+        return
+    try:
+        xgraph = graphdb.neighbors(env, node_id, direction="in", depth=1,
+                                   edge_types=[edge_type])
+    except Exception:
+        return
+
+    xnodes_by_id = {n["id"]: n for n in xgraph.get("nodes", [])}
+    prefix = f"{src_type}:"
+    items = []
+    seen = set()
+    for edge in xgraph.get("edges", []):
+        src_id = edge.get("source", "")
+        if src_id in seen or not src_id.startswith(prefix):
+            continue
+        seen.add(src_id)
+        src_node = xnodes_by_id.get(src_id, {})
+        items.append({
+            "relationship": edge_type,
+            "type": src_type,
+            "name": src_node.get("name", src_id.split(":", 1)[-1]),
+            "id": src_id,
+            "_links": {"admin": src_node.get("canonical_url") or ""},
+        })
+
+    if not items:
+        return
+
+    items.sort(key=lambda x: x["name"])
+    payload.setdefault("sections", []).append(section(
+        section_name,
+        items,
+        {"count": len(items), "note": note},
     ))
 
 
