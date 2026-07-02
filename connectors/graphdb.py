@@ -1256,7 +1256,9 @@ def build(env="HCM", limit=50, persist=True):
             return 0
         rows = psdb.query(env, f"""
             SELECT PTCS_SERVICEID, PTCS_SERVICENAME, DESCR254,
-                   PTCS_SERVICEURLTYP, OBJECTOWNERID
+                   PTCS_SERVICEURLTYP, OBJECTOWNERID,
+                   PORTAL_MENUNAME, PNLGRPNAME, PTCS_QUERYNAME,
+                   PACKAGEROOT, QUALIFYPATH, APPCLASSID
               FROM SYSADM.PSPTCSSRVDEFN
              WHERE ROWNUM <= {limit}
              ORDER BY PTCS_SERVICEID
@@ -1267,6 +1269,26 @@ def build(env="HCM", limit=50, persist=True):
                 continue
             label = (r.get("ptcs_servicename") or "").strip() or sid
             add_node(graph, "content_service", sid, label, r)
+            menu = str(r.get("portal_menuname") or "").strip()
+            component = str(r.get("pnlgrpname") or "").strip()
+            query_name = str(r.get("ptcs_queryname") or "").strip()
+            pkg = str(r.get("packageroot") or "").strip()
+            qp = str(r.get("qualifypath") or "").strip() or ":"
+            cid = str(r.get("appclassid") or "").strip()
+            if component:
+                add_node(graph, "component", component, component, r)
+                add_edge(graph, "content_service", sid, "component", component, "USES", r)
+            if menu:
+                add_node(graph, "menu", menu, menu, r)
+                add_edge(graph, "content_service", sid, "menu", menu, "USES", r)
+            if query_name:
+                add_node(graph, "query", query_name, query_name, r)
+                add_edge(graph, "content_service", sid, "query", query_name, "USES", r)
+            if pkg and cid:
+                class_key = f"{pkg}~{qp}~{cid}"
+                label = f"{pkg}:{cid}" if qp == ":" else f"{pkg}:{qp}:{cid}"
+                add_node(graph, "app_class", class_key, label, r)
+                add_edge(graph, "content_service", sid, "app_class", class_key, "USES", r)
         return len(rows)
 
     def app_packages():

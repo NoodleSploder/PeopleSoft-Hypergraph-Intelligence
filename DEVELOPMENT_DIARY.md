@@ -6,6 +6,67 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — Content Service UOM and Knowledge Graph Relationships
+
+Date/time: 2026-07-01 23:21 CDT
+
+Features implemented:
+- Content Service UOM objects now expose `_relationships.components`,
+  `_relationships.menus`, `_relationships.app_classes`, `_relationships.queries`,
+  `_relationships.portal_registry`, and `_relationships.params`.
+- Content Service compact `_graph` previews now show Content Service → target
+  `USES` edges for components, menus, app classes, and queries, plus Portal
+  Registry → Content Service `USES` edges for where-used portal objects.
+- Persisted Knowledge Graph ingestion now emits Content Service → Component,
+  Menu, Query, and App Class `USES` edges from PSPTCSSRVDEFN where target
+  columns are populated.
+
+Files modified:
+- `connectors/uom.py`
+- `connectors/graphdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Modeled Content Service dependencies as `USES`, matching the relationship
+  direction from a related action/content service to its executable target.
+- Kept portal where-used edges in compact UOM only for now, because
+  PSPTCS_MNULINKS is detail-page scoped and the current KG provider reads from
+  PSPTCSSRVDEFN only.
+- Reused the App Class compound key format for UAPC-backed content services.
+
+Bugs fixed:
+- Content Service object pages had target/usage sections but no canonical
+  `_relationships` or compact graph preview.
+- Persisted KG content-service provider created nodes without edges to their
+  component, menu, app-class, or query targets.
+
+Technical debt:
+- Persisted KG does not yet ingest Portal Registry → Content Service usage
+  edges from PSPTCS_MNULINKS.
+- URI-only and utility content services are still represented as nodes without
+  modeled external-resource targets.
+
+Verification:
+- `python -m py_compile connectors/uom.py connectors/graphdb.py routers/peoplesoft.py` — OK.
+- `python - <<'PY' import main ...` — OK.
+- `uom.content_service_object('HCM', 'BENEFIT_ENROLLMENT')` returned component
+  and menu relationships, and a compact graph with 3 nodes and 2 `USES` edges.
+- `uom.content_service_object('HCM', 'HRS_PKG_APP_CPY')` returned 1 App Class
+  relationship, 4 Portal Registry usage relationships, and a compact graph with
+  6 nodes and 5 `USES` edges.
+- Generic object and graph route helpers returned top-level `_relationships`,
+  `_graph`, `_source: uom`, and `_vocabulary: compact_uom` for both samples.
+- Non-persisted `graphdb.build('HCM', limit=20, persist=False)` completed with
+  `_source: knowledge_graph`, `_vocabulary: knowledge_graph`,
+  `warning_count: 0`, and 39 Content Service `USES` edges.
+
+Next recommended work:
+- Consider PSPTCS_MNULINKS-backed Portal Registry → Content Service edges in
+  persisted KG.
+- Continue compact UOM graph alignment for section-only providers such as PTF
+  tests, connected queries, and XML Publisher reports.
+
 ## 2026-07-01 — Standalone App Class UOM Graph
 
 Date/time: 2026-07-01 23:08 CDT

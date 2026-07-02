@@ -6849,6 +6849,95 @@ def content_service_object(env, service_id):
     url_type = (defn.get("ptcs_serviceurltyp") or "").strip()
 
     sections = _content_service_sections(data)
+    relationships = {
+        "components": [],
+        "menus": [],
+        "app_classes": [],
+        "queries": [],
+        "portal_registry": [],
+        "params": data.get("params") or [],
+    }
+
+    menu = (defn.get("portal_menuname") or "").strip()
+    component = (defn.get("pnlgrpname") or "").strip()
+    pkg = (defn.get("packageroot") or "").strip()
+    qp = (defn.get("qualifypath") or "").strip() or ":"
+    cid = (defn.get("appclassid") or "").strip()
+    qry = (defn.get("ptcs_queryname") or "").strip()
+
+    if component:
+        relationships["components"].append({
+            "pnlgrpname": component,
+            "menu": menu,
+            "_links": {"admin": object_url("component", component)},
+        })
+    if menu:
+        relationships["menus"].append({
+            "menuname": menu,
+            "_links": {"admin": object_url("menu", menu)},
+        })
+    if pkg and cid:
+        class_key = f"{pkg}~{qp}~{cid}"
+        relationships["app_classes"].append({
+            "class_key": class_key,
+            "packageroot": pkg,
+            "qualifypath": qp,
+            "appclassid": cid,
+            "_links": {"admin": object_url("app_class", class_key)},
+        })
+    if qry:
+        relationships["queries"].append({
+            "qryname": qry,
+            "_links": {"admin": object_url("query", qry)},
+        })
+    for usage in data.get("usage") or []:
+        portal_obj = (usage.get("portal_objname") or "").strip()
+        if portal_obj:
+            relationships["portal_registry"].append({
+                **usage,
+                "_links": {"admin": object_url("portal_registry", portal_obj)},
+            })
+
+    graph = relationship_graph(
+        "content_service",
+        service_id.upper(),
+        limit_relationships(relationships, {"portal_registry": 50}),
+        [
+            {
+                "relationship": "components",
+                "node_type": "component",
+                "target_name": lambda row: str(row.get("pnlgrpname") or "").strip(),
+                "default_edge": "USES",
+            },
+            {
+                "relationship": "menus",
+                "node_type": "menu",
+                "target_name": lambda row: str(row.get("menuname") or "").strip(),
+                "default_edge": "USES",
+            },
+            {
+                "relationship": "app_classes",
+                "node_type": "app_class",
+                "target_name": lambda row: str(row.get("class_key") or "").strip(),
+                "default_edge": "USES",
+            },
+            {
+                "relationship": "queries",
+                "node_type": "query",
+                "target_name": lambda row: str(row.get("qryname") or "").strip(),
+                "default_edge": "USES",
+            },
+            {
+                "relationship": "portal_registry",
+                "source_node_type": "portal_registry",
+                "source_name": lambda row: str(row.get("portal_objname") or "").strip(),
+                "node_type": "content_service",
+                "target_name": lambda row: service_id.upper(),
+                "default_edge": "USES",
+            },
+        ],
+        root_data=defn,
+    )
 
     return canonical_base(
         env,
@@ -6865,6 +6954,8 @@ def content_service_object(env, service_id):
             "param_count": counts.get("params", 0),
             "usage_count": counts.get("usage", 0),
         },
+        _relationships=relationships,
+        _graph=graph,
         _metadata={"environment": env.upper(), "source_table": "PSPTCSSRVDEFN"},
     )
 
