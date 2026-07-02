@@ -975,6 +975,7 @@ async function loadRecord(recname) {
     <div class="tab"      onclick="switchTab('components');loadTab('components')">Components</div>
     <div class="tab"      onclick="switchTab('pages');loadTab('pages')">Pages</div>
     <div class="tab"      onclick="switchTab('sqr');loadTab('sqr')">SQR Programs</div>
+    <div class="tab"      onclick="switchTab('pc');loadTab('pc')">PeopleCode</div>
     <div class="tab"      onclick="switchTab('ddl');loadTab('ddl')">DDL</div>
     <div class="tab"      onclick="switchTab('data');loadTab('data')">Data</div>
   </div>
@@ -997,6 +998,7 @@ async function loadRecord(recname) {
     </div>
     <div id="overview-storage"></div>
     <div id="overview-children"></div>
+    <div id="overview-pc-summary"></div>
   </div>
 
   <div id="pane-fields"     class="pane"><span class="empty">Loading…</span></div>
@@ -1006,6 +1008,7 @@ async function loadRecord(recname) {
   <div id="pane-components" class="pane"><span class="empty">Loading…</span></div>
   <div id="pane-pages"      class="pane"><span class="empty">Loading…</span></div>
   <div id="pane-sqr"        class="pane"><span class="empty">Loading…</span></div>
+  <div id="pane-pc"         class="pane"><span class="empty">Loading…</span></div>
   <div id="pane-ddl"        class="pane"><span class="empty">Loading…</span></div>
   <div id="pane-data"       class="pane"><span class="empty">Loading…</span></div>
   `;
@@ -1015,15 +1018,32 @@ async function loadRecord(recname) {
   // Eagerly load storage stats and children into the overview.
   loadStorageInto('overview-storage', recname);
   loadChildrenInto('overview-children', recname);
+  // Background: load PC summary chip
+  api(`/api/record/${encodeURIComponent(recname)}/peoplecode?env=${env()}`).then(pc => {
+    const el = $('overview-pc-summary');
+    if (!el) return;
+    const total = pc.total || 0;
+    if (!total) return;
+    const rowCnt   = (pc.row_events   || []).length;
+    const fieldCnt = (pc.field_events || []).length;
+    el.innerHTML = `<div style="margin-top:10px;padding:8px 12px;background:#030d14;border:1px solid #00e5ff22;border-radius:2px;font-size:11px">
+      <span style="color:#00e5ff;font-weight:bold">${total}</span>
+      <span style="color:#445"> record-level PeopleCode program${total===1?'':'s'} —</span>
+      <span style="color:#44bbff"> ${rowCnt} row-level</span><span style="color:#445">,</span>
+      <span style="color:#00e5ff"> ${fieldCnt} field-level</span>
+      <span style="color:#334;margin-left:8px;font-size:10px">(see <a onclick="switchTab('pc');loadTab('pc')" style="color:#00e5ff;cursor:pointer">PeopleCode tab</a>)</span>
+    </div>`;
+  }).catch(() => {});
 }
 
 function switchTab(name) {
-  const tabs = ['overview','fields','keys','indexes','related','components','pages','sqr','ddl','data'];
+  const tabs = ['overview','fields','keys','indexes','related','components','pages','sqr','pc','ddl','data'];
   tabs.forEach(t => {
     const p = $(`pane-${t}`); if (p) p.className = 'pane' + (t === name ? ' on' : '');
   });
-  document.querySelectorAll('.tab').forEach((el, i) => {
-    el.classList.toggle('on', tabs[i] === name);
+  document.querySelectorAll('.tab-row .tab').forEach(el => {
+    const m = (el.getAttribute('onclick')||'').match(/switchTab\('(\w+)'\)/);
+    if (m) el.classList.toggle('on', m[1] === name);
   });
 }
 
@@ -1059,6 +1079,9 @@ async function loadTab(name) {
     const tbl = 'PS_' + currentRec;
     const d = await api(`/api/sqr/table/${encodeURIComponent(tbl)}`);
     pane.innerHTML = renderSQR(d.programs || [], tbl);
+  } else if (name === 'pc') {
+    const d = await api(`/api/record/${encodeURIComponent(currentRec)}/peoplecode?env=${env()}`);
+    pane.innerHTML = renderRecordPC(d);
   } else if (name === 'ddl') {
     const d = await api(`/api/record/${encodeURIComponent(currentRec)}/ddl?env=${env()}`);
     pane.innerHTML = renderDDL(d);
@@ -1218,6 +1241,82 @@ function renderSQR(programs, tblName) {
         <td>${ops}</td>
       </tr>`;
     }).join('') + '</tbody></table>';
+}
+
+const _RPC_EV_COLOR = {
+  FieldChange:'#00e5ff',FieldEdit:'#ffaa00',FieldDefault:'#a070ff',FieldFormula:'#00cc66',
+  RowInit:'#44bbff',RowInsert:'#44bbff',RowDelete:'#ff6666',
+  SaveEdit:'#ffcc00',SavePreChange:'#ffcc00',SavePostChange:'#ffcc00',
+};
+
+function renderRecordPC(d) {
+  const warn = d.warning || d.error || '';
+  if (warn) return `<div class="warn-msg">&#9888; ${esc(warn)}</div>`;
+  const rowEvts   = d.row_events   || [];
+  const fieldEvts = d.field_events || [];
+  if (!rowEvts.length && !fieldEvts.length)
+    return `<div class="empty">No record-level PeopleCode programs on <span class="mono">${esc(d.recname||currentRec)}</span>.<br><span style="color:#445;font-size:10px">Record-level PC (OBJECTID=2) fires independent of component. Component-level PC is shown on the <a href="/admin/compflow" style="color:#00e5ff">Comp Event Flow</a> page.</span></div>`;
+
+  let html = `<div style="font-size:10px;color:#445;margin-bottom:10px">
+    ${rowEvts.length} row-level event${rowEvts.length===1?'':'s'} · ${fieldEvts.length} field-level event${fieldEvts.length===1?'':'s'}
+    <span style="color:#334;margin-left:8px">· OBJECTID1=2 — fires at record/field definition level, all components</span>
+  </div>`;
+
+  // Row-level events (no field name)
+  if (rowEvts.length) {
+    html += `<h2>Row-Level Events</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="color:#445;border-bottom:1px solid #0a2030">
+        <th style="text-align:left;padding:3px 6px">Event</th>
+        <th style="text-align:left;padding:3px 6px">Last Updated By</th>
+        <th style="text-align:left;padding:3px 6px">Modified</th>
+      </tr></thead><tbody>`;
+    rowEvts.forEach(e => {
+      const col = _RPC_EV_COLOR[e.event_type] || '#8ab';
+      const modBadge = e.modified ? `<span style="color:#ffaa00;font-size:10px">&#9998; ${esc(e.last_oprid)}</span>` : '';
+      html += `<tr style="border-bottom:1px solid #08101a">
+        <td style="padding:3px 6px;color:${col};font-weight:bold">${esc(e.event_type)}</td>
+        <td style="padding:3px 6px;color:#445;font-size:10px">${esc(e.last_oprid||'—')}</td>
+        <td style="padding:3px 6px">${modBadge}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+
+  // Field-level events — group by event type
+  if (fieldEvts.length) {
+    html += `<h2 style="margin-top:16px">Field-Level Events</h2>`;
+    const byEvt = {};
+    fieldEvts.forEach(e => { (byEvt[e.event_type]||(byEvt[e.event_type]=[])).push(e); });
+    const evtOrder = ['FieldChange','FieldEdit','FieldDefault','FieldFormula','SearchInit','SearchSave'];
+    const keys = [...new Set([...evtOrder.filter(k=>byEvt[k]), ...Object.keys(byEvt)])];
+    keys.forEach(evt => {
+      const entries = byEvt[evt];
+      const col = _RPC_EV_COLOR[evt] || '#8ab';
+      html += `<details open style="margin-bottom:10px">
+        <summary style="cursor:pointer;font-size:11px;color:${col};padding:3px 0;letter-spacing:.5px">
+          ${esc(evt)} <span style="color:#445;font-weight:normal">(${entries.length})</span>
+        </summary>
+        <table style="width:100%;border-collapse:collapse;margin-top:4px;font-size:11px">
+        <thead><tr style="color:#445;border-bottom:1px solid #0a2030">
+          <th style="text-align:left;padding:3px 6px">Field</th>
+          <th style="text-align:left;padding:3px 6px">Last Updated By</th>
+          <th style="text-align:left;padding:3px 6px">Modified</th>
+        </tr></thead><tbody>`;
+      entries.forEach(e => {
+        const modBadge = e.modified ? `<span style="color:#ffaa00;font-size:10px">&#9998; ${esc(e.last_oprid)}</span>` : '';
+        html += `<tr style="border-bottom:1px solid #08101a">
+          <td style="padding:3px 6px">
+            <a class="obj-link" href="/admin/field?field=${encodeURIComponent(e.field)}">${esc(e.field)}</a>
+          </td>
+          <td style="padding:3px 6px;color:#445;font-size:10px">${esc(e.last_oprid||'—')}</td>
+          <td style="padding:3px 6px">${modBadge}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></details>`;
+    });
+  }
+  return html;
 }
 
 function renderDDL(d) {

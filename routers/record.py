@@ -125,3 +125,15 @@ def record_storage(recname: str, env: str = Query("HCM")):
     """Return Oracle storage statistics from ALL_TABLES."""
     item, err = _safe(psdb.record_storage, env, recname)
     return {"item": item, "warnings": [{"message": err, "severity": "warning"}] if err else []}
+
+
+@router.get("/{recname}/peoplecode")
+def record_peoplecode(recname: str, env: str = Query("HCM")):
+    """Return all record-level PeopleCode programs (PSPCMPROG OBJECTID1=2).
+    These fire at the record/field definition level, independent of component.
+    """
+    result, err = _safe(psdb.record_peoplecode, env, recname, empty={})
+    if err:
+        return {"recname": recname, "row_events": [], "field_events": [], "total": 0,
+                "warnings": [{"message": err, "severity": "warning"}]}
+    return result or {}

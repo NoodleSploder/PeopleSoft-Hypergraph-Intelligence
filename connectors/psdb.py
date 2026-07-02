@@ -631,7 +631,7 @@ def field_cross_record_peoplecode(env_name, fieldname: str) -> dict:
 
     Returns:
       component_handlers: [{component, market, recname, event_type}] — OBJECTID1=10
-      record_handlers:    [{recname, event_type}]                    — OBJECTID1=2
+      record_handlers:    [{recname, event_type}]                    — OBJECTID1=1
     """
     from connectors import ptmetadata
     fn = fieldname.strip().upper()
@@ -670,14 +670,14 @@ def field_cross_record_peoplecode(env_name, fieldname: str) -> dict:
     except Exception as exc:
         result["component_handlers_error"] = str(exc)
 
-    # Record-level field events (OBJECTID1=2):
+    # Record-level field events (OBJECTID1=1):
     # OV1=recname, OV2=field, OV3=event
     try:
         rows = query(env_name, """
             SELECT OBJECTVALUE1 AS recname,
                    OBJECTVALUE3 AS event_type
               FROM SYSADM.PSPCMPROG
-             WHERE OBJECTID1 = 2
+             WHERE OBJECTID1 = 1
                AND UPPER(OBJECTVALUE2) = :fn
                AND OBJECTVALUE3 IS NOT NULL
                AND OBJECTVALUE3 != ' '
@@ -727,7 +727,7 @@ def field_peoplecode_metadata(env_name, field_ref):
                    LASTUPDDTTM, LASTUPDOPRID
               FROM sysadm.PSPCMPROG
              WHERE (
-                   (OBJECTID1 = 2
+                   (OBJECTID1 = 1
                     AND UPPER(OBJECTVALUE1) = :recname
                     AND UPPER(OBJECTVALUE2) = :fieldname)
                 OR (OBJECTID1 = 10
@@ -770,6 +770,59 @@ def record_keys(env_name, recname):
         order by indexid, keyposn
     """
     return query(env_name, sql, {"recname": recname.upper()})
+
+
+def record_peoplecode(env_name, recname: str) -> dict:
+    """Return all record-level PeopleCode programs for a record (PSPCMPROG OBJECTID1=1).
+
+    OBJECTID1=1 programs fire at the record/field definition level, independent of component.
+    Structure: OV1=RECNAME, OV2=FIELDNAME (blank for row-level events), OV3=EVENT_TYPE
+    """
+    from connectors import ptmetadata
+    rec = recname.strip().upper()
+    result: dict = {"recname": rec, "row_events": [], "field_events": []}
+
+    if not ptmetadata.has_table(env_name, "PSPCMPROG"):
+        result["warning"] = "PSPCMPROG not accessible"
+        return result
+
+    try:
+        rows = query(env_name, """
+            SELECT OBJECTVALUE2 AS fieldname,
+                   OBJECTVALUE3 AS event_type,
+                   LASTUPDOPRID, LASTUPDDTTM
+              FROM SYSADM.PSPCMPROG
+             WHERE OBJECTID1 = 1
+               AND UPPER(OBJECTVALUE1) = :rec
+             ORDER BY OBJECTVALUE3, OBJECTVALUE2
+             FETCH FIRST 1000 ROWS ONLY
+        """, {"rec": rec})
+    except Exception as exc:
+        result["error"] = str(exc)
+        return result
+
+    _SYS_OPRIDS = {"PPLSOFT", "PS", "SYSADM", "UPGUSER", ""}
+    row_events, field_events = [], []
+    for r in rows:
+        field = (r.get("fieldname") or "").strip()
+        evt   = (r.get("event_type") or "").strip()
+        oprid = (r.get("lastupdoprid") or "").strip().upper()
+        entry = {
+            "field":      field,
+            "event_type": evt,
+            "last_oprid": oprid,
+            "last_dttm":  _iso(r.get("lastupddttm")),
+            "modified":   oprid not in _SYS_OPRIDS,
+        }
+        if field:
+            field_events.append(entry)
+        else:
+            row_events.append(entry)
+
+    result["row_events"]   = row_events
+    result["field_events"] = field_events
+    result["total"]        = len(row_events) + len(field_events)
+    return result
 
 
 def record_ddl(env_name, recname):
