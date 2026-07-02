@@ -1989,13 +1989,30 @@ def drift(env="HCM", node_types=None, limit=500):
     return result
 
 
-def search(env="HCM", q="", limit=50):
+def search(env="HCM", q="", limit=50, node_types=None):
+    """Search knowledge graph nodes by free text with optional type filter.
+
+    Args:
+        env: Environment name (e.g. "HCM").
+        q: Search string (case-insensitive substring match across id/name/metadata).
+        limit: Maximum results (1–200).
+        node_types: Optional comma-separated list of node types to restrict the
+            search to, e.g. "component,record".  When omitted or empty, all types
+            are searched.
+    """
     graph = current(env)
     q = q.upper()
     limit = max(1, min(int(limit), 200))
-    rows = []
 
+    # Build an allow-set for type filtering (None = no filter)
+    allow_types = None
+    if node_types:
+        allow_types = {t.strip().lower() for t in str(node_types).split(",") if t.strip()}
+
+    rows = []
     for node in graph["nodes"].values():
+        if allow_types and node.get("type", "").lower() not in allow_types:
+            continue
         haystack = " ".join([
             node.get("id", ""),
             node.get("type", ""),

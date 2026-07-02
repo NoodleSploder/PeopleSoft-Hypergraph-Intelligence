@@ -166,6 +166,7 @@ DEFAULT_PAGES = [
     ("/admin/iboper",     "#q",          True, True,  []),
     # Pages added in admin package refactor (2026-07-01)
     ("/admin/infra",      "#hostMetrics",    True, True,  []),
+    ("/admin/topology",   "#topoSvg",        False, True,  []),
     ("/admin/tracing",    "#envSel",         True, True,  []),
     ("/admin/conqrs",     "#cqSearch",       True, True,  []),
     # Pages using _nav_html() directly — env shown as label, no ds-env-sel select

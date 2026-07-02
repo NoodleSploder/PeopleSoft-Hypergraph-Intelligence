@@ -2894,6 +2894,12 @@ def admin_graphdb():
 </style>
     <div class="card">
         <button onclick="buildGraph()">Rebuild Graph</button>
+        <select id="buildLimit" title="Object limit per provider">
+            <option value="50">limit: 50</option>
+            <option value="250">limit: 250 (batch)</option>
+            <option value="1000">limit: 1000 (batch)</option>
+            <option value="2000">limit: 2000 (batch, full)</option>
+        </select>
         <button onclick="clearGraph()">Clear Graph</button>
         <button onclick="compactGraph()">Compact</button>
         <button onclick="loadStats()">Refresh</button>
@@ -2944,8 +2950,16 @@ def admin_graphdb():
 
         <div class="card">
             <h2>Graph Search</h2>
-            <input id="searchText" placeholder="Search graph nodes">
-            <button onclick="searchGraph()">Search</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+                <input id="searchText" placeholder="Search graph nodes" style="min-width:180px">
+                <input id="searchTypeFilter" placeholder="type filter (e.g. component,record)" style="min-width:220px" title="Comma-separated node types to restrict search">
+                <select id="searchLimit" title="Max results">
+                    <option value="50">50 results</option>
+                    <option value="100">100 results</option>
+                    <option value="200">200 results</option>
+                </select>
+                <button onclick="searchGraph()">Search</button>
+            </div>
             <div id="searchResults" class="muted">No search run.</div>
         </div>
 
@@ -3040,10 +3054,11 @@ async function loadStats() {
 }
 
 async function buildGraph() {
-    setStatus('Building graph...');
-    const data = await api(`/api/graph/build?env=${ENV}&limit=50&persist=true`);
+    const limit = document.getElementById('buildLimit').value || '50';
+    setStatus(`Building graph (limit=${limit})…`);
+    const data = await api(`/api/graph/build?env=${ENV}&limit=${limit}&persist=true`);
     renderStats(data);
-    setStatus('Graph build complete.');
+    setStatus(`Graph build complete (limit=${limit}).`);
 }
 
 async function clearGraph() {
@@ -3151,6 +3166,8 @@ function exportGraph() {
 
 async function searchGraph() {
     const q = document.getElementById('searchText').value.trim();
+    const typeFilter = document.getElementById('searchTypeFilter').value.trim();
+    const limit = document.getElementById('searchLimit').value || '50';
     const target = document.getElementById('searchResults');
 
     if (!q) {
@@ -3159,13 +3176,17 @@ async function searchGraph() {
         return;
     }
 
-    const rows = await api(`/api/graph/search?env=${ENV}&q=${encodeURIComponent(q)}`);
+    const params = new URLSearchParams({env: ENV, q, limit});
+    if (typeFilter) params.set('node_types', typeFilter);
+    const rows = await api(`/api/graph/search?${params}`);
     target.innerHTML = '';
     target.className = '';
 
     if (!rows.length) {
         target.className = 'muted';
-        target.textContent = 'No graph nodes found.';
+        target.textContent = typeFilter
+            ? `No graph nodes found matching '${q}' in types: ${typeFilter}.`
+            : 'No graph nodes found.';
         return;
     }
 

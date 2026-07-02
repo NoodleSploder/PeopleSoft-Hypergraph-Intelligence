@@ -3057,3 +3057,278 @@ async function loadPromos(){{
 
 loadPromos();
 </script>""")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Infrastructure Topology
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/topology", response_class=HTMLResponse)
+def admin_topology():
+    return _shell("Infrastructure Topology", "topology", env=False, content=r"""
+<style>
+*{box-sizing:border-box}
+.ds-page-header{margin-bottom:16px}
+.ds-page-title{font-size:20px;font-weight:700;color:#00e5ff;letter-spacing:2px}
+.ds-page-subtitle{font-size:12px;color:#7faab2;margin-top:4px}
+.card{border:1px solid #00e5ff44;background:rgba(0,20,30,.75);padding:16px;margin-bottom:16px}
+button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+button:hover{background:#33eeff}
+#topoSvg{width:100%;min-height:520px;background:#030d14;display:block;border:1px solid #1e3040}
+#legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:11px}
+.legend-item{display:flex;align-items:center;gap:5px;color:#8ab}
+.legend-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+#statusMsg{font-size:11px;color:#7faab2;margin-top:6px}
+.info-panel{font-size:11px;color:#cdd6f4;margin-top:10px;padding:8px;background:#0a1820;border:1px solid #1e3040;min-height:36px}
+</style>
+
+<div class="ds-page-header">
+  <div class="ds-page-title">Infrastructure Topology</div>
+  <div class="ds-page-subtitle">Live PeopleSoft infrastructure flow with status indicators. Click a node to see details.</div>
+</div>
+
+<div class="card">
+  <button onclick="loadTopo()">Refresh</button>
+  <span id="statusMsg">Loading topology&hellip;</span>
+</div>
+
+<div class="card" style="padding:12px">
+  <svg id="topoSvg" viewBox="0 0 1100 520"></svg>
+  <div id="legend"></div>
+  <div id="infoPanel" class="info-panel muted">Click a node for details.</div>
+</div>
+
+<script>
+const ESC = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+// ── colour scheme ──────────────────────────────────────────────────────────
+const KIND_COLORS = {
+  client:    '#89dceb',
+  proxy:     '#fab387',
+  weblogic:  '#89b4fa',
+  appserver: '#a6e3a1',
+  prcs:      '#f38ba8',
+  ib:        '#cba6f7',
+  database:  '#f9e2af',
+  search:    '#94e2d5',
+  system:    '#cdd6f4',
+};
+function kindColor(k){ return KIND_COLORS[k]||'#6c7086'; }
+const STATUS_COLOR = { ONLINE:'#a6e3a1', OFFLINE:'#f38ba8', UNKNOWN:'#f9e2af' };
+function statusColor(s){ return STATUS_COLOR[s]||'#6c7086'; }
+
+// ── fixed layout ───────────────────────────────────────────────────────────
+// Column x positions (pixels in viewBox 1100×520)
+const COL = { browser:60, nginx:200, web:360, app:520, middle:680, data:900 };
+const ROW = { hcm_top:100, hcm_bot:220, shared_top:130, shared_bot:290, fscm_top:330, fscm_bot:450 };
+
+const NODE_POS = {
+  browser:   [COL.browser, 300],
+  nginx:     [COL.nginx,   300],
+  hcm_web:   [COL.web,     ROW.hcm_top],
+  hcm_app:   [COL.app,     ROW.hcm_top],
+  hcm_prcs:  [COL.middle,  ROW.hcm_top],
+  hcm_ib:    [COL.middle,  ROW.hcm_bot],
+  fscm_web:  [COL.web,     ROW.fscm_top],
+  fscm_app:  [COL.app,     ROW.fscm_top],
+  fscm_prcs: [COL.middle,  ROW.fscm_top + 120],
+  fscm_ib:   [COL.middle,  ROW.fscm_bot],
+  oracle:    [COL.data,    220],
+  opensearch:[COL.data,    380],
+};
+const NODE_W = 110, NODE_H = 40, NODE_R = 6;
+
+// ── state ──────────────────────────────────────────────────────────────────
+let _nodes = [], _links = [], _posMap = {};
+
+function drawTopo() {
+  const svg = document.getElementById('topoSvg');
+  const ns = 'http://www.w3.org/2000/svg';
+  svg.innerHTML = '';
+
+  // Build position index
+  _posMap = {};
+  _nodes.forEach(n => {
+    const p = NODE_POS[n.id];
+    if (p) _posMap[n.id] = {x: p[0], y: p[1]};
+  });
+
+  // ── Draw links ───────────────────────────────────────────────────────────
+  for (const lk of _links) {
+    const s = _posMap[lk.from], t = _posMap[lk.to];
+    if (!s || !t) continue;
+    const sx = s.x + NODE_W/2, sy = s.y + NODE_H/2;
+    const tx = t.x,            ty = t.y + NODE_H/2;
+
+    const line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', sx); line.setAttribute('y1', sy);
+    line.setAttribute('x2', tx); line.setAttribute('y2', ty);
+    line.setAttribute('stroke', '#1e3040');
+    line.setAttribute('stroke-width', '1.5');
+    line.setAttribute('marker-end', 'url(#arrow)');
+    svg.appendChild(line);
+
+    if (lk.label) {
+      const mx = (sx + tx) / 2, my = (sy + ty) / 2 - 5;
+      const lt = document.createElementNS(ns, 'text');
+      lt.setAttribute('x', mx); lt.setAttribute('y', my);
+      lt.setAttribute('fill', '#2a4050');
+      lt.setAttribute('font-size', '8');
+      lt.setAttribute('text-anchor', 'middle');
+      lt.textContent = lk.label;
+      svg.appendChild(lt);
+    }
+  }
+
+  // ── Arrowhead marker ────────────────────────────────────────────────────
+  const defs = document.createElementNS(ns, 'defs');
+  const marker = document.createElementNS(ns, 'marker');
+  marker.setAttribute('id', 'arrow');
+  marker.setAttribute('viewBox', '0 0 6 6');
+  marker.setAttribute('refX', '5'); marker.setAttribute('refY', '3');
+  marker.setAttribute('markerWidth', '5'); marker.setAttribute('markerHeight', '5');
+  marker.setAttribute('orient', 'auto');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', 'M 0 0 L 6 3 L 0 6 z');
+  path.setAttribute('fill', '#1e3040');
+  marker.appendChild(path);
+  defs.appendChild(marker);
+  svg.insertBefore(defs, svg.firstChild);
+
+  // ── Draw nodes ───────────────────────────────────────────────────────────
+  for (const n of _nodes) {
+    const p = _posMap[n.id];
+    if (!p) continue;
+    const g = document.createElementNS(ns, 'g');
+    g.style.cursor = 'pointer';
+    g.onclick = () => showDetail(n);
+
+    const col = kindColor(n.kind);
+    const sCol = statusColor(n.status);
+
+    // Box
+    const rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', p.x); rect.setAttribute('y', p.y);
+    rect.setAttribute('width', NODE_W); rect.setAttribute('height', NODE_H);
+    rect.setAttribute('rx', NODE_R); rect.setAttribute('ry', NODE_R);
+    rect.setAttribute('fill', '#060f18');
+    rect.setAttribute('stroke', col);
+    rect.setAttribute('stroke-width', '1.5');
+    g.appendChild(rect);
+
+    // Status bar (left edge color strip)
+    const bar = document.createElementNS(ns, 'rect');
+    bar.setAttribute('x', p.x); bar.setAttribute('y', p.y);
+    bar.setAttribute('width', '4'); bar.setAttribute('height', NODE_H);
+    bar.setAttribute('rx', NODE_R); bar.setAttribute('ry', NODE_R);
+    bar.setAttribute('fill', sCol);
+    g.appendChild(bar);
+
+    // Status dot (top right)
+    const dot = document.createElementNS(ns, 'circle');
+    dot.setAttribute('cx', p.x + NODE_W - 8); dot.setAttribute('cy', p.y + 8);
+    dot.setAttribute('r', '4');
+    dot.setAttribute('fill', sCol);
+    g.appendChild(dot);
+
+    // Label
+    const lbl = document.createElementNS(ns, 'text');
+    lbl.setAttribute('x', p.x + NODE_W / 2);
+    lbl.setAttribute('y', p.y + NODE_H / 2 - 4);
+    lbl.setAttribute('fill', col);
+    lbl.setAttribute('font-size', '9');
+    lbl.setAttribute('font-weight', 'bold');
+    lbl.setAttribute('text-anchor', 'middle');
+    const labelText = n.label.length > 14 ? n.label.slice(0, 13) + '…' : n.label;
+    lbl.textContent = labelText;
+    g.appendChild(lbl);
+
+    // Target/address
+    const sub = document.createElementNS(ns, 'text');
+    sub.setAttribute('x', p.x + NODE_W / 2);
+    sub.setAttribute('y', p.y + NODE_H / 2 + 8);
+    sub.setAttribute('fill', '#445566');
+    sub.setAttribute('font-size', '7');
+    sub.setAttribute('text-anchor', 'middle');
+    const targetText = (n.target || '').length > 18 ? (n.target || '').slice(0, 17) + '…' : (n.target || '');
+    sub.textContent = targetText;
+    g.appendChild(sub);
+
+    // Hover highlight
+    g.addEventListener('mouseenter', () => rect.setAttribute('stroke-width', '2.5'));
+    g.addEventListener('mouseleave', () => rect.setAttribute('stroke-width', '1.5'));
+
+    svg.appendChild(g);
+  }
+
+  // ── Group labels ─────────────────────────────────────────────────────────
+  for (const [label, x, y, color] of [
+    ['HCM', 335, 30, '#89b4fa'],
+    ['FSCM', 335, 310, '#89dceb'],
+    ['SHARED', 850, 160, '#f9e2af'],
+  ]) {
+    const t = document.createElementNS(ns, 'text');
+    t.setAttribute('x', x); t.setAttribute('y', y);
+    t.setAttribute('fill', color);
+    t.setAttribute('font-size', '10');
+    t.setAttribute('font-weight', 'bold');
+    t.setAttribute('letter-spacing', '2');
+    t.setAttribute('opacity', '0.5');
+    t.textContent = '── ' + label;
+    svg.appendChild(t);
+  }
+
+  // ── Legend ───────────────────────────────────────────────────────────────
+  const legend = document.getElementById('legend');
+  legend.innerHTML = '';
+  const kinds = [...new Set(_nodes.map(n => n.kind))].sort();
+  for (const k of kinds) {
+    const div = document.createElement('div');
+    div.className = 'legend-item';
+    div.innerHTML = `<span class="legend-dot" style="background:${ESC(kindColor(k))};border:1px solid ${ESC(kindColor(k))}44"></span> ${ESC(k)}`;
+    legend.appendChild(div);
+  }
+  // Status legend
+  for (const [s, col] of [['ONLINE','#a6e3a1'],['OFFLINE','#f38ba8'],['UNKNOWN','#f9e2af']]) {
+    const div = document.createElement('div');
+    div.className = 'legend-item';
+    div.innerHTML = `<span class="legend-dot" style="background:${col}"></span> ${s}`;
+    legend.appendChild(div);
+  }
+}
+
+function showDetail(n) {
+  const panel = document.getElementById('infoPanel');
+  const col = kindColor(n.kind);
+  const sCol = statusColor(n.status);
+  panel.innerHTML =
+    `<b style="color:${ESC(col)}">[${ESC(n.kind)}]</b> `+
+    `<b style="color:#d7faff">${ESC(n.label)}</b> `+
+    `<span style="color:${ESC(sCol)};font-weight:bold;font-size:10px;background:#0a1820;`+
+    `border:1px solid ${ESC(sCol)}44;padding:1px 6px;border-radius:2px">${ESC(n.status)}</span>`+
+    (n.target ? `<br><span style="color:#445566">target:</span> <code style="color:#8ab">${ESC(n.target)}</code>` : '')+
+    (n.meta   ? `<br><span style="color:#445566">meta:</span> <code style="color:#8ab">${ESC(n.meta)}</code>` : '');
+}
+
+async function loadTopo() {
+  const msg = document.getElementById('statusMsg');
+  msg.textContent = 'Loading\u2026';
+  try {
+    const d = await fetch('/api/topology').then(r => r.json());
+    _nodes = d.nodes || [];
+    _links = d.links || [];
+    drawTopo();
+    const online = _nodes.filter(n => n.status === 'ONLINE').length;
+    const offline = _nodes.filter(n => n.status === 'OFFLINE').length;
+    const gen = d.generated_at ? d.generated_at.replace('T',' ').slice(0,16) : '';
+    msg.innerHTML = `${_nodes.length} nodes &mdash; <span style="color:#a6e3a1">${online} online</span>`+
+      (offline ? ` / <span style="color:#f38ba8">${offline} offline</span>` : '')+
+      (gen ? ` &mdash; <span style="color:#4a5568">${ESC(gen)}</span>` : '');
+  } catch(e) {
+    msg.textContent = 'Topology unavailable: ' + e.message;
+  }
+}
+
+window.addEventListener('load', loadTopo);
+</script>""")
+

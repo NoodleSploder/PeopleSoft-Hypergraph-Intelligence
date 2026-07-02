@@ -108,11 +108,11 @@ def graph_drift(env: str = "HCM", node_types: str = "", limit: int = 500):
 
 
 @router.get("/search")
-def graph_search(env: str = "HCM", q: str = "", limit: int = 50):
+def graph_search(env: str = "HCM", q: str = "", limit: int = 50, node_types: str = ""):
     if not q.strip():
         return []
 
-    return graphdb.search(env, q, limit)
+    return graphdb.search(env, q, limit, node_types=node_types or None)
 
 
 @router.get("/export")

@@ -14,6 +14,7 @@ _NAV_GROUPS = [
     ("Runtime", [
         ("runtime",    "Runtime",       "/admin/runtime"),
         ("infra",      "Infra",         "/admin/infra"),
+        ("topology",   "Topology",      "/admin/topology"),
         ("tracing",    "Tracing",       "/admin/tracing"),
         ("envcompare", "Env Compare",   "/admin/envcompare"),
         ("drift",       "Drift History",  "/admin/drift"),
