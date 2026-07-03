@@ -6,6 +6,41 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — ROADMAP.md Cleanup
+
+### Docs-only: cut ROADMAP.md from 1738 → 360 lines
+
+The user asked to clean up and organize `ROADMAP.md`. It had drifted well
+past its own stated purpose ("current status and remaining work only" —
+see this diary's own header) into a chronological changelog: many phases
+had 3-5 near-duplicate "✅ Completed (2026-07-0X)" blocks repeating full
+implementation narrative that already lives in this diary in complete
+detail, and the file ended with an entire ~200-line "# Current Focus"
+section that was a word-for-word duplicate summary of content already
+stated earlier in the same document's phase-by-phase sections.
+
+Rewrote the whole file: one "Status" line per phase (Complete /
+Substantially complete / v1 complete / etc.), a concise bullet list of
+what shipped (no verification numbers, no bug narratives — those stay
+here in the diary), and a "Remaining" section listing only genuinely open
+work with the real reason it's open (blocked-on-data, blocked-on-
+environment, not-yet-prioritized). Deleted the entire duplicate "Current
+Focus" tail section outright — everything in it was already stated
+earlier in the document.
+
+Nothing was lost: every phase's actual status and remaining-work items
+were checked against the diary and this session's own memory before being
+condensed, not just deleted for brevity. Config-shape JSON examples (AI
+provider config, log source config, Windows Process Scheduler transport
+types) were trimmed since they duplicate `config.json`'s own real entries
+and the corresponding connector code — those are the actual source of
+truth for shape, not prose in a roadmap file.
+
+No code touched — `make check` unaffected (91/91), confirmed the repo
+still builds clean after a docs-only change.
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — Full UOM/KG Alignment Audit Complete — 69/69
 
 ### Second audit pass: all 54 provider types now covered
