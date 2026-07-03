@@ -207,6 +207,7 @@ DEFAULT_PAGES = [
     ("/admin/access",     ".ap-toolbar",     False, True,  []),
     ("/admin/cobol",      ".cbl-toolbar",    False, True,  []),
     ("/admin/cobolcompare", ".cmp-toolbar",  False, True,  []),
+    ("/admin/cobol/analytics", ".an-grid",   False, True,  []),
     ("/admin/riskanalysis",".ds-page-title", False, True,  []),
     ("/admin/compflow",   ".ds-page-title",  False, True,  []),
     ("/admin/plugin/hello", "table",         False, True,  []),

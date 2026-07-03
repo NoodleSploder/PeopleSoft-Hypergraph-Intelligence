@@ -307,10 +307,32 @@ comparison.
   `sysrtdfn.sqc` (SQR) — it correctly invoked the new/updated tools and produced
   accurate plain-English explanations matching the real source.
 
+### Analytics Dashboards — ✅ Complete
+- SQR already had `/admin/sqr/analytics` (top tables, most-complex programs, most-
+  included SQCs, release breakdown) — pre-existing, no change.
+- Added the COBOL equivalent: `connectors/cobol_db.py`'s `analytics()` (top tables,
+  most-complex programs by table count, most-COPYd copybooks, delivered/custom
+  breakdown), `GET /api/cobol/analytics`, and `/admin/cobol/analytics` (linked from
+  the COBOL Explorer toolbar). Also added `/admin/cobol/table/{table_name}` (COBOL
+  had `/api/cobol/table/{table_name}` already, but no admin page for it — SQR's
+  equivalent page existed, COBOL's didn't).
+- **Real finding, not a bug**: `top_tables` is empty for COBOL — `cobol_tables` has
+  0 rows in this environment (verified: `SELECT COUNT(*) FROM cobol_tables` → 0),
+  while `cobol_copies` (806 rows) and `cobol_calls` (328 rows) are populated. The
+  page renders this honestly (empty table section) rather than erroring.
+- **Bug found and fixed while adding this**: registering `/cobol/table/{table_name}`
+  and `/cobol/analytics` *after* the existing `/cobol/{filename}` catch-all route
+  caused FastAPI to match `/admin/cobol/analytics` against `/cobol/{filename}`
+  (filename="analytics") first, since routes match in registration order — the new
+  analytics page silently served the wrong content. Fixed by moving both new routes
+  before the catch-all. Also fixed a small pre-existing bug copied from the SQR
+  analytics page pattern: an undefined `$()` DOM helper (SQR's `/admin/sqr/table/
+  {table_name}` page has the same latent bug, out of scope to fix here since it
+  predates this work and isn't part of what broke).
+
 ### Remaining
-- Broader diff modes (syntax-aware, ignore whitespace/comments) and analytics
-  dashboards (complexity/hotspot metrics) are still "Planned" — no concrete blocker,
-  just not prioritized yet.
+- Broader diff modes (syntax-aware, ignore whitespace/comments) are still "Planned"
+  — no concrete blocker, just not prioritized yet.
 - Runtime correlation (tie Process Scheduler executions back to SQR/COBOL source) is
   Planned; no work started.
 

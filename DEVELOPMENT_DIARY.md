@@ -6036,3 +6036,47 @@ real OpenAI-backed assistant at `/admin/assistant`:
 
 Verification: `make check` 100/100 files + 11/11 tests; smoke test 71/71
 (unchanged — no new admin pages, this is an AI-tool-only change).
+
+---
+
+### COBOL Analytics Dashboard (pending commit)
+
+Added the COBOL equivalent of the existing `/admin/sqr/analytics` dashboard:
+`cobol_db.analytics()` (top tables by reference count, most-complex programs
+by table count, most-COPYd copybooks, delivered/custom breakdown), `GET
+/api/cobol/analytics`, and `/admin/cobol/analytics` — plus
+`/admin/cobol/table/{table_name}` (the API endpoint already existed, SQR had
+an admin page for its equivalent, COBOL didn't).
+
+**Real finding, not a bug**: `top_tables` renders empty for COBOL because
+`cobol_tables` genuinely has 0 rows in this environment (verified directly:
+`SELECT COUNT(*) FROM cobol_tables` → 0), while `cobol_copies` (806 rows) and
+`cobol_calls` (328 rows) are populated and show real data. The page handles
+this gracefully rather than erroring — consistent with how this codebase
+treats other honestly-empty categories.
+
+**Bug found and fixed**: registered the two new routes
+(`/cobol/table/{table_name}`, `/cobol/analytics`) *after* the existing
+`/cobol/{filename}` catch-all in the file. FastAPI matches routes in
+registration order, so `GET /admin/cobol/analytics` matched
+`/cobol/{filename}` with `filename="analytics"` first — the smoke test
+caught this immediately (`FAIL /admin/cobol/analytics — missing marker
+selector '.an-grid'`, `Uncaught: SyntaxError: Unexpected token '!'`, the
+latter being a leftover console error from the wrong page's own JS). Fixed
+by moving both new route functions before the catch-all in the file.
+Confirmed via live curl that all three routes (`/cobol/analytics`,
+`/cobol/table/{table}`, `/cobol/{filename}`) now serve their correct,
+distinct content.
+
+While mirroring the SQR analytics page's JS, also noticed (and fixed only in
+the new COBOL code, out of scope to touch the SQR original) that the pattern
+being copied has a latent bug: it references a `$()` DOM-lookup helper that
+is never defined anywhere in that file or the shared `_ESC_JS` snippet — SQR's
+`/admin/sqr/table/{table_name}` page has this same undefined-`$` bug today,
+apparently never triggering because table-detail pages aren't in the smoke
+test's page list. Added `const $ = id => document.getElementById(id);`
+explicitly in the new COBOL pages rather than perpetuate the bug.
+
+Verification: live curl on all three affected routes confirms correct/distinct
+content; `python3 scripts/smoke_admin_shell.py` → 72/72 (was 71/71); `make check`
+→ 100/100 files, 11/11 tests.

@@ -165,7 +165,10 @@ def stats() -> dict:
         "SELECT COUNT(*) AS total, "
         "SUM(CASE WHEN file_type='program' THEN 1 ELSE 0 END) AS programs, "
         "SUM(CASE WHEN file_type='copybook' THEN 1 ELSE 0 END) AS copybooks, "
-        "SUM(compiled) AS compiled "
+        "SUM(compiled) AS compiled, "
+        "SUM(table_count) AS total_table_refs, "
+        "SUM(copy_count) AS total_copies, "
+        "SUM(call_count) AS total_calls "
         "FROM cobol_programs"
     ).fetchone()
     distinct_tables = c.execute("SELECT COUNT(DISTINCT table_name) FROM cobol_tables").fetchone()[0]
@@ -176,8 +179,66 @@ def stats() -> dict:
         "programs":          row["programs"] or 0,
         "copybooks":         row["copybooks"] or 0,
         "compiled":          row["compiled"] or 0,
+        "total_table_refs":  row["total_table_refs"] or 0,
+        "total_copies":      row["total_copies"] or 0,
+        "total_calls":       row["total_calls"] or 0,
         "distinct_ps_tables": distinct_tables or 0,
         "last_indexed":      last_indexed,
+    }
+
+
+def analytics() -> dict:
+    """Return analytics data for the COBOL library (mirrors sqrdb.analytics())."""
+    c = _conn()
+
+    top_tables = c.execute("""
+        SELECT t.table_name,
+               COUNT(DISTINCT t.program_id) AS program_count,
+               SUM(CASE WHEN p.file_type='program' THEN 1 ELSE 0 END) AS program_type_count,
+               GROUP_CONCAT(DISTINCT
+                 REPLACE(REPLACE(REPLACE(t.operations,'SELECT','S'),'UPDATE','U'),
+                   'INSERT','I')
+               ) AS ops_summary
+          FROM cobol_tables t
+          JOIN cobol_programs p ON p.id = t.program_id
+         GROUP BY t.table_name
+         ORDER BY program_count DESC
+         LIMIT 30
+    """).fetchall()
+
+    top_programs = c.execute("""
+        SELECT filename, member_name, file_type, description,
+               table_count, copy_count, call_count
+          FROM cobol_programs
+         WHERE file_type = 'program'
+         ORDER BY table_count DESC
+         LIMIT 20
+    """).fetchall()
+
+    top_copies = c.execute("""
+        SELECT copy_name, COUNT(DISTINCT program_id) AS user_count
+          FROM cobol_copies
+         GROUP BY copy_name
+         ORDER BY user_count DESC
+         LIMIT 20
+    """).fetchall()
+
+    type_breakdown = c.execute("""
+        SELECT source_type AS typ,
+               COUNT(*) AS cnt,
+               SUM(CASE WHEN file_type='program' THEN 1 ELSE 0 END) AS program_cnt,
+               SUM(CASE WHEN file_type='copybook' THEN 1 ELSE 0 END) AS copybook_cnt
+          FROM cobol_programs
+         GROUP BY source_type
+         ORDER BY cnt DESC
+    """).fetchall()
+
+    c.close()
+    return {
+        "top_tables":      [dict(r) for r in top_tables],
+        "top_programs":    [dict(r) for r in top_programs],
+        "top_copies":      [dict(r) for r in top_copies],
+        "type_breakdown":  [dict(r) for r in type_breakdown],
     }
 
 

@@ -71,6 +71,7 @@ def cobol_index():
   </select>
   <button class="cbl-btn" onclick="doSearch(1)">Search</button>
   <button class="cbl-btn green" id="ingestBtn" onclick="triggerIngest()">Re-index</button>
+  <a class="cbl-btn" href="/admin/cobol/analytics" style="text-decoration:none;padding:5px 14px">Analytics</a>
 </div>
 
 <div id="resultsArea">
@@ -220,6 +221,210 @@ doSearch(1);
 </script>
 """
     return HTMLResponse(_shell("COBOL Explorer", "cobol", content))
+
+
+@router.get("/cobol/table/{table_name}", response_class=HTMLResponse)
+def cobol_table_detail(table_name: str):
+    tbl_upper = table_name.upper()
+    content = f"""
+<style>
+.cbl-tbl{{width:100%;border-collapse:collapse;font-size:12px}}
+.cbl-tbl th{{text-align:left;padding:6px 10px;border-bottom:1px solid #1a3a4a;
+  color:#7faab2;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:.5px}}
+.cbl-tbl td{{padding:5px 10px;border-bottom:1px solid #0e2030}}
+.cbl-tbl tr:hover td{{background:#0a1f2e}}
+.cbl-tbl a{{color:#00e5ff;text-decoration:none}}
+.cbl-tbl a:hover{{text-decoration:underline}}
+.op-badge{{display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;
+  font-weight:700;margin:1px;vertical-align:middle}}
+.op-SELECT{{background:#0af2;color:#0af}}
+.op-UPDATE{{background:#fa02;color:#fa0}}
+.op-INSERT{{background:#0f92;color:#0f9}}
+.op-DELETE{{background:#f552;color:#f55}}
+</style>
+
+<a href="/admin/cobol" style="color:#7faab2;font-size:12px;text-decoration:none;
+  margin-bottom:14px;display:inline-block">← COBOL Explorer</a>
+<h2 style="margin:8px 0 16px;color:#d7faff;font-size:16px">
+  PS_ Table: <span style="color:#00e5ff">{tbl_upper}</span>
+</h2>
+<div id="tableContent"><div style="color:#7faab2;padding:24px">Loading…</div></div>
+
+<script>
+""" + _ESC_JS + """
+const $ = id => document.getElementById(id);
+async function load() {
+  const r = await fetch('/api/cobol/table/' + encodeURIComponent(""" + f'"{tbl_upper}"' + """));
+  const d = await r.json();
+  const progs = d.programs || [];
+  if (!progs.length) {
+    $('tableContent').innerHTML = '<div style="color:#7faab2;padding:24px">No COBOL programs reference this table.</div>';
+    return;
+  }
+  let html = `<p style="color:#7faab2;font-size:12px;margin-bottom:12px">${progs.length} program(s) reference this table</p>
+  <table class="cbl-tbl"><thead><tr>
+    <th>Filename</th><th>Type</th><th>Description</th><th>Operations</th>
+  </tr></thead><tbody>`;
+  for (const p of progs) {
+    const ops = (p.operations||'').split(',').filter(Boolean).map(o =>
+      `<span class="op-badge op-${esc(o)}">${esc(o)}</span>`).join('');
+    const ftBadge = p.file_type === 'program'
+      ? '<span style="color:#0f9;font-size:10px;font-weight:700">PROG</span>'
+      : '<span style="color:#fa0;font-size:10px;font-weight:700">COPY</span>';
+    html += `<tr>
+      <td><a href="/admin/cobol/${esc(p.filename)}">${esc(p.filename)}</a></td>
+      <td>${ftBadge}</td>
+      <td style="color:#aac">${esc(p.description||'—')}</td>
+      <td>${ops}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  $('tableContent').innerHTML = html;
+}
+load();
+</script>
+"""
+    return HTMLResponse(_shell(f"COBOL — {tbl_upper}", "cobol", content))
+
+
+@router.get("/cobol/analytics", response_class=HTMLResponse)
+def cobol_analytics_page():
+    content = """
+<style>
+.an-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+@media(max-width:900px){.an-grid{grid-template-columns:1fr}}
+.an-card{background:#0a1520;border:1px solid #1a3a4a;border-radius:8px;padding:16px}
+.an-card h3{margin:0 0 12px;color:#00e5ff;font-size:13px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.5px}
+.an-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.an-tbl th{text-align:left;padding:4px 8px;border-bottom:1px solid #1a3a4a;
+  color:#7faab2;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.an-tbl td{padding:4px 8px;border-bottom:1px solid #0e2030}
+.an-tbl tr:hover td{background:#0a1f2e}
+.an-tbl a{color:#00e5ff;text-decoration:none}
+.an-tbl a:hover{text-decoration:underline}
+.bar-wrap{width:100%;background:#0e2030;border-radius:2px;height:6px;margin-top:2px}
+.bar-fill{height:6px;border-radius:2px;background:#00e5ff}
+.stat-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.stat-box{background:#0a1520;border:1px solid #1a3a4a;border-radius:6px;padding:8px 16px;min-width:110px}
+.stat-val{font-size:22px;font-weight:700;color:#00e5ff}
+.stat-lbl{font-size:10px;color:#7faab2;text-transform:uppercase;letter-spacing:.5px}
+</style>
+
+<a href="/admin/cobol" style="color:#7faab2;font-size:12px;text-decoration:none;margin-bottom:14px;display:inline-block">← COBOL Explorer</a>
+<div class="stat-row" id="statRow">
+  <div class="stat-box"><div class="stat-val" id="sTot">—</div><div class="stat-lbl">Files</div></div>
+  <div class="stat-box"><div class="stat-val" id="sTbl">—</div><div class="stat-lbl">PS_ Tables</div></div>
+  <div class="stat-box"><div class="stat-val" id="sRef">—</div><div class="stat-lbl">Table Refs</div></div>
+  <div class="stat-box"><div class="stat-val" id="sCopy">—</div><div class="stat-lbl">COPY Refs</div></div>
+</div>
+
+<div id="analyticsContent"><div style="color:#7faab2;padding:24px">Loading analytics…</div></div>
+
+<script>
+""" + _ESC_JS + """
+const $ = id => document.getElementById(id);
+async function load() {
+  const [statsRes, anRes] = await Promise.all([
+    fetch('/api/cobol/stats'),
+    fetch('/api/cobol/analytics'),
+  ]);
+  const stats = await statsRes.json();
+  const an = await anRes.json();
+
+  $('sTot').textContent = stats.total ?? '—';
+  $('sTbl').textContent = stats.distinct_ps_tables ?? '—';
+  $('sRef').textContent = stats.total_table_refs ?? '—';
+  $('sCopy').textContent = stats.total_copies ?? '—';
+
+  renderAnalytics(an);
+}
+
+function barPct(val, max) {
+  const pct = max > 0 ? Math.round(val / max * 100) : 0;
+  return `<div class="bar-wrap"><div class="bar-fill" style="width:${pct}%"></div></div>`;
+}
+
+function renderAnalytics(an) {
+  const topTbls = an.top_tables || [];
+  const topProgs = an.top_programs || [];
+  const topCopies = an.top_copies || [];
+  const typeBreak = an.type_breakdown || [];
+
+  const maxTbl = topTbls.length ? topTbls[0].program_count : 1;
+  const maxProg = topProgs.length ? topProgs[0].table_count : 1;
+  const maxCopy = topCopies.length ? topCopies[0].user_count : 1;
+
+  let tblRows = topTbls.map(t => `<tr>
+    <td><a href="/admin/cobol/table/${esc(t.table_name)}">${esc(t.table_name)}</a></td>
+    <td style="text-align:right;color:#0af">${t.program_count}</td>
+    <td style="text-align:right;color:#fa0">${t.program_type_count}</td>
+    <td style="width:80px">${barPct(t.program_count, maxTbl)}</td>
+  </tr>`).join('');
+
+  let progRows = topProgs.map(p => `<tr>
+    <td><a href="/admin/cobol/${esc(p.filename)}">${esc(p.filename)}</a></td>
+    <td style="color:#7faab2;font-size:11px;max-width:180px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(p.description||'—')}</td>
+    <td style="text-align:right;color:#0af">${p.table_count}</td>
+    <td style="text-align:right;color:#fa0">${p.copy_count}</td>
+    <td style="text-align:right;color:#7faab2">${p.call_count}</td>
+    <td style="width:60px">${barPct(p.table_count, maxProg)}</td>
+  </tr>`).join('');
+
+  let copyRows = topCopies.map(c => `<tr>
+    <td style="font-family:monospace">${esc(c.copy_name)}</td>
+    <td style="text-align:right;color:#0af">${c.user_count}</td>
+    <td style="width:80px">${barPct(c.user_count, maxCopy)}</td>
+  </tr>`).join('');
+
+  const totalFiles = typeBreak.reduce((s,r) => s + r.cnt, 0) || 1;
+  let typeRows = typeBreak.map(r => `<tr>
+    <td style="color:#d7faff">${esc(r.typ||'—')}</td>
+    <td style="text-align:right;color:#0f9">${r.program_cnt}</td>
+    <td style="text-align:right;color:#fa0">${r.copybook_cnt}</td>
+    <td style="text-align:right;color:#0af">${r.cnt}</td>
+    <td style="width:80px">${barPct(r.cnt, totalFiles)}</td>
+  </tr>`).join('');
+
+  $('analyticsContent').innerHTML = `
+  <div class="an-grid">
+    <div class="an-card" style="grid-column:1/-1">
+      <h3>Top 30 PS_ Tables by Reference Count</h3>
+      <table class="an-tbl"><thead><tr>
+        <th>Table</th><th style="text-align:right">Programs</th>
+        <th style="text-align:right">Programs (excl. copybooks)</th><th>Density</th>
+      </tr></thead><tbody>${tblRows}</tbody></table>
+    </div>
+    <div class="an-card" style="grid-column:1/-1">
+      <h3>Top 20 Most Complex COBOL Programs (by Table Count)</h3>
+      <table class="an-tbl"><thead><tr>
+        <th>Filename</th><th>Description</th>
+        <th style="text-align:right">Tables</th>
+        <th style="text-align:right">COPY</th>
+        <th style="text-align:right">CALL</th><th>Complexity</th>
+      </tr></thead><tbody>${progRows}</tbody></table>
+    </div>
+    <div class="an-card">
+      <h3>Top 20 Most-COPYd Copybooks</h3>
+      <table class="an-tbl"><thead><tr>
+        <th>Copybook</th><th style="text-align:right">Users</th><th>Usage</th>
+      </tr></thead><tbody>${copyRows}</tbody></table>
+    </div>
+    <div class="an-card">
+      <h3>Delivered vs Custom Breakdown</h3>
+      <table class="an-tbl"><thead><tr>
+        <th>Source Type</th><th style="text-align:right">Programs</th>
+        <th style="text-align:right">Copybooks</th>
+        <th style="text-align:right">Total</th><th>Share</th>
+      </tr></thead><tbody>${typeRows}</tbody></table>
+    </div>
+  </div>`;
+}
+
+load();
+</script>
+"""
+    return HTMLResponse(_shell("COBOL Analytics", "cobol", content))
 
 
 @router.get("/cobol/{filename}", response_class=HTMLResponse)

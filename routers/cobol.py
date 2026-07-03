@@ -54,6 +54,13 @@ def cobol_stats():
     return cobol_db.stats()
 
 
+@router.get("/analytics")
+def cobol_analytics():
+    from connectors import cobol_db
+    cobol_db.init_db()
+    return cobol_db.analytics()
+
+
 @router.get("/sources")
 def cobol_sources_list(env: Optional[str] = Query(None)):
     import json
