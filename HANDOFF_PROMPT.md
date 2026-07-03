@@ -113,9 +113,9 @@ Drawn from `ROADMAP.md` remaining sections — pick the highest-value slice:
 ### Phase 4 — Runtime Intelligence (remaining)
 - Browser session tracking
 - WebLogic session tracking
-- App server process tracking beyond domain enumeration
-- Runtime history persistence (process history, queue depth over time, alert history)
-- Incident recording with full runtime state capture
+- (App server process tracking, runtime history persistence, and incident
+  recording are done — see `connectors/appsrvproc.py`, `runtimedb.py`,
+  `routers/admin/incidents.py`)
 
 ### Phase 5 — Knowledge Graph (remaining)
 - Broader READS/WRITES coverage for non-literal PeopleCode dynamic SQL

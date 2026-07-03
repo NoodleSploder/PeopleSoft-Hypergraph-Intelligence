@@ -105,11 +105,31 @@ Provide complete end-to-end session visibility.
 - `routers/runtime.py` — `GET /api/runtime/history?env&hours` time-series endpoint; `GET /api/runtime/history/snapshot` manual trigger
 - `routers/admin/runtime.py` — "Metrics History" card on Runtime Monitor: 1h/6h/24h/7d period selector; sparkline SVG charts for Active Processes, Process Errors, AE Running, IB Pending, Alerts; trend arrows (↑↓→) colored by whether the metric increasing is good or bad; `loadHistory()` called on every refresh cycle
 
-### Remaining
+### ✅ Completed (2026-07-03) — App Server Process Tracking
 
-- Browser session tracking
-- WebLogic session tracking
-- App Server process tracking beyond domain enumeration
+Domain-level enumeration (`psdb.app_server_domains`) only sees Oracle's
+`PSPMDOMAIN_VW` view — no live process detail. This goes one level deeper:
+
+- `connectors/sshclient.py` — new `run_command(alias, command, timeout)`
+  generic SSH command runner (read-only; joins the existing `list_files`/
+  `read_bytes` helpers)
+- `connectors/appsrvproc.py` — SSH `ps -eo pid,ppid,pcpu,pmem,etime,cmd` on
+  the app server host; parses Tuxedo command lines for known PeopleSoft
+  server binaries (PSAPPSRV, PSAESRV, PSSAMSRV, PSBRKHND, PSMSTPRC, PSDSTSRV,
+  PSMONITORSRV, BBL, WSL/WSH, JSL/JSH); extracts domain name (`-C dom=`),
+  group/server ID, and database name (`-D`/`-CD`/`-PS`) from each process's
+  Tuxedo-encoded arguments. Note: `-S NAME` is a legitimate, more-specific
+  server-group name for PeopleSoft app-level servers (e.g. `PSBRKHND_dflt`)
+  but means something else entirely (shared-memory key, buffer size) for
+  Tuxedo infrastructure processes (BBL/WSL/WSH/JSL/JSH) — the parser only
+  applies that override for the former.
+- `routers/runtime.py` — `GET /api/runtime/appserver-processes?env=` resolves
+  the SSH host from `log_sources` (type `appsrv`/`prcs_ae`) for the env, lists
+  live processes, and rolls up per-domain/per-server-type summaries
+- `routers/admin/runtime.py` — new "App Server Processes" card on the Runtime
+  Monitor page, refreshed on every cycle alongside domains/servers
+
+**Remaining:** Browser session tracking, WebLogic session tracking.
 
 ---
 

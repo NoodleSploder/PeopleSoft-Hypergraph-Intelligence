@@ -175,6 +175,27 @@ def file_size(alias: str, path: str) -> int:
         sftp.close()
 
 
+def run_command(alias: str, command: str, timeout: int = 15) -> tuple[str, str, int]:
+    """
+    Run a read-only shell command on the remote host. Returns (stdout, stderr, exit_status).
+    Raises the same exceptions as _connect() on connection failure; a nonzero
+    exit_status is returned to the caller rather than raised, since many
+    read-only introspection commands (e.g. grep with no matches) exit nonzero
+    without indicating a real failure.
+    """
+    if alias == "local":
+        import subprocess
+        proc = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=timeout)
+        return proc.stdout, proc.stderr, proc.returncode
+
+    client = _get_client(alias)
+    stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
+    out = stdout.read().decode("utf-8", errors="replace")
+    err = stderr.read().decode("utf-8", errors="replace")
+    exit_status = stdout.channel.recv_exit_status()
+    return out, err, exit_status
+
+
 def close_all():
     """Close all pooled connections (call on shutdown)."""
     with _global_lock:

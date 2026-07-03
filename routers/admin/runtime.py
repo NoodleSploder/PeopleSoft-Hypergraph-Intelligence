@@ -135,6 +135,12 @@ select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
   <div id="domArea"><span class="muted" style="font-size:12px">Loading…</span></div>
 </div>
 
+<!-- ── App Server / Process Scheduler Processes (live, via SSH ps) ── -->
+<div class="card">
+  <h2>App Server Processes <span class="muted" style="font-size:11px;font-weight:normal">live OS process list — beyond domain-level enumeration</span></h2>
+  <div id="appProcArea"><span class="muted" style="font-size:12px">Loading…</span></div>
+</div>
+
 <!-- ── Process Scheduler Servers ── -->
 <div class="card">
   <h2>Process Scheduler Servers</h2>
@@ -549,6 +555,51 @@ async function loadDomains() {
     $('domArea').innerHTML = html;
   } catch(e) {
     $('domArea').innerHTML = `<span class="muted" style="font-size:12px">Domains unavailable: ${esc(e.message)}</span>`;
+  }
+}
+
+async function loadAppProcesses() {
+  const env = $('envSel').value;
+  if (!env) { $('appProcArea').innerHTML = '<span class="muted" style="font-size:12px">No environment selected.</span>'; return; }
+  try {
+    const d = await api(`/api/runtime/appserver-processes?env=${env}`);
+    const procs = d.processes || [];
+    const warnings = d.warnings || [];
+    if (!procs.length) {
+      const wmsg = warnings.length ? warnings.map(w => esc(w.message||String(w))).join(' ') : 'No processes found.';
+      $('appProcArea').innerHTML = `<span class="muted" style="font-size:12px">${wmsg}</span>`;
+      return;
+    }
+    const TIER_CLS = { app_server: 'chip-success', process_scheduler: 'chip-warn' };
+    let summary = `<div style="font-size:11px;color:#8ab;margin-bottom:8px">
+      ${d.total_processes} processes across ${(d.domains||[]).length} domain(s) — `;
+    summary += Object.entries(d.by_server_type||{}).map(([k,v]) => `${esc(k)}:${v}`).join('  ');
+    summary += '</div>';
+    let html = summary + `<table><thead><tr>
+      <th>PID</th><th>Server</th><th>Role</th><th>Domain</th><th>DB</th>
+      <th>Tier</th><th>CPU%</th><th>MEM%</th><th>Uptime</th>
+    </tr></thead><tbody>`;
+    for (const p of procs) {
+      const cls = TIER_CLS[p.tier] || 'chip-muted';
+      html += `<tr>
+        <td class="mono">${esc(p.pid)}</td>
+        <td class="mono">${esc(p.server_name)}</td>
+        <td style="font-size:11px;color:#8ab">${esc(p.server_role||'—')}</td>
+        <td class="mono" style="font-size:11px">${esc(p.domain_name||'—')}</td>
+        <td class="mono" style="font-size:11px">${esc(p.database||'—')}</td>
+        <td><span class="chip ${cls}" style="font-size:10px;padding:2px 8px;">${esc(p.tier)}</span></td>
+        <td style="text-align:right">${p.cpu_pct}</td>
+        <td style="text-align:right">${p.mem_pct}</td>
+        <td class="mono" style="font-size:11px">${esc(p.etime)}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    if (warnings.length) {
+      html += `<div style="font-size:9px;color:#a84;margin-top:4px">${warnings.map(w=>esc(w.message||String(w))).join(' ')}</div>`;
+    }
+    $('appProcArea').innerHTML = html;
+  } catch(e) {
+    $('appProcArea').innerHTML = `<span class="muted" style="font-size:12px">App server processes unavailable: ${esc(e.message)}</span>`;
   }
 }
 
@@ -1000,7 +1051,7 @@ async function loadHistory() {
 
 async function refresh() {
   $('lastTs').textContent = 'Refreshing…';
-  await Promise.allSettled([loadAlerts(), loadStatus(), loadDomains(), loadServers(), loadProcesses(), loadOracle(), loadAsh(), loadHistory()]);
+  await Promise.allSettled([loadAlerts(), loadStatus(), loadDomains(), loadAppProcesses(), loadServers(), loadProcesses(), loadOracle(), loadAsh(), loadHistory()]);
   $('lastTs').textContent = 'Last: ' + new Date().toLocaleTimeString();
   if (autoR) {
     clearTimeout(arTimer);

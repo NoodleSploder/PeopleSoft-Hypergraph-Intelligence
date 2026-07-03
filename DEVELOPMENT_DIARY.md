@@ -6,6 +6,49 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — App Server Process Tracking — 68/68
+
+### New Feature: live App Server / Process Scheduler process tracking
+
+Closes a Phase 4 remaining item. Domain-level enumeration
+(`psdb.app_server_domains`) only sees `PSPMDOMAIN_VW`, an Oracle view — it
+has no idea what's actually running on the OS. This adds a level below that:
+SSH `ps` on the app server host, parsed into structured Tuxedo process data.
+
+**Files**:
+- `connectors/sshclient.py` — added `run_command(alias, command, timeout)`,
+  a generic read-only SSH command runner alongside the existing
+  `list_files`/`read_bytes` helpers
+- `connectors/appsrvproc.py` — new. Parses `ps -eo pid,ppid,pcpu,pmem,etime,
+  cmd` output for known PeopleSoft Tuxedo server binaries (PSAPPSRV, PSAESRV,
+  PSSAMSRV, PSBRKHND, PSMSTPRC, PSDSTSRV, PSMONITORSRV, BBL, WSL/WSH, JSL/JSH)
+  and extracts domain name, group/server ID, and database name from the
+  Tuxedo-encoded command-line arguments
+- `routers/runtime.py` — `GET /api/runtime/appserver-processes?env=` resolves
+  the SSH host from `log_sources` (type `appsrv`/`prcs_ae`), lists processes,
+  rolls up per-domain and per-server-type summaries
+- `routers/admin/runtime.py` — new "App Server Processes" card on
+  `/admin/runtime`, refreshed every cycle
+
+**Bug found and fixed during verification**: initial parsing used a process's
+`-S NAME` Tuxedo flag to override the detected server name whenever present.
+That's correct for PeopleSoft app-level servers (`-S PSBRKHND_dflt` really is
+a more specific server-group name), but wrong for Tuxedo infrastructure
+processes — `JSH -c 41 -i 0 -s 6 -Z 256 -S 600` uses `-S` for a shared-memory
+key, not a name, so every JSH child process was showing up as server
+`"600"` and every JSL as `"10"`. Fixed by excluding BBL/WSL/WSH/JSL/JSH/
+JREPSVR from the `-S` override.
+
+**Verified**: live SSH `ps` against `hcm_appserver` (192.168.122.151) found
+21 real Tuxedo processes across 2 domains (`HCMDMO_224204` app server tier,
+`HCMDMO_210976` process scheduler tier) plus 5 unattributed JSH workers;
+domain/database extraction confirmed correct (e.g. `PSAESRV` processes
+correctly show `database: HRDMO`, matching `config.json`'s Oracle service
+name for HCM, not the `HCMDMO` PeopleSoft system name also present in the
+command line). `make check` 91/91; smoke test 68/68.
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — COBOL Knowledge Graph Wiring — 68/68
 
 ### Follow-up: wired COBOL data into the Knowledge Graph

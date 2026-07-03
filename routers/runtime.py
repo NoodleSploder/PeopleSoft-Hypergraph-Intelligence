@@ -133,6 +133,39 @@ def runtime_domains(env: str = "HCM"):
     return psdb.app_server_domains(env)
 
 
+@router.get("/appserver-processes")
+def runtime_appserver_processes(env: str = "HCM"):
+    """
+    Return live Tuxedo/PeopleSoft server processes (PSAPPSRV, PSAESRV, WSL,
+    BBL, ...) on the app server host for this env, via SSH `ps`. This goes
+    one level below the domain-level view in /domains (which only sees
+    PSPMDOMAIN_VW, an Oracle view) down to actual OS processes with live
+    PID/CPU/MEM/uptime.
+    """
+    from connectors import appsrvproc
+
+    data = json.loads(CONFIG.read_text())
+    log_sources = data.get("log_sources", [])
+    candidate = next(
+        (s for s in log_sources if s.get("env", "").upper() == env.upper()
+         and s.get("type") in ("appsrv", "prcs_ae")),
+        None,
+    )
+    if not candidate:
+        return {
+            "processes": [], "domains": [], "by_server_type": {}, "total_processes": 0,
+            "warnings": [{
+                "code": "no_ssh_host_configured",
+                "message": f"No log_sources entry with type appsrv/prcs_ae found for env {env}",
+                "severity": "warning",
+            }],
+        }
+
+    result = appsrvproc.list_processes(candidate["ssh_host"])
+    summary = appsrvproc.summarize(result["processes"])
+    return {**summary, "processes": result["processes"], "warnings": result["warnings"]}
+
+
 @router.get("/process-log")
 def process_log(env: str = "HCM", instance: int = 0, limit: int = 200):
     """
