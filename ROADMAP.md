@@ -1208,6 +1208,14 @@ AI tools for log diagnosis; session chain correlation web→app; error surface w
 
 **Remaining:** Process Scheduler log ingestion for Windows-hosted schedulers (SMB/WinRM transport) — blocked until a Windows scheduler server is available.
 
+## ✅ What Changed Expansion + Security Audit (2026-07-02)
+
+- **What Changed** expanded from 9 → 20 object types: Records, Components, Pages, AE Programs, Fields, PeopleCode, SQL Defs, Perm Lists, Roles (original 9) + Menus (PSMENUDEFN), Queries (PSQRYDEFN), Projects (PSPROJECTDEFN.descrlong), Processes (PS_PRCSDEFN), App Packages (PSPACKAGEDEFN), IB Messages (PSMSGDEFN), IB Routings (PSIBRTNGDEFN, filtered ~GENERATED~), Trees (PSTREEDEFN.tree_name), Translate Values (PSXLATITEM GROUP BY fieldname), Component Interfaces (PSBCDEFN)
+- **OPRID filter** added to What Changed toolbar — client-side filter on the `op` column shows N/Total counts per type pill when active; empty filter string shows all results; filter applies immediately on input without re-querying
+- **Security Audit Dashboard** at `/admin/secaudit`: stat cards (total operators/roles/PLs/active-30d), top roles by member count, top operators by role count, recent sign-ons (30d), orphaned roles panel, operator type breakdown; all via POST /api/sqlws/execute
+- **Security nav group** consolidates secaudit/security/operator/role/permissionlist; permissionlist moved from Objects
+- **SQR cross-reference in Record Explorer** — record UOM calls sqrdb.get_programs_for_table(table_name); "SQR Programs" section with _links.admin → /admin/sqr/{filename}; re-index triggered 2026-07-03 — 344 rows, 123 distinct tables
+
 ## ✅ Phase 10 — SQR Explorer (Partial, complete as of 2026-07-02)
 
 SQR/SQC source artifact intelligence is live for FSCM (507 SQR + 698 SQC = 1,205 files indexed).

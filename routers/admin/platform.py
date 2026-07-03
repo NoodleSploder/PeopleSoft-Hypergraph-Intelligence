@@ -2196,6 +2196,10 @@ tr:hover td{{background:rgba(0,229,255,.03)}}
   <span class="quick-btn" data-days="90" onclick="setQuick(this,90)">90 days</span>
   <input type="date" id="sinceDate" onchange="clearQuick()">
   <button class="run-btn" onclick="runAll()">Search</button>
+  <span style="color:#1a2a3a">|</span>
+  <span style="font-size:11px;color:#446">OPRID:</span>
+  <input type="text" id="oprFilter" placeholder="Filter by…" oninput="applyOprFilter(this.value)"
+    style="background:#0a1520;border:1px solid #1a2a3a;color:#c8d8e8;padding:4px 8px;border-radius:3px;font-size:12px;width:130px">
   <span id="status"></span>
   <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
     <span style="font-size:11px;color:#446">Env:</span>
@@ -2221,10 +2225,27 @@ const TYPES = [
   {{ id:'sql',        label:'SQL Defs',    color:'#4488ff', sql:`SELECT sqlid n, '' d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSSQLDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                      link: n => `/admin/object/sql_definition/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
   {{ id:'permlist',   label:'Perm Lists',  color:'#ff9900', sql:`SELECT classid n, classdefndesc d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSCLASSDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                       link: n => `/admin/permissionlist/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
   {{ id:'role',       label:'Roles',       color:'#ffaa22', sql:`SELECT rolename n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSROLEDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                               link: n => `/admin/role/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
+  {{ id:'menu',       label:'Menus',       color:'#cc8800', sql:`SELECT menuname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSMENUDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                link: n => `/admin/menu?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
+  {{ id:'query',      label:'Queries',     color:'#00bbdd', sql:`SELECT qryname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSQRYDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                  link: n => `/admin/query?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
+  {{ id:'project',    label:'Projects',    color:'#55ee55', sql:`SELECT projectname n, descrlong d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPROJECTDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                     link: n => `/admin/object/project/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
+  {{ id:'prcsdefn',   label:'Processes',   color:'#bb77ff', sql:`SELECT prcsname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PS_PRCSDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                               link: n => `/admin/prcsdefn?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
+  {{ id:'package',    label:'App Packages',color:'#cc44ee', sql:`SELECT packageroot n, '' d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPACKAGEDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                             link: n => `/admin/object/application_package/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
+  {{ id:'ibmsg',      label:'IB Messages', color:'#dd44aa', sql:`SELECT msgname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSMSGDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                  link: n => `/admin/ibmessage?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
+  {{ id:'ibrtng',     label:'IB Routings', color:'#00aabb', sql:`SELECT routingdefnname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSIBRTNGDEFN WHERE routingdefnname NOT LIKE '~%' AND lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                    link: n => `/admin/ibrtng?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
+  {{ id:'tree',       label:'Trees',       color:'#00bb66', sql:`SELECT tree_name n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSTREEDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                               link: n => `/admin/tree?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
+  {{ id:'xlat',       label:'Translate',   color:'#ddcc00', sql:`SELECT fieldname n, MAX(xlatlongname) d, MAX(lastupddttm) dt, MAX(lastupdoprid) op FROM SYSADM.PSXLATITEM WHERE lastupddttm >= ${{TS}} GROUP BY fieldname ORDER BY MAX(lastupddttm) DESC`,                link: n => `/admin/xlat?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
+  {{ id:'ci',         label:'Comp Intfs',  color:'#00cccc', sql:`SELECT bcname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSBCDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                    link: n => `/admin/ci?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
 ];
 
 let activeTypes = new Set(TYPES.map(t => t.id));
 let results = {{}};
+let currentSince = '';
+let oprFilter = '';
+
+function applyOprFilter(val) {{
+  oprFilter = (val || '').trim().toUpperCase();
+  if (currentSince) renderResults(currentSince);
+}}
 
 function isoDate(daysAgo) {{
   const d = new Date();
@@ -2279,6 +2300,7 @@ async function runAll() {{
   content.innerHTML = '<div class="muted" style="text-align:center;margin-top:30px">Loading changes since ' + esc(since) + '…</div>';
 
   results = {{}};
+  currentSince = since;
   const promises = TYPES.map(async t => {{
     const rows = await execSQL(t.sql, since);
     results[t.id] = rows;
@@ -2292,36 +2314,54 @@ function renderResults(since) {{
   const status = document.getElementById('status');
   const content = document.getElementById('content');
 
-  const total = TYPES.reduce((s,t) => s + (results[t.id] ? results[t.id].length : 0), 0);
-  const typesWithData = TYPES.filter(t => results[t.id] && results[t.id].length > 0);
+  function filterRows(id) {{
+    const raw = results[id] || [];
+    if (!oprFilter) return raw;
+    return raw.filter(r => (r.OP || r.op || '').trim().toUpperCase().includes(oprFilter));
+  }}
+  const total = TYPES.reduce((s,t) => s + filterRows(t.id).length, 0);
+  const typesWithData = TYPES.filter(t => (results[t.id] || []).length > 0);
 
-  if (total === 0) {{
+  const rawTotal = TYPES.reduce((s,t) => s + (results[t.id] ? results[t.id].length : 0), 0);
+  if (rawTotal === 0) {{
     status.textContent = 'No changes found since ' + since;
     content.innerHTML = '<div class="muted" style="text-align:center;margin-top:40px">No changes found since ' + esc(since) + '.</div>';
+    return;
+  }}
+  if (total === 0 && oprFilter) {{
+    status.textContent = 'No results matching OPRID "' + oprFilter + '"';
+    content.innerHTML = '<div class="muted" style="text-align:center;margin-top:40px">No changes by OPRID matching "' + esc(oprFilter) + '" since ' + esc(since) + '.</div>';
     return;
   }}
 
   status.textContent = `${{total}} change${{total===1?'':'s'}} across ${{typesWithData.length}} object type${{typesWithData.length===1?'':'s'}} since ${{since}}`;
 
+  const oprMsg = oprFilter ? (' filtered by OPRID "' + oprFilter + '"') : '';
   // Summary pills
   let html = '<div class="summary-bar">';
   TYPES.forEach(t => {{
-    const rows = results[t.id] || [];
-    if (!rows.length) return;
+    const raw = results[t.id] || [];
+    if (!raw.length) return;
+    const rows = filterRows(t.id);
     const on = activeTypes.has(t.id);
+    const cntLabel = oprFilter && rows.length !== raw.length ? `${{rows.length}}/${{raw.length}}` : rows.length;
     html += `<div class="type-pill${{on?'':' off'}}" style="background:${{t.color}}18;border-color:${{t.color}}44;color:${{t.color}}"
       onclick="toggleType('${{t.id}}',this)">
-      <span class="cnt">${{rows.length}}</span>
+      <span class="cnt">${{cntLabel}}</span>
       <span>${{esc(t.label)}}</span>
     </div>`;
   }});
   html += '</div>';
+  if (oprFilter) html += '<div style="font-size:11px;color:#7faab2;margin-bottom:10px">Showing rows where OPRID contains "' + esc(oprFilter) + '"</div>';
 
   // Sections
   TYPES.forEach(t => {{
-    const rows = results[t.id] || [];
+    const raw = results[t.id] || [];
+    if (!raw.length) return;
+    const rows = filterRows(t.id);
     if (!rows.length) return;
     const on = activeTypes.has(t.id);
+    const rawLen = raw.length;
     const rowsHtml = rows.map(r => {{
       const name = (r.N || r.n || r[0] || '').trim();
       const desc = (r.D || r.d || r[1] || '').trim();
@@ -2340,7 +2380,7 @@ function renderResults(since) {{
       <div class="sec-hdr" onclick="toggleSec('${{t.id}}')">
         <span style="color:#778;font-size:10px">&#x25B6;</span>
         <span style="color:${{t.color}};font-weight:bold;font-size:12px">${{esc(t.label)}}</span>
-        <span style="color:#556;font-size:11px">(${{rows.length}}${{rows.length===500?' — limit reached':''}})${{rows.length===500?' <span style="color:#f90;font-size:10px">⚠ truncated at 500</span>':''}}</span>
+        <span style="color:#556;font-size:11px">(${{rows.length}}${{oprFilter&&rows.length!==rawLen?'/'+rawLen:''}})${{rawLen===500?' <span style="color:#f90;font-size:10px">⚠ truncated at 500</span>':''}}</span>
       </div>
       <div class="sec-body open" id="body-${{t.id}}">
         <table>
