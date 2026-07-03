@@ -39,8 +39,9 @@ _NAV_GROUPS = [
         ("iboper",    "IB Operations", "/admin/iboper"),
     ]),
     ("Objects", [
-        ("objects",  "Object Search",  "/admin/objects"),
-        ("ci",       "CIs",            "/admin/ci"),
+        ("objects",    "Object Search",  "/admin/objects"),
+        ("component",  "Components",     "/admin/component"),
+        ("ci",         "CIs",            "/admin/ci"),
         ("tree",     "Trees",          "/admin/tree"),
         ("menu",     "Menus",          "/admin/menu"),
         ("appclass", "App Classes",    "/admin/appclass"),
