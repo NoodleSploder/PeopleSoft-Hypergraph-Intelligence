@@ -581,180 +581,74 @@ and queried as distinct, comparable sets rather than resolved into one effective
 
 ---
 
-## Source Resolution
+## Source Resolution — ✅ implemented (as distinct comparable sets, not a merged view)
 
-Every source object receives a logical identity independent of its filesystem location.
+Every source file is indexed as its own row, keyed by `(filename, source_key)` where
+`source_key` identifies which configured source (env × delivered/custom) it came from
+— e.g. `PAY003.sqr` indexed under both `hcm_sqr_delivered` and `hcm_sqr_custom` produces
+two distinct rows, not one merged `SQR:PAY003` logical object with a resolved
+"effective version." There is no custom-over-delivered layering/precedence — delivered
+and custom are peers you compare, not a stack you resolve.
 
-Example
+## Override Detection — ✅ implemented (narrower than originally planned)
 
-```
-SQR
-    PAY003
+`sqrdb.overrides()` / `GET /api/sqr/overrides` finds filenames present in *both* a
+delivered and custom source for the same env — i.e. genuine customizations of a
+delivered program. Not implemented: delivered-only / custom-only / "missing delivered
+source" / "orphaned custom program" as distinct categorized states, and no per-object
+"Effective Version" field on the UOM object. If finer-grained override categorization
+is wanted later, `overrides()` is the place to extend.
 
-Delivered:
-    /opt/psoft/src/sqr/PAY003.sqr
+## Source Comparison — ✅ implemented for SQR only
 
-Custom:
-    /opt/company/custom/sqr/PAY003.sqr
-```
+`/admin/sqrcompare` (`GET /api/sqr/envcompare`) compares two environments' SQR
+libraries side-by-side (Changed / Only A / Only B / Identical tabs), using MD5
+`content_hash` to detect changes. **Not implemented**: delivered-vs-custom diff view,
+syntax-aware/whitespace/comment-ignoring diff modes, or any comparison UI for COBOL.
+COBOL has the ingestion/indexing infrastructure to support the same comparison
+pattern later (`cobol_db.py` already stores `content_hash`) but the compare endpoint/
+page itself hasn't been built.
 
-The logical object is:
+## Source Relationships — ✅ implemented, different edge names than originally planned
 
-```
-SQR:PAY003
-```
+Real edge types emitted by `connectors/graphdb.py` (`sqr_programs()`/`cobol_programs()`
+builders) — simpler than the originally-planned `CALLS_PROGRAM`/`CALLS_REPORT`/
+`EXECUTES_SQL`/`REFERENCES_PROCESS` naming, reusing the same edge vocabulary the rest
+of the Knowledge Graph uses rather than inventing artifact-specific edge types:
 
-which may contain multiple physical implementations.
+- **SQR**: `sqr_program → record` `READS`/`WRITES`; `sqr_program → sqr_program`
+  `INCLUDES` (SQC includes); `prcs_defn → sqr_program` `WRAPS`
+- **COBOL**: `cobol_program → record` `READS`/`WRITES` (from `EXEC SQL` blocks);
+  `cobol_program → cobol_program` `COPIES` (COPY statements) and `CALLS` (static
+  `CALL 'X'` targets — dynamic `CALL WS-VAR` can't be resolved and is skipped)
 
----
+## Source Intelligence — ✅ implemented for what each parser actually extracts
 
-## Override Detection
+- **SQR** (`connectors/sqrparser.py`): include hierarchy, `PS_` table references
+  (SELECT/UPDATE/INSERT/DELETE), procedure definitions, header metadata (description,
+  release, revision)
+- **COBOL** (`connectors/cobolparser.py`): program-vs-copybook classification (by
+  `PROGRAM-ID` presence, not file extension), COPY dependencies, static CALL targets,
+  `EXEC SQL...END-EXEC` table references, description extraction (skips the fixed
+  Oracle license preamble)
+- **Not implemented for either**: dynamic SQL extraction (SQR/COBOL don't have
+  PeopleCode's `extract_dynamic_sql()` variable-reconstruction treatment), process/AE
+  launch references, file I/O tracking, external command execution tracking
 
-PHI automatically determines:
+## Effective Source View — 📋 planned, not built
 
-- delivered only
-- custom only
-- custom override
-- duplicate custom implementations
-- missing delivered source
-- orphaned custom programs
+No "effective implementation" UI exists — the closest equivalent today is opening the
+delivered and custom detail pages side-by-side, or using the override/comparison
+endpoints above. A dedicated effective-view page (showing resolved implementation with
+delivered/custom provenance inline) remains open work if wanted.
 
-Override status becomes part of the UOM object.
+## Source Analytics — ✅ implemented for SQR only, narrower than originally planned
 
-Example
-
-```
-Status
-
-✓ Delivered
-
-✓ Custom Override
-
-Effective Version:
-Custom
-
-Baseline:
-Delivered
-```
-
----
-
-## Source Comparison
-
-Every source object supports comparison.
-
-Examples
-
-Delivered vs Custom
-
-Environment vs Environment
-
-Custom Layer A vs Layer B
-
-Historical Snapshot vs Current
-
-Capabilities include
-
-- unified diff
-- side-by-side diff
-- syntax-aware diff
-- whitespace ignore
-- comment ignore
-- identifier-aware comparison
-
----
-
-## Source Relationships
-
-Filesystem objects participate in the Knowledge Graph.
-
-Example edge types
-
-SQR
-
-- CALLS_PROGRAM
-- CALLS_REPORT
-- INCLUDES_SQC
-- READS_RECORD
-- WRITES_RECORD
-- EXECUTES_SQL
-- EXECUTES_AE
-- REFERENCES_PROCESS
-
-COBOL
-
-- CALLS_PROGRAM
-- COPYBOOK
-- READS_RECORD
-- WRITES_RECORD
-- EXECUTES_SQL
-- REFERENCES_FILE
-
-COPYBOOK
-
-- INCLUDED_BY
-
-SQC
-
-- INCLUDED_BY
-
----
-
-## Source Intelligence
-
-The parser extracts:
-
-- include hierarchy
-- copybook hierarchy
-- embedded SQL
-- dynamic SQL
-- record references
-- field references
-- process references
-- Application Engine launches
-- Process Scheduler relationships
-- database object usage
-- file I/O
-- external command execution
-
-These become graph relationships.
-
----
-
-## Effective Source View
-
-When an override exists, PHI presents:
-
-- Effective implementation
-- Delivered implementation
-- Custom implementation
-
-Engineers can immediately determine:
-
-- what Oracle delivered
-- what the customer changed
-- exactly where the change occurred
-
-without manually locating files.
-
----
-
-## Source Analytics
-
-PHI computes metrics including:
-
-- customizations by module
-- delivered override percentage
-- custom code inventory
-- largest custom programs
-- unused programs
-- dead include files
-- duplicate source
-- cyclomatic complexity
-- SQL density
-- include depth
-- dependency fan-out
-- dependency fan-in
+`/admin/sqr/analytics` (`GET /api/sqr/analytics`): top 30 PS_ tables by reference count,
+top 20 most complex SQR programs, top 20 most-included SQC files, release breakdown.
+**Not implemented**: customization/override percentage metrics, cyclomatic complexity,
+dead-include detection, duplicate-source detection, dependency fan-out/fan-in metrics,
+or any analytics page for COBOL.
 
 ---
 
@@ -780,27 +674,42 @@ Modules should be built in an order that fills the provider stack from bottom to
 Lower layers (connectors, UOM) unlock higher layers (graph, search, intelligence).
 
 ```
-Priority 1 — Foundation (complete)
+Priority 1 — Foundation (✅ complete)
   Object Explorer · Metadata Engine · UOM · Knowledge Graph · Field Explorer
 
-Priority 2 — Core Object Coverage (in progress)
+Priority 2 — Core Object Coverage (✅ complete)
   Security Explorer · Component Explorer · Page Explorer · Record Explorer
   PeopleCode Explorer · Application Engine Explorer
 
-Priority 3 — Operations (complete)
+Priority 3 — Operations (✅ complete)
   Runtime Monitor · SQL Workspace · Integration Broker Explorer · Environment Comparison
 
-Priority 4 — Observability
-  Transaction Tracing · Logging Platform · Performance Analysis
+Priority 4 — Observability (✅ complete)
+  Log Intelligence (PIA/APPSRV/Tuxedo/nginx/F5/IGW/PRCS-AE) · App Server live
+  process tracking · Incident recording + replay
+  Remaining: Performance Analysis (cross-layer SQL↔PeopleCode↔component
+  correlation) — not started
 
-Priority 5 — Intelligence
-  Impact Analysis · Security Explanation · Configuration Drift · Dependency Graph
+Priority 5 — Intelligence (✅ complete)
+  Impact Analysis · Security Explanation (Access Path Explorer) · Configuration
+  Drift (scheduled snapshots + alerts) · Dependency Graph (Knowledge Graph,
+  full UOM/KG alignment audit closed)
 
-Priority 6 — Automation & Reporting
-  Deployment Center · Reporting · Automation
+Priority 6 — Source Artifact Intelligence (✅ core complete)
+  SQR + COBOL discovery, indexing, dependency graphs, full-text search;
+  SQR environment comparison. Remaining: override-detection depth, COBOL
+  comparison/analytics, effective-source view — see Source Artifact
+  Intelligence section above.
 
-Priority 7 — AI
-  AI Assistant · Predictive Analysis
+Priority 7 — Automation & Reporting (not started)
+  Deployment Center · Automation
+
+Priority 8 — AI (✅ complete)
+  AI Assistant (3 providers, 17+ tools). Remaining: Predictive Analysis —
+  not started.
+
+Priority 9 — Platform Extensibility (✅ v1 complete)
+  Plugin SDK — see Provider Contract → Plugin path, above.
 ```
 
 ---
