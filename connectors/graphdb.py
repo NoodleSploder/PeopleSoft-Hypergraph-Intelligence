@@ -1636,6 +1636,25 @@ def build(env="HCM", limit=50, persist=True):
                 label = f"{pkg}:{cid}" if qp == ":" else f"{pkg}:{qp}:{cid}"
                 add_node(graph, "app_class", class_key, label, r)
                 add_edge(graph, "content_service", sid, "app_class", class_key, "USES", r)
+
+            # UOM's content_service_object() surfaces a "Where Used (Portal
+            # Objects)" relationship via PSPTCS_MNULINKS — entirely missing
+            # from the persisted KG.
+            if ptmetadata.has_table(env, "PSPTCS_MNULINKS"):
+                try:
+                    usage_rows = psdb.query(env, """
+                        SELECT DISTINCT PORTAL_OBJNAME
+                          FROM SYSADM.PSPTCS_MNULINKS
+                         WHERE PTCS_SERVICEID = :id
+                         FETCH FIRST 50 ROWS ONLY
+                    """, {"id": sid.upper()}) or []
+                except Exception:
+                    usage_rows = []
+                for u in usage_rows:
+                    portal_obj = (u.get("portal_objname") or "").strip()
+                    if portal_obj:
+                        add_node(graph, "portal_registry", portal_obj, portal_obj, u)
+                        add_edge(graph, "portal_registry", portal_obj, "content_service", sid, "USES", u)
         return len(rows)
 
     def app_packages():

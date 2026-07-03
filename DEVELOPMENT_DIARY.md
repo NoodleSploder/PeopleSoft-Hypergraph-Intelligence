@@ -6,6 +6,51 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — Full UOM/KG Alignment Audit Complete — 69/69
+
+### Second audit pass: all 54 provider types now covered
+
+The user asked to keep going until the alignment work was genuinely done,
+not just the first 20 high-traffic types. Delegated a second Explore-agent
+audit covering the remaining ~26 real providers (the rest of the 54 total
+are documented stub/deprioritized/reference-lookup types with no
+relationships on either side to compare — nothing to audit).
+
+Found **one further genuine mismatch**: `content_service ↔ portal_registry`.
+UOM's `content_service_object()` surfaces a "Where Used (Portal Objects)"
+relationship sourced from `PSPTCS_MNULINKS` (`psdb.get_content_service()`),
+but `graphdb.py`'s `content_services()` builder never queried that table —
+the KG had `content_service → component/menu/query/app_class` edges but
+zero portal linkage at all. Added the `PSPTCS_MNULINKS` lookup and
+`portal_registry → content_service` `USES` edges.
+
+Everything else in the second pass — `queue`, `app_package`, `approval`,
+`xpub_report`, `search_definition`, `search_category`, `pivot_grid`,
+`connected_query`, `xlat_field`, `file_layout`, `ib_application`,
+`app_class`, `ptf_test`, `url_definition`, `chatbot_skill`, `ib_routing`,
+`style_sheet`, `archive_object`, `pm_metric`, `pm_transaction`, `pm_event`,
+`ib_operation`, `ib_message`, `ads_definition` — either has no UOM
+relationships declared to check against, or already matches its
+`graphdb.py` builder. One harmless edge-direction difference was noted on
+`app_class ↔ application_package` (`BELONGS_TO` vs the graph's reverse
+`CONTAINS`) but isn't actionable since `graphdb.neighbors()` defaults to
+bidirectional traversal.
+
+**Verified**: fresh graph rebuild — 163 `portal_registry →
+content_service` `USES` edges (up from 0). `make check` 91/91; smoke test
+69/69.
+
+**This closes the UOM/KG alignment effort for real.** All 54 UOM object
+types are now either KG-consistent or have nothing to be inconsistent
+about. Across both audit passes: 10 genuine mismatches found, all 10 fixed;
+3 independent real bugs found and fixed along the way (Oracle NULL-
+comparison in `portal_registry_portals()`, a SQL-generation bug in a
+column-fallback rewrite, and a self-loop bug in AE `CALLS` edges) that
+weren't part of the alignment work itself but were caught because I always
+verify against a real rebuild rather than trusting a clean compile.
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — UOM/KG Alignment Audit Closed: All 9 Mismatches Fixed — 69/69
 
 ### Final round: component→record broader usage, page subpages, and re-scoping page security

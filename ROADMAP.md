@@ -312,20 +312,48 @@ Continue enriching graph relationships.
 - Tree → Record USES edges
 - Impact analysis (forward and reverse dependency traversal with depth control)
 
-### Remaining
+### ✅ Completed (2026-07-03) — Full UOM/KG Alignment Audit
 
-- Continue aligning provider-specific Knowledge Graph ingestion with UOM
-  `_relationships` / `_graph` relationship definitions — an audit (see
-  "UOM/KG Alignment" below) covered ~20 of the highest-traffic provider
-  types and found 9 genuine mismatches; **all 9 are now fixed**. The
-  remaining ~34 provider types were not audited yet — that's the next slice
-  if this work continues.
-  Also noted: AE PeopleCode-step `CONTAINS` edges are a no-op on both the
-  UOM side and the KG side in this environment — `AE_ACTTYPE == 'P'` never
-  matches here, a pre-existing schema-version gap in `ae.py`'s own reference
-  implementation, not something introduced by this alignment work.
+**All 54 UOM object-type providers have now been audited against the
+persisted Knowledge Graph.** Round 1 covered ~20 high-traffic types and
+found 9 mismatches (all fixed — see below). A second Explore-agent pass
+covered the remaining ~26 real providers (the rest are documented stub/
+deprioritized/reference-lookup types with nothing to compare) and found
+**one further genuine mismatch**:
 
-### ✅ Completed (2026-07-03) — UOM/KG Alignment fixes (all 9 mismatches closed)
+- **`content_service ↔ portal_registry`**: UOM's `content_service_object()`
+  surfaces a "Where Used (Portal Objects)" relationship via
+  `PSPTCS_MNULINKS` (`psdb.get_content_service()`), but `content_services()`
+  in `graphdb.py` never queried that table — the KG had `content_service →
+  component/menu/query/app_class` edges but zero portal linkage. Added a
+  `PSPTCS_MNULINKS` lookup and `portal_registry → content_service` `USES`
+  edges.
+
+Everything else audited in the second pass (`queue`, `app_package`,
+`approval`, `xpub_report`, `search_definition`, `search_category`,
+`pivot_grid`, `connected_query`, `xlat_field`, `file_layout`,
+`ib_application`, `app_class`, `ptf_test`, `url_definition`,
+`chatbot_skill`, `ib_routing`, `style_sheet`, `archive_object`,
+`pm_metric`, `pm_transaction`, `pm_event`, `ib_operation`, `ib_message`,
+`ads_definition`) either declares no UOM relationships to check, or already
+matches its `graphdb.py` builder correctly (one edge-direction difference
+on `app_class ↔ application_package` was noted but isn't actionable since
+KG traversal defaults to bidirectional).
+
+**Verified**: fresh graph rebuild (`limit=50`) — 163
+`portal_registry → content_service` `USES` edges (up from 0). `make check`
+91/91; smoke test 69/69.
+
+**This closes the UOM/KG alignment effort** — all 54 provider types are now
+either consistent with their persisted Knowledge Graph representation, or
+have no relationships declared on either side to be inconsistent about.
+Also noted along the way: AE PeopleCode-step `CONTAINS` edges are a no-op
+on both the UOM side and the KG side in this environment —
+`AE_ACTTYPE == 'P'` never matches here, a pre-existing schema-version gap
+in `ae.py`'s own reference implementation, not something this alignment
+work introduced or could fix without schema-version-specific handling.
+
+### ✅ Completed (2026-07-03) — UOM/KG Alignment fixes (round 1, 9 mismatches closed)
 
 An Explore-agent audit compared ~20 high-traffic UOM object types'
 `_relationships`/`_graph` declarations against what `connectors/graphdb.py`'s
