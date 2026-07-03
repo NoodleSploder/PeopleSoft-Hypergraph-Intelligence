@@ -6,6 +6,45 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — UOM/KG Alignment Fixes, Round 2 (tree, ci) — 69/69
+
+### Continued the alignment backlog: tree → field, ci → menu/record/field
+
+Picked up 2 more of the 5 remaining mismatches from the earlier audit today.
+
+- **`tree → field`**: `trees()` never joined `PSTREESTRCT` — the table
+  holding `node_recname`/`dtl_recname`/`level_recname` and their field
+  counterparts, all of which `uom.py:tree_object()` promises as
+  relationships. Added the join and the resulting record/field edges.
+- **`component_interface → menu/record/field`**: `component_interfaces()`
+  only emitted `ci → component`. Added `ci → menu` (from `PSBCDEFN.MENUNAME`),
+  `ci → record` (search records + `PSBCITEM.RECNAME`), and `ci → field`
+  (`PSBCITEM.RECNAME`/`FIELDNAME`) + `record → field CONTAINS`.
+
+**Bug found and fixed during verification**: first attempt at the `trees()`
+rewrite made every fallback column (`"NULL AS X"` when a column doesn't
+exist in this environment's `PSTREEDEFN`, e.g. `TREE_RECNAME` genuinely
+isn't there) get blindly prefixed with the table alias — `d.NULL AS
+TREE_RECNAME` — which is invalid SQL and made the whole builder error out
+(`ORA-01747: invalid user.table.column`). Caught it because I always
+`curl /api/graph/build` and inspect `providers[].status` after touching a
+builder, not just trust that it compiled. Fixed with a small `col_expr()`
+helper that constructs one complete, valid expression per column instead of
+string-concatenating a table prefix onto an already-complete fallback.
+
+**Verified**: fresh graph rebuild (`limit=50`) — 50 `tree → field` `USES`
+edges, 9 `ci → menu` `DECLARED_ON` edges, 811 `ci → field` `EXPOSES` edges,
+138 `ci → record` `USES` edges, all up from 0; confirmed the SQL error
+existed before the fix and was gone after (provider status flipped from
+`warning` to `ok`). `make check` 91/91; smoke test 69/69.
+
+3 mismatches remain from the original audit (component→record broader page
+usage, page-level security modeling, AE section-node-type mismatch +
+missing CALLS edges) plus ~34 unaudited provider types — left as backlog in
+ROADMAP.md, not attempted this pass.
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — UOM/KG Alignment Audit + Fixes — 69/69
 
 ### Started the "keep the KG consistent with UOM's relationship declarations" audit

@@ -975,21 +975,36 @@ def build(env="HCM", limit=50, persist=True):
         if not ptmetadata.has_table(env, "PSTREEDEFN"):
             return 0
         cols = psdb.table_columns(env, "PSTREEDEFN")
+
+        def col_expr(real_name, alias):
+            return f"d.{real_name} AS {alias}" if real_name.lower() in cols else f"NULL AS {alias}"
+
         name_col = "TREE_NAME" if "tree_name" in cols else "TREENAME"
         strct_col = "TREE_STRCT_ID" if "tree_strct_id" in cols else "TREESTRCTPNM"
-        setid_col = "SETID" if "setid" in cols else "NULL AS SETID"
-        setcntrl_col = "SETCNTRLVALUE" if "setcntrlvalue" in cols else "NULL AS SETCNTRLVALUE"
-        descr_col = "DESCR" if "descr" in cols else "NULL AS DESCR"
-        status_col = "EFF_STATUS" if "eff_status" in cols else "NULL AS EFF_STATUS"
-        owner_col = "OBJECTOWNERID" if "objectownerid" in cols else "NULL AS OBJECTOWNERID"
-        leaf_col = "TREE_RECNAME" if "tree_recname" in cols else "NULL AS TREE_RECNAME"
+
+        has_structure = ptmetadata.has_table(env, "PSTREESTRCT")
+        strct_join = f"""
+            LEFT JOIN SYSADM.PSTREESTRCT s ON s.{strct_col} = d.{strct_col}
+        """ if has_structure else ""
+        strct_select = """
+            , s.NODE_RECNAME, s.NODE_FIELDNAME, s.DTL_RECNAME, s.DTL_FIELDNAME,
+              s.LEVEL_RECNAME
+        """ if has_structure else ""
+
         rows = psdb.query(env, f"""
-            SELECT {name_col} AS TREENAME, {setid_col}, {setcntrl_col},
-                   {strct_col} AS TREESTRCTPNM, {leaf_col}, {descr_col},
-                   {status_col}, {owner_col}
-              FROM SYSADM.PSTREEDEFN
+            SELECT d.{name_col} AS TREENAME,
+                   {col_expr("SETID", "SETID")},
+                   {col_expr("SETCNTRLVALUE", "SETCNTRLVALUE")},
+                   d.{strct_col} AS TREESTRCTPNM,
+                   {col_expr("TREE_RECNAME", "TREE_RECNAME")},
+                   {col_expr("DESCR", "DESCR")},
+                   {col_expr("EFF_STATUS", "EFF_STATUS")},
+                   {col_expr("OBJECTOWNERID", "OBJECTOWNERID")}
+                   {strct_select}
+              FROM SYSADM.PSTREEDEFN d
+              {strct_join}
              WHERE ROWNUM <= {limit}
-             ORDER BY {name_col}
+             ORDER BY d.{name_col}
         """) or []
         seen = set()
         for r in rows:
@@ -1006,6 +1021,24 @@ def build(env="HCM", limit=50, persist=True):
             if leaf_rec and leaf_rec.strip() and leaf_rec != strct_rec:
                 add_node(graph, "record", leaf_rec, leaf_rec, {})
                 add_edge(graph, "tree", tn, "record", leaf_rec, "USES", r)
+
+            # UOM's tree_object() promises node/detail/level record relations
+            # and node/detail field relations from PSTREESTRCT — these were
+            # entirely missing from the persisted KG.
+            for rec_col in ("node_recname", "dtl_recname", "level_recname"):
+                rec = (r.get(rec_col) or "").strip()
+                if rec:
+                    add_node(graph, "record", rec, rec, {})
+                    add_edge(graph, "tree", tn, "record", rec, "USES", r)
+            for rec_col, field_col in (("node_recname", "node_fieldname"), ("dtl_recname", "dtl_fieldname")):
+                rec = (r.get(rec_col) or "").strip()
+                field = (r.get(field_col) or "").strip()
+                if rec and field:
+                    full_field = f"{rec}.{field}"
+                    add_node(graph, "record", rec, rec, {})
+                    add_node(graph, "field", full_field, full_field, r)
+                    add_edge(graph, "tree", tn, "field", full_field, "USES", r)
+                    add_edge(graph, "record", rec, "field", full_field, "CONTAINS", r)
         return len(seen)
 
     def sql_definitions():
@@ -1160,13 +1193,18 @@ def build(env="HCM", limit=50, persist=True):
             component_col = "NULL"
         owner_col = "b.OBJECTOWNERID" if "objectownerid" in cols else "NULL AS OBJECTOWNERID"
         ts_col = "b.LASTUPDDTTM" if "lastupddttm" in cols else "NULL AS LASTUPDDTTM"
+        menu_col = "b.MENUNAME" if "menuname" in cols else "NULL AS MENUNAME"
+        srch_col = "b.SEARCHRECNAME" if "searchrecname" in cols else "NULL AS SEARCHRECNAME"
+        addsrch_col = "b.ADDSRCHRECNAME" if "addsrchrecname" in cols else "NULL AS ADDSRCHRECNAME"
         rows = psdb.query(env, f"""
             SELECT b.BCNAME, {descr_col}, {version_col}, {type_col},
-                   {component_col} AS component, {owner_col}, {ts_col}
+                   {component_col} AS component, {owner_col}, {ts_col},
+                   {menu_col}, {srch_col}, {addsrch_col}
               FROM SYSADM.PSBCDEFN b
              WHERE ROWNUM <= {limit}
              ORDER BY b.BCNAME
         """) or []
+        has_items = ptmetadata.has_table(env, "PSBCITEM")
         for r in rows:
             ci_name = r.get("bcname")
             if not ci_name:
@@ -1176,6 +1214,45 @@ def build(env="HCM", limit=50, persist=True):
             if comp and comp.strip():
                 add_node(graph, "component", comp, comp, {})
                 add_edge(graph, "ci", ci_name, "component", comp, "WRAPS", r)
+
+            # UOM's ci_object()/ci_graph() promise menu, record, and field
+            # relationships too — these were entirely missing from the KG.
+            menu = (r.get("menuname") or "").strip()
+            if menu:
+                add_node(graph, "menu", menu, menu, {})
+                add_edge(graph, "ci", ci_name, "menu", menu, "DECLARED_ON", r)
+
+            for rec in {(r.get("searchrecname") or "").strip(), (r.get("addsrchrecname") or "").strip()}:
+                if rec:
+                    add_node(graph, "record", rec, rec, {})
+                    add_edge(graph, "ci", ci_name, "record", rec, "USES", r)
+
+            if has_items:
+                try:
+                    item_rows = psdb.query(env, f"""
+                        SELECT RECNAME, FIELDNAME
+                          FROM SYSADM.PSBCITEM
+                         WHERE BCNAME = :name
+                           AND RECNAME IS NOT NULL
+                           AND ROWNUM <= {min(limit, 200)}
+                    """, {"name": ci_name}) or []
+                except Exception:
+                    item_rows = []
+                seen_fields = set()
+                for item in item_rows:
+                    rec = (item.get("recname") or "").strip()
+                    field = (item.get("fieldname") or "").strip()
+                    if not rec:
+                        continue
+                    add_node(graph, "record", rec, rec, {})
+                    add_edge(graph, "ci", ci_name, "record", rec, "USES", item)
+                    if field:
+                        full_field = f"{rec}.{field}"
+                        if full_field not in seen_fields:
+                            seen_fields.add(full_field)
+                            add_node(graph, "field", full_field, full_field, item)
+                            add_edge(graph, "ci", ci_name, "field", full_field, "EXPOSES", item)
+                            add_edge(graph, "record", rec, "field", full_field, "CONTAINS", item)
         return len(rows)
 
     def approvals():

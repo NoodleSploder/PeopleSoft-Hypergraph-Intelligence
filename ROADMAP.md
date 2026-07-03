@@ -317,11 +317,10 @@ Continue enriching graph relationships.
 - Continue aligning provider-specific Knowledge Graph ingestion with UOM
   `_relationships` / `_graph` relationship definitions — an audit (see
   "UOM/KG Alignment" below) covered ~20 of the highest-traffic provider
-  types and found 9 genuine mismatches; 4 are fixed (below), 5 remain:
+  types and found 9 genuine mismatches; 6 are fixed (below), 3 remain:
   `component → record` broader page-record usage, `page` subpages/security
   edges (page-level security isn't modeled in the KG at all — only
-  component-level), `tree → field` edges, `component_interface → menu/
-  record/field` edges, and Application Engine's `CALLS`/PeopleCode edges +
+  component-level), and Application Engine's `CALLS`/PeopleCode edges +
   node-type mismatch (`ae_section` vs `section` — same section has two
   different ids depending which code path built it). The remaining ~34
   provider types were not audited yet.
@@ -331,7 +330,7 @@ Continue enriching graph relationships.
 An Explore-agent audit compared ~20 high-traffic UOM object types'
 `_relationships`/`_graph` declarations against what `connectors/graphdb.py`'s
 persisted-KG builders actually emit, and found 9 genuine mismatches (full
-list above). Fixed the 4 lowest-risk, highest-value ones:
+list above). Fixed 6 of the 9:
 
 - **`operator → permissionlist`**: `operators()` only emitted `operator →
   role` (`OWNS`); UOM's `operator_object()` promises a direct permissionlist
@@ -360,10 +359,30 @@ list above). Fixed the 4 lowest-risk, highest-value ones:
   always `None`. Fixed to `TRIM(PORTAL_PRNTOBJNAME) IS NULL` (Oracle
   correctly treats both true-NULL and whitespace-only values as NULL under
   TRIM, so this catches both).
+- **`tree → field`**: `trees()` never joined `PSTREESTRCT` at all, so
+  `node_recname`/`dtl_recname`/`level_recname` and `node_fieldname`/
+  `dtl_fieldname` (all promised by `uom.py:tree_object()`) were completely
+  missing. Added the join and the resulting `tree → record` `USES` +
+  `tree → field` `USES` + `record → field` `CONTAINS` edges.
+  **Bug found and fixed during verification**: the fallback-column
+  rewrite (`d.{col_or_"NULL AS X"}`) broke when a column was genuinely
+  absent from this table (`TREE_RECNAME` doesn't exist in this environment's
+  `PSTREEDEFN`) — prefixing an already-complete `"NULL AS TREE_RECNAME"`
+  expression with `d.` produces invalid SQL (`d.NULL AS TREE_RECNAME`).
+  Fixed with a `col_expr()` helper that builds a complete, valid expression
+  either way instead of blindly prefixing.
+- **`component_interface (ci) → menu/record/field`**: `component_interfaces()`
+  only emitted `ci → component` (`WRAPS`); UOM's `ci_object()`/`ci_graph()`
+  promise menu (`MENUNAME`), search-record, and per-item record/field
+  relationships (`PSBCITEM`) too. Added `ci → menu` (`DECLARED_ON`),
+  `ci → record` (`USES`), and `ci → field` (`EXPOSES`) + `record → field`
+  (`CONTAINS`) edges.
 
 **Verified**: fresh graph rebuild (`limit=50`) — 4,026 `HAS_PERMISSION`
 edges, 568 `HAS_MEMBER` edges, 98 `SENDS`/`RECEIVES` edges, 50
-`portal_registry` `CONTAINS` edges (up from 0). `make check` 91/91; smoke
+`portal_registry` `CONTAINS` edges, 50 `tree → field` `USES` edges, 9
+`ci → menu` `DECLARED_ON` edges, 811 `ci → field` `EXPOSES` edges, 138
+`ci → record` `USES` edges (all up from 0). `make check` 91/91; smoke
 test 69/69 (no admin page touched).
 
 ### ✅ Completed (2026-07-03) — Dynamic SQL READS/WRITES coverage
