@@ -6,6 +6,54 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — UOM/KG Alignment Audit + Fixes — 69/69
+
+### Started the "keep the KG consistent with UOM's relationship declarations" audit
+
+Delegated a research pass to an Explore agent: compare ~20 of the
+highest-traffic UOM object types' `_relationships`/`_graph` declarations
+(what the Object Explorer's compact graph preview promises) against what
+`connectors/graphdb.py`'s persisted-KG builders actually emit (what
+cross-references/impact analysis/drift detection can see). Found 9 genuine
+mismatches. Fixed the 4 lowest-risk, highest-value ones this pass; the
+other 5 are documented in ROADMAP.md as a known backlog for a future
+session (page-level security modeling, tree→field edges, CI→menu/record/
+field edges, AE section-node-type mismatch + missing CALLS edges, and
+broader component→record page-record usage).
+
+**Fixed**:
+- `operator → permissionlist` (`HAS_PERMISSION`) — `operators()` builder
+  only had `operator → role`; added via `psdb.operator_permissionlists()`
+- `role → operator` (`HAS_MEMBER`) — only the inverse existed; added via
+  `psdb.role_users()`
+- `service_operation ↔ node` (`SENDS`/`RECEIVES`) — only reachable via a
+  2-hop routing traversal before; added direct edges alongside the existing
+  ones
+- `portal_registry` — had **zero KG persistence at all** (a UOM object type
+  with a rich compact graph preview but totally invisible to KG-backed
+  features). New `portal_registries()` builder persists the folder/
+  content-ref containment hierarchy for the top portal, bounded by `limit`.
+
+**Bug found and fixed along the way**: while verifying the portal_registry
+builder, it consistently produced 0 items. Traced it to
+`psdb.portal_registry_portals()`'s root-folder lookup:
+`LENGTH(TRIM(PORTAL_PRNTOBJNAME)) = 0` — but Oracle treats empty strings as
+`NULL`, so `LENGTH(NULL) = 0` is `NULL = 0`, never true. Confirmed via
+direct query that the actual root sentinel value is a single space `' '`
+(`LENGTH = 1`), not an empty string. Fixed to `TRIM(PORTAL_PRNTOBJNAME) IS
+NULL`, which correctly catches both true-NULL and whitespace-only values
+under Oracle's TRIM semantics. This is a real latent bug independent of
+today's KG work — `portal_registry_portals()` is also called from the
+Portal Registry admin UI, so this fix has value beyond the graph builder.
+
+**Verified**: fresh graph rebuild (`limit=50`) — 4,026 `HAS_PERMISSION`
+edges, 568 `HAS_MEMBER` edges, 98 `SENDS`/`RECEIVES` edges, 50
+`portal_registry` `CONTAINS` edges (up from 0, confirmed both before-fix
+0-item and after-fix 50-item provider status). `make check` 91/91; smoke
+test 69/69 (no admin page touched by this pass, so a pure regression check).
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — Processing Sequence Intelligence v1 — 69/69
 
 ### New: canonical sequence goes server-side, sequence-aware KG edges, AI tool fix

@@ -507,6 +507,21 @@ def build(env="HCM", limit=50, persist=True):
                 for role in psdb.oprid_roles(row.get("oprid"), env, columns="summary"):
                     add_node(graph, "role", role.get("rolename"), role.get("rolename"), role)
                     add_edge(graph, "operator", row.get("oprid"), "role", role.get("rolename"), "OWNS", role)
+        # operator -> permissionlist edges — UOM's operator_object() promises these
+        # (via psdb.operator_permissionlists) but they weren't in the persisted KG.
+        for row in rows:
+            oprid = row.get("oprid")
+            if not oprid:
+                continue
+            try:
+                for pl in psdb.operator_permissionlists(env, oprid):
+                    classid = pl.get("classid")
+                    if not classid:
+                        continue
+                    add_node(graph, "permissionlist", classid, classid, pl)
+                    add_edge(graph, "operator", oprid, "permissionlist", classid, "HAS_PERMISSION", pl)
+            except Exception:
+                pass
         return len(rows)
 
     def roles():
@@ -526,6 +541,22 @@ def build(env="HCM", limit=50, persist=True):
                 for permissionlist in psdb.role_permissionlists(env, row.get("rolename"))[:limit]:
                     add_node(graph, "permissionlist", permissionlist.get("classid"), permissionlist.get("classid"), permissionlist)
                     add_edge(graph, "role", row.get("rolename"), "permissionlist", permissionlist.get("classid"), "CONTAINS", permissionlist)
+        # role -> operator edges — UOM's role_object() promises these (via
+        # psdb.role_users) but only the inverse (operator -> role) was
+        # persisted in the KG, so a role page couldn't traverse to its members.
+        for row in rows:
+            rolename = row.get("rolename")
+            if not rolename:
+                continue
+            try:
+                for member in psdb.role_users(env, rolename)[:limit]:
+                    oprid = member.get("roleuser")
+                    if not oprid:
+                        continue
+                    add_node(graph, "operator", oprid, oprid, member)
+                    add_edge(graph, "role", rolename, "operator", oprid, "HAS_MEMBER", member)
+            except Exception:
+                pass
         return len(rows)
 
     def permissionlists():
@@ -873,9 +904,17 @@ def build(env="HCM", limit=50, persist=True):
             if sender:
                 add_node(graph, "node", sender, sender, {})
                 add_edge(graph, "node", sender, "routing", rname, "USES", row)
+                if op:
+                    # UOM's service_operation_object() promises a direct
+                    # sender/receiver edge (not just reachable via a routing
+                    # hop) — persist that too so cross-references/impact
+                    # analysis can traverse it directly.
+                    add_edge(graph, "node", sender, "service_operation", op, "SENDS", row)
             if receiver:
                 add_node(graph, "node", receiver, receiver, {})
                 add_edge(graph, "routing", rname, "node", receiver, "USES", row)
+                if op:
+                    add_edge(graph, "service_operation", op, "node", receiver, "RECEIVES", row)
             if queue:
                 add_node(graph, "queue", queue, queue, {})
                 add_edge(graph, "routing", rname, "queue", queue, "USES", row)
@@ -1701,6 +1740,47 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "ib_operation", oname, label, r)
         return len(rows)
 
+    def portal_registries():
+        """Persist the Portal Registry folder/content-ref hierarchy into the
+        KG. Previously portal_registry was a UOM-only object type with zero
+        KG persistence — its rich compact graph preview (breadcrumbs,
+        children, component targets, permissions) had no backing in
+        cross-references, impact analysis, or drift detection.
+
+        Scoped to the CONTAINS hierarchy for the top portal (by content
+        count) — component-target/permission/access-path edges are a
+        separate follow-up, not attempted here.
+        """
+        try:
+            portals = psdb.portal_registry_portals(env)
+        except Exception:
+            return 0
+        if not portals:
+            return 0
+
+        top = portals[0]
+        root_objname = top.get("root_objname")
+        portal_name = top.get("portal_name")
+        if not root_objname or not portal_name:
+            return 0
+
+        try:
+            rows = psdb.portal_registry_subtree(env, portal_name, root_objname, max_depth=6, max_rows=limit)
+        except Exception:
+            return 0
+
+        add_node(graph, "portal_registry", root_objname, top.get("root_label") or root_objname, top)
+        for row in rows:
+            objname = (row.get("portal_objname") or "").strip()
+            parent = (row.get("portal_prntobjname") or "").strip()
+            if not objname:
+                continue
+            add_node(graph, "portal_registry", objname, row.get("portal_label") or objname, row)
+            if parent:
+                add_node(graph, "portal_registry", parent, parent, {})
+                add_edge(graph, "portal_registry", parent, "portal_registry", objname, "CONTAINS", row)
+        return len(rows)
+
     def ib_routings():
         if not ptmetadata.has_table(env, "PSIBRTNGDEFN"):
             return 0
@@ -2355,6 +2435,7 @@ def build(env="HCM", limit=50, persist=True):
         ("pm_transactions", pm_transactions),
         ("pm_events", pm_events),
         ("ib_operations", ib_operations),
+        ("portal_registries", portal_registries),
     ):
         provider(graph, name, loader)
 

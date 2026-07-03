@@ -314,7 +314,57 @@ Continue enriching graph relationships.
 
 ### Remaining
 
-- Continue aligning provider-specific Knowledge Graph ingestion with UOM `_relationships` / `_graph` relationship definitions
+- Continue aligning provider-specific Knowledge Graph ingestion with UOM
+  `_relationships` / `_graph` relationship definitions — an audit (see
+  "UOM/KG Alignment" below) covered ~20 of the highest-traffic provider
+  types and found 9 genuine mismatches; 4 are fixed (below), 5 remain:
+  `component → record` broader page-record usage, `page` subpages/security
+  edges (page-level security isn't modeled in the KG at all — only
+  component-level), `tree → field` edges, `component_interface → menu/
+  record/field` edges, and Application Engine's `CALLS`/PeopleCode edges +
+  node-type mismatch (`ae_section` vs `section` — same section has two
+  different ids depending which code path built it). The remaining ~34
+  provider types were not audited yet.
+
+### ✅ Completed (2026-07-03) — UOM/KG Alignment fixes (partial)
+
+An Explore-agent audit compared ~20 high-traffic UOM object types'
+`_relationships`/`_graph` declarations against what `connectors/graphdb.py`'s
+persisted-KG builders actually emit, and found 9 genuine mismatches (full
+list above). Fixed the 4 lowest-risk, highest-value ones:
+
+- **`operator → permissionlist`**: `operators()` only emitted `operator →
+  role` (`OWNS`); UOM's `operator_object()` promises a direct permissionlist
+  relationship too (`psdb.operator_permissionlists`). Added `HAS_PERMISSION`
+  edges.
+- **`role → operator`**: only the inverse (`operator → role`) existed in the
+  KG, so a role page couldn't traverse to its own members. Added `role →
+  operator` `HAS_MEMBER` edges via `psdb.role_users()`.
+- **`service_operation ↔ node`**: UOM promises a direct sender/receiver edge;
+  the KG only connected `node ↔ routing ↔ service_operation`, so reaching a
+  node from a service required a 2-hop traversal through the routing. Added
+  direct `node → service_operation` (`SENDS`) / `service_operation → node`
+  (`RECEIVES`) edges alongside the existing routing-hop edges.
+- **`portal_registry`**: had **zero KG persistence at all** — a UOM object
+  type with a rich compact graph preview (breadcrumbs, children, component
+  targets, permissions, access paths) but completely invisible to
+  cross-references, impact analysis, and drift detection. Added
+  `portal_registries()` builder persisting the folder/content-ref `CONTAINS`
+  hierarchy for the top portal (by content count), bounded by `limit`.
+  Component-target/permission/access-path edges are a separate follow-up,
+  not attempted here — scoped to the containment tree only.
+  **Found and fixed a real latent bug along the way**:
+  `psdb.portal_registry_portals()`'s root-folder lookup used
+  `LENGTH(TRIM(PORTAL_PRNTOBJNAME)) = 0`, but Oracle treats empty strings as
+  `NULL` — so `LENGTH(NULL) = 0` never matches, and `root_objname` was
+  always `None`. Fixed to `TRIM(PORTAL_PRNTOBJNAME) IS NULL` (Oracle
+  correctly treats both true-NULL and whitespace-only values as NULL under
+  TRIM, so this catches both).
+
+**Verified**: fresh graph rebuild (`limit=50`) — 4,026 `HAS_PERMISSION`
+edges, 568 `HAS_MEMBER` edges, 98 `SENDS`/`RECEIVES` edges, 50
+`portal_registry` `CONTAINS` edges (up from 0). `make check` 91/91; smoke
+test 69/69 (no admin page touched).
 
 ### ✅ Completed (2026-07-03) — Dynamic SQL READS/WRITES coverage
 

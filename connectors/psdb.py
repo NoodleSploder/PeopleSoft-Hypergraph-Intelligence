@@ -3279,7 +3279,7 @@ def portal_registry_portals(env_name):
                   FROM SYSADM.PSPRSMDEFN
                  WHERE UPPER(PORTAL_NAME) = UPPER(:pn)
                    AND PORTAL_REFTYPE = 'F'
-                   AND LENGTH(TRIM(PORTAL_PRNTOBJNAME)) = 0
+                   AND TRIM(PORTAL_PRNTOBJNAME) IS NULL
                  FETCH FIRST 1 ROWS ONLY
             """, {"pn": r["portal_name"]})
             if root_rows:
