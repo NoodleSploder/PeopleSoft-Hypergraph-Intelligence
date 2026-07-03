@@ -66,6 +66,7 @@ _NAV_GROUPS = [
         ("pcsearch",   "PC Search",       "/admin/pcsearch"),
     ]),
     ("Platform", [
+        ("whatchanged","What Changed", "/admin/whatchanged"),
         ("prcsdefn",   "Processes",    "/admin/prcsdefn"),
         ("ae",         "AE Programs",  "/admin/ae"),
         ("filelayout", "File Layouts", "/admin/filelayout"),

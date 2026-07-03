@@ -139,9 +139,10 @@ async function fetchSuggestions(q){{
   if(q.length<2){{document.getElementById('suggestions').innerHTML='';return;}}
   const env=window.dsGetEnv?window.dsGetEnv():'HCM';
   try{{
-    const d=await fetch(`/api/peoplesoft/${{env}}/component/search?q=${{encodeURIComponent(q)}}&limit=25`).then(r=>r.json());
+    const d=await fetch(`/api/peoplesoft/components?env=${{env}}&q=${{encodeURIComponent(q)}}&limit=25`).then(r=>r.json());
     const box=document.getElementById('suggestions');
-    box.innerHTML=(d.results||[]).map(r=>
+    const items=Array.isArray(d)?d:(d.results||[]);
+    box.innerHTML=items.map(r=>
       `<div class="sug-item" data-name="${{esc(r.pnlgrpname)}}" onclick="selectSug('${{esc(r.pnlgrpname)}}')">`+
       `<b>${{esc(r.pnlgrpname)}}</b> <span style="color:#445;font-size:10px">${{esc(r.descr||'')}}</span></div>`
     ).join('');
@@ -157,7 +158,7 @@ async function load(){{
   const env=window.dsGetEnv?window.dsGetEnv():'HCM';
   document.getElementById('result').innerHTML='<div class="empty" style="color:#334">Loading…</div>';
   try{{
-    const d=await fetch(`/api/peoplesoft/${{env}}/component/${{encodeURIComponent(comp)}}/events`).then(r=>r.json());
+    const d=await fetch(`/api/peoplesoft/components/${{encodeURIComponent(comp)}}/events?env=${{env}}`).then(r=>r.json());
     renderFlow(d);
   }}catch(err){{
     document.getElementById('result').innerHTML=`<div class="warn">Error: ${{esc(String(err))}}</div>`;
@@ -189,8 +190,8 @@ async function toggleSrc(rowId, comp, event, record, field){{
 
   srcRow.innerHTML='<div class="src-loading">Loading PeopleCode source…</div>';
   const env=window.dsGetEnv?window.dsGetEnv():'HCM';
-  const url=`/api/peoplesoft/${{env}}/component/${{encodeURIComponent(comp)}}/event-source`+
-    `?event=${{encodeURIComponent(event)}}&record=${{encodeURIComponent(record)}}&field=${{encodeURIComponent(field)}}`;
+  const url=`/api/peoplesoft/components/${{encodeURIComponent(comp)}}/event-source`+
+    `?env=${{env}}&event=${{encodeURIComponent(event)}}&record=${{encodeURIComponent(record)}}&field=${{encodeURIComponent(field)}}`;
   try{{
     const d=await fetch(url).then(r=>r.json());
     let html;

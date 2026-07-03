@@ -996,33 +996,19 @@ PHI should understand event order, execution context, and sequence-sensitive beh
 - PeopleCode metadata extraction exists or is planned as part of metadata intelligence
 - Runtime Monitor and Oracle ASH integration provide a foundation for later runtime correlation
 
+## ✅ Completed (2026-07-02) — Component Event Flow
+
+- `/admin/compflow` — Component Event Flow Explorer: enter any component name (autocomplete search), view all PeopleCode events grouped by phase (Search/Build/Interaction/Save/Other); click any event row to expand inline PeopleCode source with full syntax highlighting; modification detection shows user-modified events; record cross-links to Record Explorer; env-aware
+- `GET /api/peoplesoft/components/{comp}/events?env=` — returns all PSPCMPROG rows for objectid1∈{9,10} for the component; decodes phase, scope (Component/Record/Field), record, field, event name, lastupdoprid/dttm; also returns component OBJECTOWNERID from PSPNLGRPDEFN
+- `GET /api/peoplesoft/components/{comp}/event-source?env=&event=&record=&field=` — fetches PeopleCode source text from PSPCMTXT for the specific event; matches on objectvalue columns to narrow to the exact program
+- Both functions in `connectors/peoplecode.py`: `component_events()` and `component_event_source()`
+
+## ✅ Completed (2026-07-02) — Incident RCA
+
+- `/admin/rca` — Incident RCA dashboard: select time window (15m/1h/4h/24h quick buttons or custom datetime-local inputs), pick Oracle DB for ASH data, click Investigate; correlated view across Process Failures, Log Errors, Oracle ASH, IB Errors; summary stat cards, timeline list, cross-links to Runtime Monitor and IB Explorer
+- `GET /api/runtime/rca?env=&start=&end=&db=` — `rca_snapshot()` in execution.py correlates PSPRCSRQST failures, logdb errors, V$ACTIVE_SESSION_HISTORY, and PSAPMSGPUBHDR IB errors into a single time-windowed report with unified timeline
+
 ## Remaining
-
-### Canonical PeopleCode Event Model
-
-Add a canonical event sequence model for PeopleSoft component processing.
-
-Initial event coverage:
-
-- SearchInit
-- SearchSave
-- RowSelect
-- PreBuild
-- FieldDefault
-- FieldFormula
-- RowInit
-- PostBuild
-- Activate
-- FieldEdit
-- FieldChange
-- PrePopup
-- ItemSelected
-- RowInsert
-- RowDelete
-- SaveEdit
-- SavePreChange
-- Workflow
-- SavePostChange
 
 ### Event-Aware Metadata Indexing
 

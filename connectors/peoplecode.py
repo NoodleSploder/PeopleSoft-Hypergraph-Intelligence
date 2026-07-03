@@ -734,3 +734,166 @@ def graph(reference, env):
         "edges": edges,
         "warnings": result["warnings"],
     }, "peoplecode", "domain_peoplecode", "source-reference graph")
+
+
+# ── Component Event Flow ──────────────────────────────────────────────────────
+
+_PHASE_MAP = {
+    "SearchInit": "search", "SearchSave": "search", "SearchDefault": "search",
+    "PreBuild": "build", "FieldDefault": "build", "FieldFormula": "build",
+    "RowInit": "build", "PostBuild": "build", "Activate": "build",
+    "RowSelect": "build",
+    "FieldEdit": "interaction", "FieldChange": "interaction",
+    "PrePopup": "interaction", "ItemSelected": "interaction",
+    "RowInsert": "interaction", "RowDelete": "interaction",
+    "SaveEdit": "save", "SavePreChange": "save",
+    "Workflow": "save", "SavePostChange": "save",
+}
+
+_DELIVERED_OPRIDS = {"PPLSOFT", "PSOPRDEFN", "BATCH", "PTADMIN", ""}
+
+
+def component_events(env, comp):
+    """Return all PeopleCode events for a component, structured for the event flow UI."""
+    caps = capabilities(env)
+    if not caps["tables"]["pspcmprog"]:
+        return {"component": comp.upper(), "events": [], "warnings": ["PSPCMPROG not accessible."]}
+
+    try:
+        columns = psdb.select_existing_columns(env, "PSPCMPROG", [
+            "OBJECTID1", "OBJECTVALUE1", "OBJECTVALUE2", "OBJECTVALUE3",
+            "OBJECTVALUE4", "OBJECTVALUE5", "OBJECTVALUE6", "OBJECTVALUE7",
+            "PROGSEQ", "LASTUPDOPRID", "LASTUPDDTTM",
+        ])
+    except Exception as exc:
+        return {"component": comp.upper(), "events": [], "warnings": [str(exc)]}
+
+    col_list = ", ".join(columns)
+    try:
+        rows = psdb.query(env, f"""
+            SELECT {col_list}
+              FROM SYSADM.PSPCMPROG
+             WHERE OBJECTID1 IN (9, 10)
+               AND UPPER(OBJECTVALUE1) = UPPER(:comp)
+             ORDER BY OBJECTID1, OBJECTVALUE3, OBJECTVALUE4, OBJECTVALUE5, OBJECTVALUE6
+        """, {"comp": comp.upper()})
+    except Exception as exc:
+        return {"component": comp.upper(), "events": [], "warnings": [str(exc)]}
+
+    comp_owner = None
+    try:
+        owner_rows = psdb.query(env, """
+            SELECT OBJECTOWNERID FROM SYSADM.PSPNLGRPDEFN
+             WHERE UPPER(PNLGRPNAME) = UPPER(:comp) AND ROWNUM = 1
+        """, {"comp": comp.upper()})
+        if owner_rows:
+            comp_owner = (owner_rows[0].get("objectownerid") or "").strip() or None
+    except Exception:
+        pass
+
+    events = []
+    for row in rows:
+        r = {k.lower(): v for k, v in row.items()}
+        oid1 = int(r.get("objectid1") or 0)
+        ov = {i: (r.get(f"objectvalue{i}") or "").strip() for i in range(1, 8)}
+
+        ev = extract_event(r)
+        if not ev:
+            continue
+        ev_label = PEOPLECODE_EVENT_LABELS.get(ev.upper(), ev)
+        ev_up = ev.upper()
+
+        if oid1 == 9:
+            record, field, scope = None, None, "Component"
+        elif oid1 == 10:
+            if ov[3] and ev_up == ov[3].upper():
+                record, field, scope = None, None, "Component"
+            elif ov[4] and ev_up == ov[4].upper():
+                record, field, scope = ov[3] or None, None, "Record"
+            else:
+                record = ov[3] or None
+                field = ov[4] or None
+                scope = "Field" if field else "Record"
+        else:
+            continue
+
+        oprid = (r.get("lastupdoprid") or "").strip()
+        dttm = r.get("lastupddttm")
+        modified = oprid.upper() not in _DELIVERED_OPRIDS
+
+        events.append({
+            "event": ev_label,
+            "record": record,
+            "field": field,
+            "scope": scope,
+            "phase": _PHASE_MAP.get(ev_label, "other"),
+            "modified": modified,
+            "last_oprid": oprid if modified else None,
+            "last_dttm": str(dttm)[:19] if dttm and modified else None,
+        })
+
+    return {
+        "component": comp.upper(),
+        "component_owner": comp_owner,
+        "events": events,
+        "warnings": [],
+    }
+
+
+def component_event_source(env, comp, event, record=None, field=None):
+    """Fetch PeopleCode source for one specific component event."""
+    caps = capabilities(env)
+    if not caps["tables"]["pspcmprog"]:
+        return {"source": None, "warnings": ["PSPCMPROG not accessible."]}
+
+    try:
+        columns = psdb.select_existing_columns(env, "PSPCMPROG", [
+            "OBJECTID1", "OBJECTVALUE1", "OBJECTVALUE2", "OBJECTVALUE3",
+            "OBJECTVALUE4", "OBJECTVALUE5", "OBJECTVALUE6", "OBJECTVALUE7",
+            "PROGSEQ",
+        ])
+    except Exception as exc:
+        return {"source": None, "warnings": [str(exc)]}
+
+    col_list = ", ".join(columns)
+    try:
+        rows = psdb.query(env, f"""
+            SELECT {col_list}
+              FROM SYSADM.PSPCMPROG
+             WHERE OBJECTID1 IN (9, 10)
+               AND UPPER(OBJECTVALUE1) = UPPER(:comp)
+        """, {"comp": comp.upper()})
+    except Exception as exc:
+        return {"source": None, "warnings": [str(exc)]}
+
+    ev_up = event.upper()
+    rec_up = record.upper() if record else None
+    fld_up = field.upper() if field else None
+
+    for row in rows:
+        r = {k.lower(): v for k, v in row.items()}
+        oid1 = int(r.get("objectid1") or 0)
+        ov = {i: (r.get(f"objectvalue{i}") or "").strip() for i in range(1, 8)}
+
+        ev = extract_event(r)
+        if not ev or ev.upper() != ev_up:
+            continue
+
+        if oid1 == 9:
+            if not rec_up and not fld_up:
+                return source_for_reference(env, r)
+        elif oid1 == 10:
+            if ov[3] and ev_up == ov[3].upper():
+                if not rec_up and not fld_up:
+                    return source_for_reference(env, r)
+            elif ov[4] and ev_up == ov[4].upper():
+                row_rec = ov[3].upper() if ov[3] else None
+                if not fld_up and (not rec_up or row_rec == rec_up):
+                    return source_for_reference(env, r)
+            else:
+                row_rec = ov[3].upper() if ov[3] else None
+                row_fld = ov[4].upper() if ov[4] else None
+                if rec_up and row_rec == rec_up and fld_up and row_fld == fld_up:
+                    return source_for_reference(env, r)
+
+    return {"source": None, "warnings": [f"No PeopleCode found for {event} on {comp}."]}

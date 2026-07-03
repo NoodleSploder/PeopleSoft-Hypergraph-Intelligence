@@ -122,15 +122,19 @@ h2{color:#00e5ff;font-size:12px;letter-spacing:2px;text-transform:uppercase;
             border-radius:4px;padding:12px 18px">
   <div style="font-size:10px;color:#334;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Quick Navigation</div>
   <div style="display:flex;flex-wrap:wrap;gap:6px">
-    <a class="ql" href="/admin/objects">Object Explorer</a>
+    <a class="ql orange" href="/admin/whatchanged">What Changed</a>
+    <a class="ql" href="/admin/objects">Object Search</a>
+    <a class="ql" href="/admin/component">Components</a>
+    <a class="ql" href="/admin/page">Pages</a>
+    <a class="ql" href="/admin/permissionlist">Perm Lists</a>
+    <a class="ql" href="/admin/record">Records</a>
+    <a class="ql" href="/admin/ae">AE Programs</a>
     <a class="ql" href="/admin/graph">Graph Explorer</a>
     <a class="ql" href="/admin/ib">IB Explorer</a>
     <a class="ql" href="/admin/tracing">Tracing</a>
     <a class="ql" href="/admin/sqlws">SQL Workspace</a>
     <a class="ql" href="/admin/security">Security</a>
     <a class="ql" href="/admin/peoplecode">PeopleCode</a>
-    <a class="ql" href="/admin/record">Records</a>
-    <a class="ql" href="/admin/ae">AE Programs</a>
     <a class="ql" href="/admin/impact">Impact</a>
     <a class="ql" href="/admin/promotions">Promotions</a>
     <a class="ql" href="/admin/topology">Topology</a>

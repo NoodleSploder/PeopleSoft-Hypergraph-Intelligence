@@ -1878,6 +1878,21 @@ def peoplesoft_component_event_mapping(component: str, env: str = "HCM"):
     ]
 
 
+@router.get("/api/peoplesoft/components/{component}/events")
+def peoplesoft_component_events(component: str, env: str = "HCM"):
+    from connectors import peoplecode as pc
+    return pc.component_events(env, component)
+
+
+@router.get("/api/peoplesoft/components/{component}/event-source")
+def peoplesoft_component_event_source(
+    component: str, env: str = "HCM",
+    event: str = "", record: str = "", field: str = "",
+):
+    from connectors import peoplecode as pc
+    return pc.component_event_source(env, component, event, record or None, field or None)
+
+
 @router.get("/api/peoplesoft/components/{component}/drop-zones")
 def peoplesoft_component_drop_zones(component: str, env: str = "HCM"):
     return [

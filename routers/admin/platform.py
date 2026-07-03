@@ -2142,3 +2142,237 @@ function setTab(name, el) {{
 }})();
 </script>
 </body></html>""")
+
+
+@router.get("/whatchanged", response_class=HTMLResponse)
+def admin_whatchanged(request: Request, env: str = "HCM"):
+    nav = _nav_html("whatchanged", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>What Changed</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+<style>
+*{{box-sizing:border-box}}
+body{{margin:0;background:#050b12;color:#c8d8e8;font-family:Arial,sans-serif}}
+.muted{{color:#446;font-style:italic;font-size:12px}}
+.toolbar{{padding:14px 20px;border-bottom:1px solid #1a2a3a;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#060d16}}
+.quick-btn{{padding:4px 12px;border-radius:3px;cursor:pointer;font-size:12px;border:1px solid #1a2a3a;background:rgba(0,229,255,.05);color:#7faab2;transition:all .15s}}
+.quick-btn:hover,.quick-btn.on{{background:rgba(0,229,255,.12);border-color:rgba(0,229,255,.3);color:#00e5ff}}
+input[type=date]{{background:#0a1520;border:1px solid #1a2a3a;color:#c8d8e8;padding:4px 8px;border-radius:3px;font-size:12px}}
+.run-btn{{padding:5px 16px;border-radius:3px;background:#00e5ff;color:#000;font-weight:bold;font-size:12px;border:none;cursor:pointer}}
+.run-btn:hover{{background:#33eeff}}
+.content{{padding:20px;max-width:1200px}}
+.summary-bar{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}}
+.type-pill{{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:3px;cursor:pointer;font-size:12px;border:1px solid transparent;transition:all .15s}}
+.type-pill:hover{{filter:brightness(1.2)}}
+.type-pill.off{{opacity:.4}}
+.type-pill .cnt{{font-size:16px;font-weight:bold}}
+.section{{margin-bottom:16px;border:1px solid #1a2a3a;border-radius:4px;overflow:hidden}}
+.sec-hdr{{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;background:#0a1520}}
+.sec-hdr:hover{{background:#0d1b2a}}
+.sec-body{{display:none}}
+.sec-body.open{{display:block}}
+table{{width:100%;border-collapse:collapse;font-size:12px}}
+th{{padding:5px 10px;text-align:left;color:#556;font-size:10px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #1a2a3a;background:#070f18}}
+td{{padding:5px 10px;border-bottom:1px solid #0d1520}}
+tr:hover td{{background:rgba(0,229,255,.03)}}
+.name-link{{color:#00e5ff;font-family:monospace;text-decoration:none}}
+.name-link:hover{{text-decoration:underline}}
+.dt{{color:#446;font-size:11px;white-space:nowrap}}
+.op{{color:#667;font-size:11px}}
+.desc{{color:#8aabb8;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.err{{color:#f88;font-size:11px;padding:8px 12px}}
+#status{{font-size:12px;color:#446}}
+</style>
+</head><body>
+{nav}
+<div class="toolbar">
+  <span style="font-size:13px;font-weight:bold;color:#00e5ff;letter-spacing:.5px">What Changed</span>
+  <span style="color:#1a2a3a">|</span>
+  <span style="font-size:11px;color:#446">Since:</span>
+  <span class="quick-btn on" data-days="7" onclick="setQuick(this,7)">7 days</span>
+  <span class="quick-btn" data-days="14" onclick="setQuick(this,14)">14 days</span>
+  <span class="quick-btn" data-days="30" onclick="setQuick(this,30)">30 days</span>
+  <span class="quick-btn" data-days="90" onclick="setQuick(this,90)">90 days</span>
+  <input type="date" id="sinceDate" onchange="clearQuick()">
+  <button class="run-btn" onclick="runAll()">Search</button>
+  <span id="status"></span>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+    <span style="font-size:11px;color:#446">Env:</span>
+    <span style="font-size:12px;color:#00e5ff;font-weight:bold">{env}</span>
+  </div>
+</div>
+<div class="content" id="content">
+  <div class="muted" style="text-align:center;margin-top:40px">Select a time range and click Search to see what changed in {env}.</div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = "{env}";
+
+// Object type config — sql aliases must be N/D/DT/OP (Oracle uppercases them)
+const TS = `TO_TIMESTAMP(:since, 'YYYY-MM-DD HH24:MI:SS')`;
+const TYPES = [
+  {{ id:'record',     label:'Records',     color:'#00e5ff', sql:`SELECT recname n, recdescr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSRECDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                               link: n => `/admin/record/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
+  {{ id:'component',  label:'Components',  color:'#44aaff', sql:`SELECT pnlgrpname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPNLGRPDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                          link: n => `/admin/component?name=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
+  {{ id:'page',       label:'Pages',       color:'#8888ff', sql:`SELECT pnlname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPNLDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                link: n => `/admin/page?name=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
+  {{ id:'ae',         label:'AE Programs', color:'#22cc88', sql:`SELECT ae_applid n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSAEAPPLDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                           link: n => `/admin/ae?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
+  {{ id:'field',      label:'Fields',      color:'#22ddcc', sql:`SELECT fieldname n, '' d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSDBFIELD WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                  link: n => `/admin/field/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
+  {{ id:'peoplecode', label:'PeopleCode',  color:'#aa66ff', sql:`SELECT objectvalue1||'.'||objectvalue2||'.'||objectvalue3||'.'||objectvalue4||'.'||objectvalue5 n, '' d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPCMPROG WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`, link: n => `/admin/peoplecode/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
+  {{ id:'sql',        label:'SQL Defs',    color:'#4488ff', sql:`SELECT sqlid n, '' d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSSQLDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                      link: n => `/admin/object/sql_definition/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
+  {{ id:'permlist',   label:'Perm Lists',  color:'#ff9900', sql:`SELECT classid n, classdefndesc d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSCLASSDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                       link: n => `/admin/permissionlist/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
+  {{ id:'role',       label:'Roles',       color:'#ffaa22', sql:`SELECT rolename n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSROLEDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                               link: n => `/admin/role/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
+];
+
+let activeTypes = new Set(TYPES.map(t => t.id));
+let results = {{}};
+
+function isoDate(daysAgo) {{
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  return d.toISOString().slice(0,10);
+}}
+
+function sinceDate() {{
+  return document.getElementById('sinceDate').value || isoDate(7);
+}}
+
+function setQuick(el, days) {{
+  document.querySelectorAll('.quick-btn').forEach(b => b.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById('sinceDate').value = isoDate(days);
+}}
+function clearQuick() {{
+  document.querySelectorAll('.quick-btn').forEach(b => b.classList.remove('on'));
+}}
+
+async function execSQL(sql, since) {{
+  try {{
+    const r = await fetch('/api/sqlws/execute', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{
+        env: ENV,
+        sql: sql,
+        binds: {{since: since + ' 00:00:00'}},
+        max_rows: 500,
+        timeout_secs: 30
+      }})
+    }});
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.rows || d.data || null;
+  }} catch(e) {{ return null; }}
+}}
+
+function fmtDt(s) {{
+  if (!s) return '';
+  const d = new Date(s);
+  if (isNaN(d)) return String(s).slice(0,16);
+  return d.toLocaleDateString('en-AU', {{day:'2-digit',month:'short',year:'numeric'}}) + ' ' + d.toTimeString().slice(0,5);
+}}
+
+async function runAll() {{
+  const since = sinceDate();
+  const content = document.getElementById('content');
+  const status = document.getElementById('status');
+  status.textContent = 'Querying…';
+  content.innerHTML = '<div class="muted" style="text-align:center;margin-top:30px">Loading changes since ' + esc(since) + '…</div>';
+
+  results = {{}};
+  const promises = TYPES.map(async t => {{
+    const rows = await execSQL(t.sql, since);
+    results[t.id] = rows;
+  }});
+  await Promise.all(promises);
+
+  renderResults(since);
+}}
+
+function renderResults(since) {{
+  const status = document.getElementById('status');
+  const content = document.getElementById('content');
+
+  const total = TYPES.reduce((s,t) => s + (results[t.id] ? results[t.id].length : 0), 0);
+  const typesWithData = TYPES.filter(t => results[t.id] && results[t.id].length > 0);
+
+  if (total === 0) {{
+    status.textContent = 'No changes found since ' + since;
+    content.innerHTML = '<div class="muted" style="text-align:center;margin-top:40px">No changes found since ' + esc(since) + '.</div>';
+    return;
+  }}
+
+  status.textContent = `${{total}} change${{total===1?'':'s'}} across ${{typesWithData.length}} object type${{typesWithData.length===1?'':'s'}} since ${{since}}`;
+
+  // Summary pills
+  let html = '<div class="summary-bar">';
+  TYPES.forEach(t => {{
+    const rows = results[t.id] || [];
+    if (!rows.length) return;
+    const on = activeTypes.has(t.id);
+    html += `<div class="type-pill${{on?'':' off'}}" style="background:${{t.color}}18;border-color:${{t.color}}44;color:${{t.color}}"
+      onclick="toggleType('${{t.id}}',this)">
+      <span class="cnt">${{rows.length}}</span>
+      <span>${{esc(t.label)}}</span>
+    </div>`;
+  }});
+  html += '</div>';
+
+  // Sections
+  TYPES.forEach(t => {{
+    const rows = results[t.id] || [];
+    if (!rows.length) return;
+    const on = activeTypes.has(t.id);
+    const rowsHtml = rows.map(r => {{
+      const name = (r.N || r.n || r[0] || '').trim();
+      const desc = (r.D || r.d || r[1] || '').trim();
+      const dt   = r.DT || r.dt || r[2] || '';
+      const op   = (r.OP || r.op || r[3] || '').trim();
+      const href = t.link(name);
+      return `<tr>
+        <td><a class="name-link" href="${{esc(href)}}">${{esc(name)}}</a></td>
+        <td class="desc">${{esc(desc)}}</td>
+        <td class="dt">${{esc(fmtDt(dt))}}</td>
+        <td class="op">${{esc(op)}}</td>
+      </tr>`;
+    }}).join('');
+
+    html += `<div class="section" id="sec-${{t.id}}" style="display:${{on?'block':'none'}}">
+      <div class="sec-hdr" onclick="toggleSec('${{t.id}}')">
+        <span style="color:#778;font-size:10px">&#x25B6;</span>
+        <span style="color:${{t.color}};font-weight:bold;font-size:12px">${{esc(t.label)}}</span>
+        <span style="color:#556;font-size:11px">(${{rows.length}}${{rows.length===500?' — limit reached':''}})${{rows.length===500?' <span style="color:#f90;font-size:10px">⚠ truncated at 500</span>':''}}</span>
+      </div>
+      <div class="sec-body open" id="body-${{t.id}}">
+        <table>
+          <thead><tr><th>Name</th><th>Description</th><th>Changed</th><th>By</th></tr></thead>
+          <tbody>${{rowsHtml}}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }});
+
+  content.innerHTML = html;
+}}
+
+function toggleType(id, el) {{
+  if (activeTypes.has(id)) {{ activeTypes.delete(id); el.classList.add('off'); }}
+  else {{ activeTypes.add(id); el.classList.remove('off'); }}
+  const sec = document.getElementById('sec-' + id);
+  if (sec) sec.style.display = activeTypes.has(id) ? 'block' : 'none';
+}}
+
+function toggleSec(id) {{
+  const body = document.getElementById('body-' + id);
+  const hdr  = document.getElementById('sec-' + id)?.querySelector('.sec-hdr span');
+  if (!body) return;
+  body.classList.toggle('open');
+  if (hdr) hdr.textContent = body.classList.contains('open') ? '▼' : '▶';
+}}
+
+// Initialise with 7-day default
+document.getElementById('sinceDate').value = isoDate(7);
+
+// Auto-run on load
+runAll();
+</script>
+</body></html>""")
