@@ -869,6 +869,7 @@ def summary(env1, env2):
         ("IB Routings",      "SELECT COUNT(*) AS n FROM SYSADM.PSIBRTNGDEFN WHERE ROUTINGDEFNNAME NOT LIKE '~%'"),
         ("IB Messages",      "SELECT COUNT(*) AS n FROM SYSADM.PSMSGDEFN"),
         ("Comp. Interfaces", "SELECT COUNT(*) AS n FROM SYSADM.PSBCDEFN"),
+        ("Process Defs",     "SELECT COUNT(*) AS n FROM SYSADM.PS_PRCSDEFN"),
     ]
     rows = []
     warnings = []

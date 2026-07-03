@@ -486,6 +486,7 @@ function render(d) {
       <div class="tab on" onclick="switchTab('meta')">Overview</div>
       ${d.includes && d.includes.length ? `<div class="tab" onclick="switchTab('tree')">Include Tree</div>` : ''}
       <div class="tab" onclick="switchTab('src')">Source</div>
+      <div class="tab" onclick="switchTab('records')">KG Records</div>
       ${isSquc ? `<div class="tab" onclick="switchTab('inclby')">Included By <span id="inclByBadge" style="font-size:10px;opacity:.7"></span></div>` : ''}
     </div>
 
@@ -539,12 +540,19 @@ function render(d) {
         <div id="srcContent" style="color:#7faab2;font-size:12px;padding:8px">Loading source…</div>
       </div>
     </div>
+
+    <div id="paneRecords" style="display:none">
+      <div class="sqr-card">
+        <h3>Records Referenced <span id="kgRecBadge" style="font-size:10px;font-weight:400;color:#7faab2"></span></h3>
+        <div id="kgRecContent" style="color:#7faab2;font-size:12px;padding:8px">Loading…</div>
+      </div>
+    </div>
   `;
   // lazy-load source when tab opened
   _detail = d;
 }
 
-let _detail = null, _srcLoaded = false, _inclByLoaded = false, _treeLoaded = false;
+let _detail = null, _srcLoaded = false, _inclByLoaded = false, _treeLoaded = false, _kgRecLoaded = false;
 
 function switchTab(tab) {
   document.querySelectorAll('.tab-row .tab').forEach(t => {
@@ -552,12 +560,14 @@ function switchTab(tab) {
     if (m) t.classList.toggle('on', m[1] === tab);
   });
   $('paneOverview').style.display = tab === 'meta'   ? '' : 'none';
-  const pt = $('paneTree');    if (pt) pt.style.display = tab === 'tree'   ? '' : 'none';
+  const pt = $('paneTree');    if (pt) pt.style.display = tab === 'tree'    ? '' : 'none';
   $('paneSrc').style.display      = tab === 'src'    ? '' : 'none';
-  const ip = $('paneIncludedBy'); if (ip) ip.style.display = tab === 'inclby' ? '' : 'none';
-  if (tab === 'src'    && !_srcLoaded)    loadSource();
-  if (tab === 'inclby' && !_inclByLoaded) loadInclBy();
-  if (tab === 'tree'   && !_treeLoaded)   loadTree();
+  const ip = $('paneIncludedBy'); if (ip) ip.style.display = tab === 'inclby'  ? '' : 'none';
+  const rp = $('paneRecords');   if (rp) rp.style.display = tab === 'records' ? '' : 'none';
+  if (tab === 'src'     && !_srcLoaded)    loadSource();
+  if (tab === 'inclby'  && !_inclByLoaded) loadInclBy();
+  if (tab === 'tree'    && !_treeLoaded)   loadTree();
+  if (tab === 'records' && !_kgRecLoaded)  loadKgRecords();
 }
 
 async function loadSource() {
@@ -574,6 +584,42 @@ async function loadSource() {
     $('srcContent').innerHTML = `<pre style="margin:0;font-size:11px;line-height:1.5;overflow-x:auto;white-space:pre-wrap">${highlightSQR(d.source)}</pre>`;
   } catch(e) {
     $('srcContent').innerHTML = `<span style="color:#f55">Error: ${esc(String(e))}</span>`;
+  }
+}
+
+async function loadKgRecords() {
+  _kgRecLoaded = true;
+  const fn = (_detail && _detail.filename || '').toUpperCase();
+  if (!fn) { $('kgRecContent').innerHTML = '<span style="color:#4a6a7a">No program loaded</span>'; return; }
+  const nodeId = 'sqr_program:' + fn;
+  try {
+    const r = await fetch('/api/graph/neighbors/' + encodeURIComponent(nodeId) + '?env=HCM&limit=150');
+    const d = await r.json();
+    const edges = (d.edges || []).filter(e => e.type === 'READS' || e.type === 'WRITES');
+    $('kgRecBadge').textContent = edges.length ? '(' + edges.length + ' from KG)' : '(KG)';
+    if (!edges.length) {
+      $('kgRecContent').innerHTML = '<div style="color:#4a6a7a;padding:8px">No record edges in Knowledge Graph for this program. Rebuild the graph to index SQR \u2192 record edges.</div>';
+      return;
+    }
+    const nodeMap = {};
+    (d.nodes || []).forEach(n => { nodeMap[n.id] = n; });
+    const reads  = edges.filter(e => e.type === 'READS');
+    const writes = edges.filter(e => e.type === 'WRITES');
+    function renderGroup(title, color, grpEdges) {
+      if (!grpEdges.length) return '';
+      const items = grpEdges.map(e => {
+        const node = nodeMap[e.target] || {};
+        const recName = (e.target || '').replace('record:', '');
+        const url = node.canonical_url || ('/admin/object/record/' + encodeURIComponent(recName));
+        return `<li><a href="${esc(url)}" target="_blank">${esc(recName)}</a></li>`;
+      }).join('');
+      return `<div style="margin-bottom:14px">
+        <div style="font-size:10px;font-weight:700;color:${color};letter-spacing:.05em;margin-bottom:6px">${title} (${grpEdges.length})</div>
+        <ul class="sqr-list">${items}</ul></div>`;
+    }
+    $('kgRecContent').innerHTML = renderGroup('READS', '#0af', reads) + renderGroup('WRITES', '#fa0', writes);
+  } catch(e) {
+    $('kgRecContent').innerHTML = `<div style="color:#f55;padding:8px">Error: ${esc(String(e))}</div>`;
   }
 }
 

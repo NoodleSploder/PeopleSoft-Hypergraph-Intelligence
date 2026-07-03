@@ -38,9 +38,10 @@ def index_source(source: dict, progress_cb=None) -> dict:
 
     sqrdb.init_db()
 
-    ssh_host = source["ssh_host"]
-    sqr_dir  = source["sqr_dir"].rstrip("/")
-    key      = source["key"]
+    ssh_host    = source["ssh_host"]
+    sqr_dir     = source["sqr_dir"].rstrip("/")
+    key         = source["key"]
+    source_type = source.get("source_type", "")
 
     indexed = 0
     errors  = 0
@@ -68,7 +69,7 @@ def index_source(source: dict, progress_cb=None) -> dict:
                     content = raw.decode("latin-1", errors="replace")
 
                 parsed = sqrparser.parse(content, filename=filename)
-                sqrdb.upsert_program(parsed, filename, ext, key)
+                sqrdb.upsert_program(parsed, filename, ext, key, source_type)
                 indexed += 1
             except Exception as exc:
                 errors += 1

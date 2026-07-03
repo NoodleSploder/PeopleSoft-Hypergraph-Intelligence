@@ -75,6 +75,40 @@ def sqr_sources_list(env: Optional[str] = Query(None)):
     return {"envs": envs, "sources": sources}
 
 
+@router.get("/overrides")
+def sqr_overrides(env: Optional[str] = Query(None)):
+    """Return filenames that exist in BOTH delivered and custom sources.
+
+    These are customised overrides of delivered SQR programs.
+    Filter by env to scope to a specific environment.
+    """
+    import json
+    from pathlib import Path
+    from connectors import sqrdb
+    sqrdb.init_db()
+
+    cfg_path = Path(__file__).parent.parent / "config.json"
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+
+    all_sources = cfg.get("sqr_sources", [])
+    if env:
+        all_sources = [s for s in all_sources if s.get("env", "").upper() == env.upper()]
+
+    # Build {env: {delivered: [keys], custom: [keys]}} map
+    env_source_keys: dict = {}
+    for s in all_sources:
+        e = s.get("env", "UNKNOWN")
+        st = s.get("source_type", "")
+        if st not in ("delivered", "custom"):
+            continue
+        env_source_keys.setdefault(e, {"delivered": [], "custom": []})
+        env_source_keys[e][st].append(s["key"])
+
+    results = sqrdb.overrides(env_source_keys)
+    return {"overrides": results, "count": len(results)}
+
+
 @router.get("/analytics")
 def sqr_analytics():
     from connectors import sqrdb

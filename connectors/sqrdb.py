@@ -28,23 +28,70 @@ def _conn() -> sqlite3.Connection:
 def init_db() -> None:
     c = _conn()
     with c:
-        c.executescript("""
-            CREATE TABLE IF NOT EXISTS sqr_programs (
-                id            INTEGER PRIMARY KEY,
-                filename      TEXT NOT NULL UNIQUE,
-                program_name  TEXT,
-                file_type     TEXT,
-                source_key    TEXT,
-                description   TEXT,
-                release       TEXT,
-                revision      TEXT,
-                sqr_date      TEXT,
-                table_count   INTEGER DEFAULT 0,
-                include_count INTEGER DEFAULT 0,
-                proc_count    INTEGER DEFAULT 0,
-                indexed_at    TEXT
-            );
+        # ── Migration: upgrade from UNIQUE(filename) → UNIQUE(filename, source_key)
+        # and add source_type column if this is an existing database.
+        existing = c.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='sqr_programs'"
+        ).fetchone()
 
+        if existing and "UNIQUE(filename, source_key)" not in (existing[0] or ""):
+            # Recreate table with the new composite unique key
+            c.executescript("""
+                ALTER TABLE sqr_programs RENAME TO sqr_programs_v1;
+                CREATE TABLE sqr_programs (
+                    id            INTEGER PRIMARY KEY,
+                    filename      TEXT NOT NULL,
+                    program_name  TEXT,
+                    file_type     TEXT,
+                    source_key    TEXT,
+                    source_type   TEXT,
+                    description   TEXT,
+                    release       TEXT,
+                    revision      TEXT,
+                    sqr_date      TEXT,
+                    table_count   INTEGER DEFAULT 0,
+                    include_count INTEGER DEFAULT 0,
+                    proc_count    INTEGER DEFAULT 0,
+                    indexed_at    TEXT,
+                    UNIQUE(filename, source_key)
+                );
+                INSERT INTO sqr_programs
+                    (id, filename, program_name, file_type, source_key,
+                     description, release, revision, sqr_date,
+                     table_count, include_count, proc_count, indexed_at)
+                SELECT id, filename, program_name, file_type, source_key,
+                       description, release, revision, sqr_date,
+                       table_count, include_count, proc_count, indexed_at
+                  FROM sqr_programs_v1;
+                DROP TABLE sqr_programs_v1;
+            """)
+        elif not existing:
+            c.executescript("""
+                CREATE TABLE IF NOT EXISTS sqr_programs (
+                    id            INTEGER PRIMARY KEY,
+                    filename      TEXT NOT NULL,
+                    program_name  TEXT,
+                    file_type     TEXT,
+                    source_key    TEXT,
+                    source_type   TEXT,
+                    description   TEXT,
+                    release       TEXT,
+                    revision      TEXT,
+                    sqr_date      TEXT,
+                    table_count   INTEGER DEFAULT 0,
+                    include_count INTEGER DEFAULT 0,
+                    proc_count    INTEGER DEFAULT 0,
+                    indexed_at    TEXT,
+                    UNIQUE(filename, source_key)
+                );
+            """)
+        else:
+            # Table already has the new schema; ensure source_type column exists
+            cols = {row[1] for row in c.execute("PRAGMA table_info(sqr_programs)")}
+            if "source_type" not in cols:
+                c.execute("ALTER TABLE sqr_programs ADD COLUMN source_type TEXT")
+
+        c.executescript("""
             CREATE TABLE IF NOT EXISTS sqr_tables (
                 program_id  INTEGER NOT NULL REFERENCES sqr_programs(id) ON DELETE CASCADE,
                 table_name  TEXT NOT NULL,
@@ -70,7 +117,9 @@ def init_db() -> None:
     c.close()
 
 
-def upsert_program(parsed: dict, filename: str, file_type: str, source_key: str) -> int:
+
+def upsert_program(parsed: dict, filename: str, file_type: str, source_key: str,
+                   source_type: str = "") -> int:
     """Insert or replace one parsed program. Returns program id."""
     import time
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -82,13 +131,13 @@ def upsert_program(parsed: dict, filename: str, file_type: str, source_key: str)
     with c:
         c.execute("""
             INSERT INTO sqr_programs
-                (filename, program_name, file_type, source_key, description,
+                (filename, program_name, file_type, source_key, source_type, description,
                  release, revision, sqr_date, table_count, include_count, proc_count, indexed_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(filename) DO UPDATE SET
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(filename, source_key) DO UPDATE SET
                 program_name=excluded.program_name,
                 file_type=excluded.file_type,
-                source_key=excluded.source_key,
+                source_type=excluded.source_type,
                 description=excluded.description,
                 release=excluded.release,
                 revision=excluded.revision,
@@ -102,6 +151,7 @@ def upsert_program(parsed: dict, filename: str, file_type: str, source_key: str)
             parsed.get("program_name", ""),
             file_type,
             source_key,
+            source_type or "",
             parsed.get("description", ""),
             parsed.get("release", ""),
             parsed.get("revision", ""),
@@ -112,7 +162,10 @@ def upsert_program(parsed: dict, filename: str, file_type: str, source_key: str)
             now,
         ))
 
-        row = c.execute("SELECT id FROM sqr_programs WHERE filename=?", (filename,)).fetchone()
+        row = c.execute(
+            "SELECT id FROM sqr_programs WHERE lower(filename)=lower(?) AND source_key=?",
+            (filename, source_key)
+        ).fetchone()
         pid = row["id"]
 
         c.execute("DELETE FROM sqr_tables WHERE program_id=?", (pid,))
@@ -138,6 +191,38 @@ def upsert_program(parsed: dict, filename: str, file_type: str, source_key: str)
 
     c.close()
     return pid
+
+
+def overrides(env_source_keys: dict[str, list[str]]) -> list[dict]:
+    """Return files that exist in BOTH delivered and custom sources for any env.
+
+    env_source_keys = {"HCM": {"delivered": ["hcm_sqr_delivered"],
+                                "custom":    ["hcm_sqr_custom"]}, ...}
+    Returns list of {filename, env, delivered_key, custom_key, file_type, description}.
+    """
+    c = _conn()
+    results = []
+    for env, type_map in env_source_keys.items():
+        del_keys = type_map.get("delivered", [])
+        cust_keys = type_map.get("custom", [])
+        if not del_keys or not cust_keys:
+            continue
+        del_ph  = ",".join("?" for _ in del_keys)
+        cust_ph = ",".join("?" for _ in cust_keys)
+        rows = c.execute(f"""
+            SELECT d.filename, d.source_key AS delivered_key, cu.source_key AS custom_key,
+                   d.file_type, d.description
+              FROM sqr_programs d
+              JOIN sqr_programs cu
+                ON lower(cu.filename) = lower(d.filename)
+               AND cu.source_key IN ({cust_ph})
+             WHERE d.source_key IN ({del_ph})
+             ORDER BY d.filename
+        """, list(cust_keys) + list(del_keys)).fetchall()
+        for r in rows:
+            results.append({"env": env, **dict(r)})
+    c.close()
+    return results
 
 
 def stats() -> dict:
