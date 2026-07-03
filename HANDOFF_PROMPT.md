@@ -63,6 +63,9 @@ All database/file/AI logic lives in `connectors/`. Key modules:
 | `cobolparser.py` | PeopleSoft `.cbl` parser; classifies program vs copybook (COPY target, no separate `.cpy` file), COPY deps, static CALL targets, EXEC SQL table refs |
 | `cobol_db.py` | SQLite COBOL index (`data/cobol.db`); recursive-CTE `get_copy_deps()`; `content_hash` for incremental scan |
 | `cobolingest.py` | SSH-based COBOL filesystem indexer (`cobol_sources` in config.json); treats per-file `PermissionError` as `denied`, not a crash |
+| `appsrvproc.py` | SSH `ps`-based live Tuxedo/App Server process tracking |
+| `plugins.py` | Plugin SDK registries: object/graph/runtime providers, nav entries, routers (see `PLUGINS.md`) |
+| `pluginloader.py` | Discovers/imports `plugins/*.py`, calls `register(sdk)`; isolated per-plugin (one broken plugin never crashes startup) |
 | `sshclient.py` | Paramiko SSH/SFTP wrapper with per-host connection pooling |
 | `runtimedb.py` | SQLite runtime snapshot store |
 | `promotiondb.py` | SQLite promotion event log (`data/promotions.db`) |
@@ -128,7 +131,9 @@ Drawn from `ROADMAP.md` remaining sections — pick the highest-value slice:
   (needs real DV/TST/UAT/PRD Oracle connections — blocked until available)
 
 ### Phase 9 — Platform Extensibility (remaining)
-- Plugin SDK: custom object/graph/runtime providers, custom dashboards
+- (v1 done — see `PLUGINS.md`, `connectors/plugins.py`,
+  `connectors/pluginloader.py`, `plugins/example_hello.py`. Custom health
+  checks and a dedicated config-driven-source registry are noted as v2.)
 
 ### Phase 10 — Source Artifact Intelligence (remaining)
 - (none open — COBOL KG wiring done: `cobol_program` node type with READS/WRITES/

@@ -151,9 +151,29 @@ _NAV_CSS = (
 )
 
 
+def _merged_nav_groups():
+    """_NAV_GROUPS plus any entries plugins registered via connectors/plugins.py,
+    merged into existing groups by label (or appended as a new group)."""
+    from connectors import plugins as _plugins
+    plugin_entries = _plugins.get_nav_entries()
+    if not plugin_entries:
+        return _NAV_GROUPS
+
+    groups = [(label, list(items)) for label, items in _NAV_GROUPS]
+    by_label = {label: items for label, items in groups if label is not None}
+    for group_label, entry in plugin_entries:
+        if group_label in by_label:
+            by_label[group_label].append(entry)
+        else:
+            new_items = [entry]
+            groups.append((group_label, new_items))
+            by_label[group_label] = new_items
+    return groups
+
+
 def _nav_html(active: str, env: str = None) -> str:
     links = ""
-    for group_label, items in _NAV_GROUPS:
+    for group_label, items in _merged_nav_groups():
         if group_label is None:
             key, label, href = items[0]
             cls = "ds-nav-link ds-active" if key == active else "ds-nav-link"

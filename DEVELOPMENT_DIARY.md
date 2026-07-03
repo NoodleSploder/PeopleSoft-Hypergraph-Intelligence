@@ -6,6 +6,72 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — Plugin SDK v1 — 69/69
+
+### New: Phase 9 Platform Extensibility, from scratch
+
+Went through plan mode for this one — it's a real architecture decision
+(where do the extension points live, what's the loader contract, how do
+plugins avoid needing to edit core files) rather than a bounded bug-fix or
+data-source addition. Full plan is in the approved plan file; summary here.
+
+**Investigation first** (via an Explore agent, no code written yet):
+confirmed zero plugin code exists anywhere in the repo, and every one of the
+four requested extension surfaces (object providers, KG builders, runtime
+providers, admin dashboards) has the *same* underlying shape today — a
+literal, hardcoded Python list/dict/if-chain that only core code can append
+to. E.g. `graphdb.build()` defines ~50 KG builder closures and iterates a
+literal tuple; `routers/peoplesoft.py` dispatches object types through a
+50+-branch `if/elif` chain; `_NAV_GROUPS` in `_core.py` is a literal nav
+list. No registry, no discovery mechanism, anywhere.
+
+**Design**: one small module, `connectors/plugins.py`, holding four
+appendable registries (object/graph/runtime providers + nav entries/routers)
+and the `register_*()`/`get_*()` functions plugins and core code use. A
+thin loader, `connectors/pluginloader.py`, scans `plugins/*.py` at startup
+and calls each module's `register(sdk)`. Each of the four hardcoded spots
+gets a small, additive change to also consult the matching registry —
+zero risk to existing built-in behavior since the plugin check always comes
+first and falls through unchanged if nothing's registered.
+
+**Isolation is load-bearing, not incidental** — verified it, not just wrote
+the try/except: deliberately appended a syntax error to
+`plugins/example_hello.py`, restarted the server, confirmed
+`pluginloader: failed to load plugin 'example_hello' — ...` was logged,
+`/admin/plugin/hello` correctly 404'd, and every *other* admin page
+(`/admin/ae`, etc.) still returned 200 — then restored the file and confirmed
+it came back clean.
+
+**Files**:
+- `connectors/plugins.py` — the four registries
+- `connectors/pluginloader.py` — discovery/loading, per-plugin isolation
+- `plugins/example_hello.py` — worked example: a `hello_widget` object type
+  (in-memory fake data, no DB/SSH — meant as a copy-paste starting point,
+  not a real feature), a graph provider adding its nodes/edges to the KG, a
+  runtime provider with static status, and its own admin page
+  (`/admin/plugin/hello`) under a new "Plugins" nav group
+- `routers/peoplesoft.py`, `connectors/graphdb.py`, `routers/runtime.py`,
+  `routers/admin/runtime.py`, `routers/admin/_core.py`, `main.py` — the six
+  small wiring changes described above
+- `PLUGINS.md` (repo root) — the actual SDK docs, with code snippets for
+  each of the four extension points, loading/isolation semantics, and an
+  explicit list of what's *not* covered yet (custom health checks, a
+  dedicated config-driven-source registry) as v2 candidates
+
+**Verified end-to-end through the running server** (not just unit-level):
+- `GET /api/peoplesoft/object/hello_widget/ALPHA?env=HCM` → real payload
+  built entirely by the plugin's `object_fn`/`payload_fn`
+- `GET /api/runtime/plugins/hello?env=HCM` → live status dict
+- `GET /admin/plugin/hello` → 200, and "Hello Plugin" appears in the nav
+  bar's new "Plugins" group on every page, not just its own
+- `GET /api/graph/build?env=HCM&limit=50` → persisted KG JSON contains real
+  `hello_widget:ALPHA/BRAVO/CHARLIE` nodes and `USES` edges to `record:JOB`/
+  `record:PERSONAL_DATA`
+- Isolation test as described above
+- `make check` 91/91; smoke test 69/69 (68 existing + `/admin/plugin/hello`)
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — Dynamic SQL READS/WRITES Coverage — 68/68
 
 ### Closed the last open Phase 5 item: non-literal PeopleCode dynamic SQL

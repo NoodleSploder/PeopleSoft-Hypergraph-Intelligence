@@ -664,6 +664,14 @@ def object_payload(env, object_type, object_name):
     graph_link = f"/api/peoplesoft/graph/{object_type}/{object_name}?env={env}"
     admin_link = f"/admin/object/{object_type}/{object_name}"
 
+    from connectors import plugins as _plugins
+    plugin_provider = _plugins.get_object_provider(object_type)
+    if plugin_provider:
+        obj = plugin_provider["object_fn"](env, object_name)
+        if obj.get("status") == "not_found":
+            raise HTTPException(status_code=404, detail=f"{object_type} not found")
+        return attach_graph_context(plugin_provider["payload_fn"](obj), env)
+
     if object_type == "operator":
         op_obj = uom.operator_object(env, object_name)
         if op_obj.get("status") == "not_found":

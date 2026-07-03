@@ -44,6 +44,8 @@ from routers import incident as incident_api
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from connectors import pluginloader
+    pluginloader.discover_and_load(app)
     scheduler.start()
     yield
     scheduler.stop()

@@ -837,17 +837,63 @@ Supported transport types:
 
 ## Plugin SDK
 
-### Remaining
+### ✅ Completed (2026-07-03) — v1
 
-Support:
+Full design in the approved plan (`connectors/plugins.py` docstring / this
+section). Every extension surface investigated turned out to be the same
+shape: a hardcoded literal list/dict/if-chain only core code could append
+to. Solved by adding one appendable registry per surface, plus a loader.
 
-- Custom object providers
-- Custom graph providers
-- Custom runtime providers
-- Custom dashboards
-- Custom health checks
-- Organization-specific plugins
-- Third-party integrations
+- **`connectors/plugins.py`** — four registries + `register_*`/`get_*`
+  functions: object providers, graph providers, runtime providers, nav
+  entries (+ router registration). Pure Python, no FastAPI/DB imports at
+  module scope.
+- **`connectors/pluginloader.py`** — `discover_and_load(app, plugins_dir=
+  "plugins")`: imports every `plugins/<name>.py` or `plugins/<name>/
+  __init__.py`, calls `register(sdk)`. Isolated per-plugin try/except — a
+  broken plugin logs a warning and is skipped, never crashes startup or
+  affects other plugins (verified: deliberately broke the example plugin's
+  syntax, confirmed the server still started and every other admin page
+  still returned 200, then restored it).
+- **Wiring** (each is a small, additive change, zero risk to existing
+  built-in types/pages):
+  - `routers/peoplesoft.py` `object_payload()` checks
+    `plugins.get_object_provider(type)` before the existing 50+-branch
+    if/elif chain
+  - `connectors/graphdb.py` `build()` appends `plugins.get_graph_providers()`
+    to its literal provider tuple (each loader wrapped so it receives
+    `(graph, env, limit)`, matching the zero-arg `loader()` contract the
+    existing closures rely on)
+  - `routers/runtime.py` — generic `GET /api/runtime/plugins` (list) and
+    `GET /api/runtime/plugins/{name}` (fetch); `routers/admin/runtime.py`
+    "Plugin Providers" card renders any registered provider automatically
+    (generic JSON dump — no per-plugin UI code needed)
+  - `routers/admin/_core.py` `_nav_html()` merges `_NAV_GROUPS` with
+    `plugins.get_nav_entries()` (new group label creates a new dropdown,
+    e.g. "Plugins")
+  - `main.py` `lifespan()` calls `pluginloader.discover_and_load(app)` once
+    at startup, before `scheduler.start()`
+- **`plugins/example_hello.py`** — worked example exercising all four
+  registries with trivial in-memory data (no DB/SSH), meant as a copy-paste
+  starting point. Verified end-to-end through the *running server*
+  (not just unit-level): `/admin/plugin/hello` renders, appears in nav under
+  a new "Plugins" group; `GET /api/peoplesoft/object/hello_widget/ALPHA`
+  returns a real payload; `GET /api/runtime/plugins/hello` returns live
+  status; `POST /api/graph/build?env=HCM&limit=50` produces real
+  `hello_widget:*` nodes/edges in the persisted KG JSON.
+- **`PLUGINS.md`** (repo root) — the actual SDK documentation: each
+  extension point with a code snippet, loading/isolation semantics, and an
+  explicit "not yet covered" section (see below).
+
+**v2 candidates, not built now** (documented in `PLUGINS.md`): custom health
+checks (no registry yet — a plugin's runtime provider is a reasonable stand-in
+today), and a dedicated "config-driven source" registry for plugins that want
+to replicate the SQR/COBOL ingest pattern (object-provider + graph-provider
+registries are sufficient building blocks for this already, just not formalized
+into their own registration API).
+
+**Verified**: `make check` 91/91; `python3 scripts/smoke_admin_shell.py`
+69/69 (including the new `/admin/plugin/hello` entry).
 
 ---
 

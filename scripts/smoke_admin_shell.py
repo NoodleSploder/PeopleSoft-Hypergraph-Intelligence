@@ -207,6 +207,7 @@ DEFAULT_PAGES = [
     ("/admin/cobol",      ".cbl-toolbar",    False, True,  []),
     ("/admin/riskanalysis",".ds-page-title", False, True,  []),
     ("/admin/compflow",   ".ds-page-title",  False, True,  []),
+    ("/admin/plugin/hello", "table",         False, True,  []),
 ]
 
 

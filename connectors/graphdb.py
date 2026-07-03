@@ -2283,6 +2283,10 @@ def build(env="HCM", limit=50, persist=True):
     ):
         provider(graph, name, loader)
 
+    from connectors import plugins as _plugins
+    for plugin_name, plugin_loader in _plugins.get_graph_providers():
+        provider(graph, plugin_name, lambda _loader=plugin_loader: _loader(graph, env, limit))
+
     graph["built_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     graph["build_seconds"] = round(time.time() - start, 3)
     normalize_graph_shape(graph)

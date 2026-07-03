@@ -231,3 +231,24 @@ def runtime_rca(env: str = "HCM", start: str = "", end: str = "", db: str = None
     if not start:
         start = (_dt.datetime.utcnow() - _dt.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
     return execution.rca_snapshot(env, start, end, db_name=db or None)
+
+
+@router.get("/plugins")
+def runtime_plugins_list():
+    """List registered plugin runtime providers (Phase 9 Plugin SDK)."""
+    from connectors import plugins
+    return {"providers": [
+        {"name": name, "label": meta["label"]}
+        for name, meta in plugins.get_runtime_providers().items()
+    ]}
+
+
+@router.get("/plugins/{name}")
+def runtime_plugin_status(name: str, env: str = "HCM"):
+    """Return live status from a registered plugin runtime provider."""
+    from connectors import plugins
+    provider = plugins.get_runtime_providers().get(name)
+    if not provider:
+        from fastapi import HTTPException
+        raise HTTPException(404, f"No runtime provider registered as '{name}'")
+    return provider["fetch_fn"](env)

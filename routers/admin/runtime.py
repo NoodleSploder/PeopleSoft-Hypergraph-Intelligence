@@ -141,6 +141,12 @@ select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
   <div id="appProcArea"><span class="muted" style="font-size:12px">Loading…</span></div>
 </div>
 
+<!-- ── Plugin Runtime Providers (Phase 9 Plugin SDK) ── -->
+<div class="card" id="pluginProvidersCard" style="display:none">
+  <h2>Plugin Providers <span class="muted" style="font-size:11px;font-weight:normal">registered via connectors/plugins.py</span></h2>
+  <div id="pluginProcArea"><span class="muted" style="font-size:12px">Loading…</span></div>
+</div>
+
 <!-- ── Process Scheduler Servers ── -->
 <div class="card">
   <h2>Process Scheduler Servers</h2>
@@ -603,6 +609,28 @@ async function loadAppProcesses() {
   }
 }
 
+async function loadPluginProviders() {
+  const env = $('envSel').value;
+  try {
+    const list = await api('/api/runtime/plugins');
+    const providers = list.providers || [];
+    if (!providers.length) { $('pluginProvidersCard').style.display = 'none'; return; }
+    $('pluginProvidersCard').style.display = '';
+    let html = '';
+    for (const p of providers) {
+      let data;
+      try { data = await api(`/api/runtime/plugins/${encodeURIComponent(p.name)}?env=${env}`); }
+      catch (e) { data = { error: e.message }; }
+      html += `<div style="margin-bottom:10px"><b style="color:#8ab">${esc(p.label)}</b>
+        <pre style="font-size:11px;color:#acd;background:#0a1520;border:1px solid #1a3a4a;border-radius:4px;padding:8px;margin-top:4px">${esc(JSON.stringify(data, null, 2))}</pre>
+      </div>`;
+    }
+    $('pluginProcArea').innerHTML = html;
+  } catch(e) {
+    $('pluginProvidersCard').style.display = 'none';
+  }
+}
+
 async function loadServers() {
   const env = $('envSel').value;
   if (!env) { $('srvArea').innerHTML = '<span class="muted" style="font-size:12px">No environment selected.</span>'; return; }
@@ -1051,7 +1079,7 @@ async function loadHistory() {
 
 async function refresh() {
   $('lastTs').textContent = 'Refreshing…';
-  await Promise.allSettled([loadAlerts(), loadStatus(), loadDomains(), loadAppProcesses(), loadServers(), loadProcesses(), loadOracle(), loadAsh(), loadHistory()]);
+  await Promise.allSettled([loadAlerts(), loadStatus(), loadDomains(), loadAppProcesses(), loadPluginProviders(), loadServers(), loadProcesses(), loadOracle(), loadAsh(), loadHistory()]);
   $('lastTs').textContent = 'Last: ' + new Date().toLocaleTimeString();
   if (autoR) {
     clearTimeout(arTimer);
