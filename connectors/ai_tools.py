@@ -967,7 +967,8 @@ def _sqr_program(lookup_type: str, filename: str = None, query: str = None) -> d
 
 
 def _component_events(env: str, component: str) -> dict:
-    result = psdb.get_component_peoplecode_events(env.upper(), component.upper())
+    from connectors import peoplecode
+    result = peoplecode.component_events(env.upper(), component.upper())
     events = result.get("events", [])
     summary = {}
     for e in events:
@@ -975,6 +976,25 @@ def _component_events(env: str, component: str) -> dict:
         summary[ph] = summary.get(ph, 0) + 1
     result["phase_summary"] = summary
     result["total"] = len(events)
+
+    # Enrich with canonical ordering so the assistant can reason about
+    # execution order (e.g. "what fires before save?"), not just counts.
+    try:
+        sequence = peoplecode.component_sequence(env.upper(), component.upper())
+        result["canonical_sequence"] = [
+            {
+                "phase": ph["phase"],
+                "label": ph["label"],
+                "events": [
+                    {"name": e["name"], "ordinal": e["ordinal"], "status": e["status"]}
+                    for e in ph["events"] if e["status"] != "empty"
+                ],
+            }
+            for ph in sequence.get("phases", [])
+        ]
+    except Exception:
+        pass
+
     return result
 
 

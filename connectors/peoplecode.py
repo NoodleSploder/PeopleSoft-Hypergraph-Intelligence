@@ -813,6 +813,112 @@ _PHASE_MAP = {
 
 _DELIVERED_OPRIDS = {"PPLSOFT", "PSOPRDEFN", "BATCH", "PTADMIN", ""}
 
+# Canonical PeopleSoft component processing sequence — the same ordered
+# event list the /admin/compseq ("PC Timeline") page renders, moved here so
+# it's a real, independently queryable backend artifact instead of only
+# existing as a hardcoded JS array (routers/admin/compflow.py). Ordinal is
+# the position within the whole sequence (not just within its phase).
+CANONICAL_COMPONENT_SEQUENCE = [
+    {
+        "phase": "search", "label": "Search Phase",
+        "desc": "Executes before the component search dialog opens",
+        "events": [
+            {"name": "SearchInit", "scope": "Component", "note": "Initialise search page"},
+            {"name": "SearchSave", "scope": "Component", "note": "Validate search criteria"},
+            {"name": "SearchDefault", "scope": "Record/Field", "note": "Default search keys"},
+        ],
+    },
+    {
+        "phase": "build", "label": "Build Phase",
+        "desc": "Executes when the component buffer is loaded",
+        "events": [
+            {"name": "PreBuild", "scope": "Component", "note": "Before buffers loaded"},
+            {"name": "FieldDefault", "scope": "Record/Field", "note": "Default field values"},
+            {"name": "FieldFormula", "scope": "Record/Field", "note": "Derived / formula fields"},
+            {"name": "RowInit", "scope": "Record/Field", "note": "Initialise each row"},
+            {"name": "PostBuild", "scope": "Component", "note": "After buffers loaded"},
+            {"name": "Activate", "scope": "Component", "note": "Page activation"},
+            {"name": "RowSelect", "scope": "Record/Field", "note": "Filter rows on select"},
+        ],
+    },
+    {
+        "phase": "interaction", "label": "Interaction Phase",
+        "desc": "Executes during user interaction (field changes, row actions)",
+        "events": [
+            {"name": "FieldEdit", "scope": "Record/Field", "note": "Validate field value"},
+            {"name": "FieldChange", "scope": "Record/Field", "note": "React to field change"},
+            {"name": "PrePopup", "scope": "Record/Field", "note": "Before popup menu"},
+            {"name": "ItemSelected", "scope": "Record/Field", "note": "List item selected"},
+            {"name": "RowInsert", "scope": "Record", "note": "Row inserted"},
+            {"name": "RowDelete", "scope": "Record", "note": "Row deleted"},
+        ],
+    },
+    {
+        "phase": "save", "label": "Save Phase",
+        "desc": "Executes during the save cycle",
+        "events": [
+            {"name": "SaveEdit", "scope": "Record/Field", "note": "Validate before save"},
+            {"name": "SavePreChange", "scope": "Record/Field", "note": "Before DB write"},
+            {"name": "Workflow", "scope": "Component", "note": "Workflow/notification"},
+            {"name": "SavePostChange", "scope": "Record/Field", "note": "After DB write"},
+        ],
+    },
+]
+
+
+def component_sequence(env, comp):
+    """Slot a component's real PeopleCode events into the canonical ordered
+    sequence, marking each slot empty/delivered/custom.
+
+    Returns:
+        {component, owner, phases: [{phase, label, desc, events: [
+            {name, scope, note, ordinal, status, record, field,
+             last_oprid, last_dttm}
+        ]}], warnings}
+
+    status is one of "empty" (no PeopleCode for this event in this
+    component), "delivered", or "custom" (per the same LASTUPDOPRID
+    heuristic component_events() already uses).
+    """
+    result = component_events(env, comp)
+    events_by_name: dict[str, list[dict]] = {}
+    for ev in result.get("events", []):
+        events_by_name.setdefault(ev["event"], []).append(ev)
+
+    ordinal = 0
+    phases = []
+    for phase_def in CANONICAL_COMPONENT_SEQUENCE:
+        phase_events = []
+        for ev_def in phase_def["events"]:
+            matches = events_by_name.get(ev_def["name"], [])
+            if not matches:
+                phase_events.append({
+                    "name": ev_def["name"], "scope": ev_def["scope"], "note": ev_def["note"],
+                    "ordinal": ordinal, "status": "empty",
+                    "record": None, "field": None, "last_oprid": None, "last_dttm": None,
+                })
+            else:
+                for m in matches:
+                    phase_events.append({
+                        "name": ev_def["name"], "scope": ev_def["scope"], "note": ev_def["note"],
+                        "ordinal": ordinal,
+                        "status": "custom" if m.get("modified") else "delivered",
+                        "record": m.get("record"), "field": m.get("field"),
+                        "last_oprid": m.get("last_oprid"), "last_dttm": m.get("last_dttm"),
+                    })
+            ordinal += 1
+        phases.append({
+            "phase": phase_def["phase"], "label": phase_def["label"],
+            "desc": phase_def["desc"], "events": phase_events,
+        })
+
+    return {
+        "component": result.get("component", comp.upper()),
+        "owner": result.get("component_owner"),
+        "phases": phases,
+        "warnings": result.get("warnings", []),
+    }
+
 
 def component_events(env, comp):
     """Return all PeopleCode events for a component, structured for the event flow UI."""

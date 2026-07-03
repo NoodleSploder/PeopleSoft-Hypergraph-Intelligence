@@ -1164,7 +1164,79 @@ PHI should understand event order, execution context, and sequence-sensitive beh
 - `/admin/rca` — Incident RCA dashboard: select time window (15m/1h/4h/24h quick buttons or custom datetime-local inputs), pick Oracle DB for ASH data, click Investigate; correlated view across Process Failures, Log Errors, Oracle ASH, IB Errors; summary stat cards, timeline list, cross-links to Runtime Monitor and IB Explorer
 - `GET /api/runtime/rca?env=&start=&end=&db=` — `rca_snapshot()` in execution.py correlates PSPRCSRQST failures, logdb errors, V$ACTIVE_SESSION_HISTORY, and PSAPMSGPUBHDR IB errors into a single time-windowed report with unified timeline
 
-## Remaining
+## ✅ Completed (2026-07-03) — v1 slice
+
+Two of the six ambitions below turned out to already be half-built:
+`/admin/compseq` had a complete, correct canonical 20-event ordered
+sequence (4 phases, named events + purpose notes) — but only as a
+hardcoded JS array, invisible to anything else. This pass moved it
+server-side and connected it to two consumers.
+
+- **Event-Aware Metadata Indexing (Component context)**:
+  `connectors/peoplecode.py` `CANONICAL_COMPONENT_SEQUENCE` (the same
+  4-phase ordered event data, now a real Python artifact) +
+  `component_sequence(env, comp)` — slots a component's actual PeopleCode
+  events into canonical order, marking each slot empty/delivered/custom.
+  `GET /api/peoplesoft/components/{comp}/sequence?env=` exposes it.
+  `/admin/compseq`'s JS array is intentionally left as-is (verified, working
+  page — no functional gain from rewiring its rendering in this pass); the
+  new backend function is what other consumers use.
+- **Sequence-Aware Graph Relationships**: new `component_event` KG node
+  type (id `<COMPONENT>.<EVENT_NAME>`) with `FIRES_BEFORE`/`FIRES_AFTER`
+  edges (metadata: phase, ordinal, status) between consecutive non-empty
+  canonical events, plus `BELONGS_TO` edges to the existing `component`
+  node type. `connectors/graphdb.py` `component_sequences()` builder,
+  bounded by `limit` like every other provider. **Bug found and fixed
+  during verification**: multiple raw PSPCMPROG rows sharing one canonical
+  event (e.g. `RowInit` firing for 7 different records) each got their own
+  slot but collapsed to the same node id, producing self-loop
+  `FIRES_BEFORE`/`FIRES_AFTER` edges — fixed by deduplicating to one node
+  per distinct event name before building the sequence chain.
+- **AI-Assisted Sequence Explanation (data only, no new UI)**: fixed a
+  real duplicate-code bug found along the way — the AI assistant's
+  `component_events` tool (`connectors/ai_tools.py`) was calling a stale,
+  less-complete duplicate (`psdb.get_component_peoplecode_events`) instead
+  of the richer `connectors/peoplecode.py:component_events()` that actually
+  backs `/admin/compflow`. Now calls the real function directly and
+  enriches its result with canonical phase/ordinal context from
+  `component_sequence()`, so the assistant can answer ordering questions
+  ("what fires before save?") using real sequence data, not just a
+  phase→count summary. No new AI plumbing needed — one more `_HANDLERS`
+  entry following the existing 3-step registration pattern.
+
+**Verified**: `PERSONAL_DATA` component — 41 raw PSPCMPROG rows slot into
+exactly 41 non-empty canonical positions (zero data loss/duplication);
+graph rebuild (`limit=50`) produced 38 `component_event` nodes / 38
+FIRES_BEFORE+FIRES_AFTER edges with zero self-loops after the fix; a
+component with no PeopleCode (`HR_JOB_TREE_BLDR`) correctly produces zero
+non-empty slots and zero graph edges, no crash; AI tool wiring confirmed
+via direct call, no longer errors, includes real sequence context.
+`make check` 91/91; smoke test 69/69 (no admin page touched — a pure
+regression check, not new UI coverage).
+
+**Explicitly deferred, not silently dropped** (see remaining ambitions
+below for full description):
+
+- **Processing Path Explorer** for Page/Field/Record/CI/Transaction-path
+  contexts — only Component is handled (the only context with existing
+  rich canonical-sequence data)
+- **Delivered vs Custom Sequence Comparison** beyond the existing
+  `LASTUPDOPRID` heuristic already wired into `/admin/compflow`/`compseq` —
+  PeopleCode has no delivered-source baseline to diff against (unlike
+  SQR/COBOL, which have real parallel delivered+custom source trees via
+  `source_type` in `sqringest.py`/`cobolingest.py`)
+- **Runtime Trace Correlation** tying processing sequence to live
+  PIA/session traces — blocked on missing data in this environment
+  (confirmed via SSH: 0-byte `PIA_access.log`, no session-lifecycle events
+  in `PIA_weblogic.log` — same root cause as the Browser/WebLogic session
+  tracking blocker documented under Phase 4 above). Oracle ASH
+  (`oracle_ash_for_process` in `execution.py`) and AE/Process-Scheduler logs
+  ARE populated and already power `/admin/rca` — a narrower "AE runtime
+  trace correlation" (not tied to PeopleCode component events specifically,
+  since PeopleCode execution isn't traced anywhere in this environment) is
+  viable as a separate future slice if wanted.
+
+## Remaining ambitions (not built this pass — see above for what shipped instead)
 
 ### Event-Aware Metadata Indexing
 

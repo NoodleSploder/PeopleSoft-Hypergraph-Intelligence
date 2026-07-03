@@ -6,6 +6,77 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — Processing Sequence Intelligence v1 — 69/69
+
+### New: canonical sequence goes server-side, sequence-aware KG edges, AI tool fix
+
+Went through plan mode again — "Processing Sequence Intelligence" as
+written in the roadmap is six large, open-ended ambitions. Investigation
+found two were already half-built (just needed to move from a hardcoded JS
+array to a real backend artifact), one is already adequately served by an
+existing heuristic, one is blocked by the same missing-PIA-log-data root
+cause found earlier today for browser session tracking, and two need real
+work but only make sense for the Component context.
+
+**Key finding**: `/admin/compseq` ("PC Timeline") already has a correct,
+complete canonical 20-event ordered sequence (4 phases, named events with
+purpose notes) — but it only exists as a hardcoded JS array in
+`routers/admin/compflow.py:361-406`. Nothing else (Knowledge Graph, AI
+assistant, any future API caller) could use it.
+
+**Changes**:
+- `connectors/peoplecode.py` — `CANONICAL_COMPONENT_SEQUENCE` (the same
+  4-phase data, now real Python) + `component_sequence(env, comp)`: slots a
+  component's actual PeopleCode events into canonical order, marking each
+  slot empty/delivered/custom. Deliberately did **not** touch
+  `compflow.py`'s working JS — no functional gain from rewiring a verified
+  page in this pass; the new backend function is what other consumers use.
+- `routers/peoplesoft.py` — `GET /api/peoplesoft/components/{comp}/sequence`
+- `connectors/graphdb.py` — new `component_sequences()` KG builder: adds
+  `component_event` nodes with `FIRES_BEFORE`/`FIRES_AFTER` edges between
+  consecutive non-empty canonical events (metadata: phase, ordinal, status)
+- `connectors/ai_tools.py` — fixed a real duplicate-code bug found along
+  the way: the AI assistant's existing `component_events` tool was calling
+  a stale, less-complete duplicate (`psdb.get_component_peoplecode_events`)
+  instead of the richer function that actually backs `/admin/compflow`.
+  Now calls the real one + enriches with canonical sequence context.
+
+**Bug found and fixed during verification**: first graph rebuild produced
+self-loop edges like `component_event:ABSENCE_HISTORY.ROWINIT FIRES_BEFORE
+component_event:ABSENCE_HISTORY.ROWINIT`. Root cause: `RowInit` (and other
+events) fire once per record in a component with multiple records/subrecords
+— multiple raw PSPCMPROG rows for the same canonical event collapse to one
+node id (`<COMPONENT>.<EVENT_NAME>`, no record/field disambiguation), so
+consecutive same-node entries in the sequence chain produced an edge to
+themselves. Fixed by deduplicating to one entry per distinct event name
+before building the FIRES_BEFORE/AFTER chain.
+
+**Verified**:
+- `PERSONAL_DATA` component: 41 raw PSPCMPROG rows → exactly 41 non-empty
+  canonical slots (zero data loss or duplication)
+- Graph rebuild (`limit=50`): 38 `component_event` nodes, 38
+  FIRES_BEFORE+FIRES_AFTER edge pairs, **zero self-loops** after the fix
+  (confirmed self-loops existed before the fix, then confirmed gone after)
+- `HR_JOB_TREE_BLDR` (no PeopleCode): zero non-empty slots, zero graph
+  edges, no crash — confirmed the empty-component path is safe
+- AI tool: direct call to `ai_tools._component_events()` no longer errors,
+  includes real canonical sequence context
+- `/admin/compflow` and `/admin/compseq` (untouched pages) still return 200
+  for the same component tested
+- `make check` 91/91; smoke test 69/69
+
+**Deferred, documented in ROADMAP.md rather than silently dropped**:
+Processing Path Explorer for non-Component contexts (Page/Field/Record/CI),
+Delivered vs Custom Sequence Comparison beyond the existing LASTUPDOPRID
+heuristic (no delivered-source baseline exists to diff against), Runtime
+Trace Correlation (blocked — same root cause as browser session tracking:
+`PIA_access.log` is 0 bytes in this environment, and PeopleCode execution
+isn't traced anywhere here; Oracle ASH + AE/Process-Scheduler logs ARE
+populated and already power `/admin/rca`, so a narrower AE-focused trace
+slice is possible later if wanted).
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — Plugin SDK v1 — 69/69
 
 ### New: Phase 9 Platform Extensibility, from scratch

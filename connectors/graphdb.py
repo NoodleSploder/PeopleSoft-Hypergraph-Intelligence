@@ -2094,6 +2094,80 @@ def build(env="HCM", limit=50, persist=True):
 
         return added
 
+    def component_sequences():
+        """Add sequence-aware component_event nodes with FIRES_BEFORE/
+        FIRES_AFTER edges between consecutive non-empty canonical PeopleCode
+        events for a bounded set of components.
+
+        Uses a dedicated `component_event` node type (id: "<COMPONENT>.
+        <EVENT_NAME>") rather than trying to reconstruct the exact dotted
+        reference string the general PeopleCode ingestion uses for its
+        `peoplecode` nodes — that string format is fragile to reconstruct
+        and not worth the risk here.
+        """
+        try:
+            from connectors import peoplecode as _peoplecode
+        except Exception:
+            return 0
+
+        try:
+            comp_rows = psdb.query(env, f"""
+                SELECT DISTINCT OBJECTVALUE1 AS comp
+                  FROM SYSADM.PSPCMPROG
+                 WHERE OBJECTID1 IN (9, 10)
+                   AND ROWNUM <= {limit}
+            """) or []
+        except Exception:
+            return 0
+
+        added = 0
+        for row in comp_rows:
+            comp = (row.get("comp") or "").strip()
+            if not comp:
+                continue
+            try:
+                seq = _peoplecode.component_sequence(env, comp)
+            except Exception:
+                continue
+
+            present = [
+                {**ev, "phase": ph["phase"]}
+                for ph in seq.get("phases", [])
+                for ev in ph["events"]
+                if ev["status"] != "empty"
+            ]
+            if not present:
+                continue
+
+            # Multiple raw rows can share one canonical event (e.g. RowInit
+            # firing for several records) — collapse to one node per
+            # distinct event name before building the FIRES_BEFORE/AFTER
+            # chain, so repeated rows for the same event don't produce
+            # self-loop edges.
+            distinct_events = []
+            seen_names = set()
+            for ev in present:
+                if ev["name"] not in seen_names:
+                    seen_names.add(ev["name"])
+                    distinct_events.append(ev)
+
+            add_node(graph, "component", comp, comp, {})
+            prev_node = None
+            for ev in distinct_events:
+                node_name = f"{comp}.{ev['name']}"
+                meta = {"phase": ev["phase"], "ordinal": ev["ordinal"], "status": ev["status"]}
+                add_node(graph, "component_event", node_name, ev["name"], meta)
+                add_edge(graph, "component_event", node_name, "component", comp, "BELONGS_TO", meta)
+                added += 1
+                if prev_node is not None:
+                    add_edge(graph, "component_event", prev_node, "component_event", node_name,
+                              "FIRES_BEFORE", meta)
+                    add_edge(graph, "component_event", node_name, "component_event", prev_node,
+                              "FIRES_AFTER", meta)
+                prev_node = node_name
+
+        return added
+
     def cobol_programs():
         """Add COBOL program/copybook nodes with table-access, COPY, and CALL edges."""
         try:
@@ -2262,6 +2336,7 @@ def build(env="HCM", limit=50, persist=True):
         ("process_definitions", process_definitions),
         ("sqr_programs", sqr_programs),
         ("cobol_programs", cobol_programs),
+        ("component_sequences", component_sequences),
         ("ib_applications", ib_applications),
         ("app_packages", app_packages),
         ("app_classes", app_classes),

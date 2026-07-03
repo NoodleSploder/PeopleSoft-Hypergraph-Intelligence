@@ -1996,6 +1996,14 @@ def peoplesoft_component_events(component: str, env: str = "HCM"):
     return pc.component_events(env, component)
 
 
+@router.get("/api/peoplesoft/components/{component}/sequence")
+def peoplesoft_component_sequence(component: str, env: str = "HCM"):
+    """Canonical ordered processing sequence for a component, with real
+    PeopleCode slotted in (empty/delivered/custom per event)."""
+    from connectors import peoplecode as pc
+    return pc.component_sequence(env, component)
+
+
 @router.get("/api/peoplesoft/components/{component}/event-source")
 def peoplesoft_component_event_source(
     component: str, env: str = "HCM",
