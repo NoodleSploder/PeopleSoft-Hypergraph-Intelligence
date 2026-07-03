@@ -181,10 +181,10 @@ const ENV=localStorage.getItem('dsEnv')||'HCM';
 let _key=null,_allRows=[],_cols=[];
 async function api(p){const r=await fetch(p);return r.ok?r.json():null;}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-const LINKS={rolename:n=>'/admin/object/role/'+n,roleuser:n=>'/admin/object/operator/'+n,
-  oprid:n=>'/admin/object/operator/'+n,classid:n=>'/admin/object/permissionlist/'+n,
-  pnlgrpname:n=>'/admin/object/component/'+n,recname:n=>'/admin/object/record/'+n,
-  ae_applid:n=>'/admin/object/application_engine/'+n,menuname:n=>'/admin/object/menu/'+n};
+const LINKS={rolename:n=>'/admin/role/'+n,roleuser:n=>'/admin/operator/'+n,
+  oprid:n=>'/admin/operator/'+n,classid:n=>'/admin/permissionlist/'+n,
+  pnlgrpname:n=>'/admin/component?name='+encodeURIComponent(n),recname:n=>'/admin/record/'+n,
+  ae_applid:n=>'/admin/ae?q='+encodeURIComponent(n),menuname:n=>'/admin/object/menu/'+n};
 async function loadCatalog(){
   const cat=await api('/api/peoplesoft/reports/catalog?env='+ENV);
   if(!cat){document.getElementById('catalog').textContent='Failed.';return;}
@@ -873,15 +873,15 @@ function buildLinkMap(toolLog) {{
   // Object-type → URL path segment mapping
   const typeToPath = {{
     'record':              (n,e) => `/admin/record/${{n}}?env=${{e}}`,
-    'component':           (n,e) => `/admin/object/component/${{n}}?env=${{e}}`,
-    'page':                (n,e) => `/admin/object/page/${{n}}?env=${{e}}`,
-    'application_engine':  (n,e) => `/admin/object/application_engine/${{n}}?env=${{e}}`,
+    'component':           (n,e) => `/admin/component?name=${{n}}&env=${{e}}`,
+    'page':                (n,e) => `/admin/page?name=${{n}}&env=${{e}}`,
+    'application_engine':  (n,e) => `/admin/ae?q=${{n}}&env=${{e}}`,
     'sql_definition':      (n,e) => `/admin/object/sql_definition/${{n}}?env=${{e}}`,
     'peoplecode':          (n,e) => `/admin/peoplecode/${{n}}?env=${{e}}`,
     'field':               (n,e) => `/admin/field/${{n}}?env=${{e}}`,
     'menu':                (n,e) => `/admin/menu/${{n}}?env=${{e}}`,
     'role':                (n,e) => `/admin/role/${{n}}`,
-    'permissionlist':      (n,e) => `/admin/role/${{n}}`,
+    'permissionlist':      (n,e) => `/admin/permissionlist/${{n}}?env=${{e}}`,
     'query':               (n,e) => `/admin/query?name=${{n}}&env=${{e}}`,
   }};
 
@@ -896,7 +896,7 @@ function buildLinkMap(toolLog) {{
   }}
   function addComponent(name, env) {{
     if (!name || name.length < 2) return;
-    links[name] = {{ url: `/admin/object/component/${{name}}?env=${{env||'HCM'}}`, title: 'Component' }};
+    links[name] = {{ url: `/admin/component?name=${{name}}&env=${{env||'HCM'}}`, title: 'Component' }};
   }}
   function addRole(name) {{
     if (!name || name.length < 2) return;

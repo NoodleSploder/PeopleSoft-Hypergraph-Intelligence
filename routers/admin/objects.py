@@ -209,7 +209,7 @@ function selectCi(r, el) {
     ${r.descr ? `<div style="color:#667;font-size:12px;margin-bottom:10px">${esc(r.descr)}</div>` : ''}
     <div style="font-size:12px;margin-top:8px">
       ${r.pnlgrpname && r.pnlgrpname.trim()
-        ? `<div style="margin-bottom:6px">Wrapped Component: <a href="/admin/object/component/${encodeURIComponent(r.pnlgrpname.trim())}?env=${ENV}" style="color:#00e5ff">${esc(r.pnlgrpname.trim())} &#x2197;</a></div>`
+        ? `<div style="margin-bottom:6px">Wrapped Component: <a href="/admin/component?name=${encodeURIComponent(r.pnlgrpname.trim())}&env=${ENV}" style="color:#00e5ff">${esc(r.pnlgrpname.trim())} &#x2197;</a></div>`
         : ''}
       ${r.objectownerid && r.objectownerid.trim() ? `<div style="color:#445;margin-bottom:4px">Owner: ${esc(r.objectownerid.trim())}</div>` : ''}
       ${r.lastupddttm ? `<div style="color:#445;font-size:11px">Last updated: ${esc(String(r.lastupddttm))}</div>` : ''}
@@ -307,7 +307,7 @@ async function selectMenu(r,el){
       +'<td style="padding:4px 6px;color:#445">'+esc(i.barname||'')+'</td>'
       +'<td style="padding:4px 6px;font-family:monospace">'+esc(i.itemname||'')+'</td>'
       +'<td style="padding:4px 6px;color:#8ab">'+esc(i.itemlabel||i.barlabel||'')+'</td>'
-      +'<td style="padding:4px 6px">'+(comp?'<a href="/admin/object/component/'+encodeURIComponent(comp)+'?env='+ENV+'" style="color:#00e5ff">'+esc(comp)+'</a>':'')+'</td>'
+      +'<td style="padding:4px 6px">'+(comp?'<a href="/admin/component?name='+encodeURIComponent(comp)+'&env='+ENV+'" style="color:#00e5ff">'+esc(comp)+'</a>':'')+'</td>'
       +'</tr>';});
   table+='</tbody></table>';
   d.innerHTML=hdr+table;

@@ -1970,13 +1970,21 @@ def admin_object_search():
 
 
 @router.get("/object/{object_type}/{object_name}", response_class=HTMLResponse)
-def admin_object(object_type: str, object_name: str):
+def admin_object(object_type: str, object_name: str, env: str = "HCM"):
+    from fastapi.responses import RedirectResponse
     if object_type == "sqr_program":
-        from fastapi.responses import RedirectResponse
         filename = object_name.lower()
         if not (filename.endswith(".sqr") or filename.endswith(".sqc")):
             filename += ".sqr"
         return RedirectResponse(f"/admin/sqr/{filename}", status_code=302)
+    if object_type == "component":
+        return RedirectResponse(f"/admin/component?name={object_name}&env={env}", status_code=302)
+    if object_type == "page":
+        return RedirectResponse(f"/admin/page?name={object_name}&env={env}", status_code=302)
+    if object_type == "permissionlist":
+        return RedirectResponse(f"/admin/permissionlist/{object_name}?env={env}", status_code=302)
+    if object_type == "application_engine":
+        return RedirectResponse(f"/admin/ae?q={object_name}&env={env}", status_code=302)
     return object_explorer_page(object_type, object_name)
 
 
@@ -2368,7 +2376,7 @@ async function showAnalysis() {
         ${d.empty_folder_count > 0 ? `<details style="font-size:11px"><summary style="cursor:pointer;color:#6c7086">Empty folders (${d.empty_folder_count})</summary>
             ${(d.empty_folders || []).map(r => `<div class="row">${esc(r.portal_label || r.portal_objname)}</div>`).join('')}</details>` : ''}
         ${topComp.length ? `<div style="font-size:11px;margin-top:8px"><b>Top Components:</b>
-            ${topComp.map(r => `<div class="row clickable" onclick="window.location.href='/admin/object/component/${esc(r.component)}'">${esc(r.component)} <span class="muted">${r.ref_count} refs</span></div>`).join('')}</div>` : ''}
+            ${topComp.map(r => `<div class="row clickable" onclick="window.location.href='/admin/component?name=${esc(r.component)}'">${esc(r.component)} <span class="muted">${r.ref_count} refs</span></div>`).join('')}</div>` : ''}
     `;
     setStatus(`Analysis complete for ${pn}.`);
 }

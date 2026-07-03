@@ -1803,7 +1803,7 @@ function explorerLink(type, name) {
   const map = {
     records:     `/admin/record/${encodeURIComponent(name)}`,
     roles:       `/admin/role/${encodeURIComponent(name)}`,
-    permissions: `/admin/object/permissionlist/${encodeURIComponent(name)}`,
+    permissions: `/admin/permissionlist/${encodeURIComponent(name)}`,
     queries:     `/admin/object/query/${encodeURIComponent(name)}`,
   };
   if (!map[type]) return '';

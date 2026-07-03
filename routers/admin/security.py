@@ -1205,7 +1205,7 @@ function renderComponents(items) {
   return `<table><thead><tr>
     <th>Component</th><th>Search Record</th><th>Add Record</th><th>Description</th><th>Market</th>
   </tr></thead><tbody>` + items.map(c => `<tr>
-    <td class="mono"><a class="obj-link" href="/admin/object/component/${esc(c.pnlgrpname)}">${esc(c.pnlgrpname)}</a></td>
+    <td class="mono"><a class="obj-link" href="/admin/component?name=${esc(c.pnlgrpname)}&env=${ENV}">${esc(c.pnlgrpname)}</a></td>
     <td class="mono">${esc(c.searchrecname || '')}</td>
     <td class="mono">${esc(c.addsrchrecname || '')}</td>
     <td>${esc(c.descr || '')}</td>
@@ -1220,7 +1220,7 @@ function renderPages(items) {
   const unique = items.filter(r => { const k = r.pnlname; if (seen.has(k)) return false; seen.add(k); return true; });
   return `<table><thead><tr><th>Page</th></tr></thead><tbody>` +
     unique.map(p => `<tr><td class="mono">
-      <a class="obj-link" href="/admin/object/page/${esc(p.pnlname)}">${esc(p.pnlname)}</a>
+      <a class="obj-link" href="/admin/page?name=${esc(p.pnlname)}&env=${ENV}">${esc(p.pnlname)}</a>
     </td></tr>`).join('') + '</tbody></table>';
 }
 
@@ -2069,7 +2069,7 @@ function renderOverview(item, warns) {
   ${item.language_cd ? `<div class="kv"><span class="kl">Language</span><span class="kv-val">${esc(item.language_cd)}</span></div>` : ''}
   ${item.currency_cd ? `<div class="kv"><span class="kl">Currency</span><span class="kv-val">${esc(item.currency_cd)}</span></div>` : ''}
   <h2>Security</h2>
-  <div class="kv"><span class="kl">Permission List</span><span class="kv-val">${item.oprclass ? `<a class="obj-link" href="/admin/object/permissionlist/${esc(item.oprclass)}">${esc(item.oprclass)}</a>` : '—'}</span></div>
+  <div class="kv"><span class="kl">Permission List</span><span class="kv-val">${item.oprclass ? `<a class="obj-link" href="/admin/permissionlist/${esc(item.oprclass)}?env=${ENV}">${esc(item.oprclass)}</a>` : '—'}</span></div>
   <div class="kv"><span class="kl">Row Security</span><span class="kv-val">${esc(item.rowsecclass||'—')}</span></div>
   <div class="kv"><span class="kl">Process Profile</span><span class="kv-val">${esc(item.prcsprflcls||'—')}</span></div>
   <div class="kv"><span class="kl">Failed Logins</span><span class="kv-val">${esc(item.failedlogins??'—')}</span></div>
@@ -2514,7 +2514,7 @@ function renderPermlists(items, warns) {
     return;
   }
   const rows = items.map(r => `<tr>
-    <td class="mono"><a class="obj-link" href="/admin/object/permissionlist/${esc(r.classid)}">${esc(r.classid)}</a></td>
+    <td class="mono"><a class="obj-link" href="/admin/permissionlist/${esc(r.classid)}?env=${ENV}">${esc(r.classid)}</a></td>
     <td style="font-size:10px;">${r.dynamic_sw === 'Y' ? '<span style="color:#ffaa00;">Dynamic</span>' : 'Static'}</td>
   </tr>`).join('');
   $('tblPermlists').innerHTML = h + `<table><thead><tr>

@@ -1701,7 +1701,7 @@ function renderComponent(d, name, panel) {{
       const pnl = p.pnlname || '';
       const ttl = p.name || pnl;
       const rec = p.recname ? ` <span style="color:#446;font-size:10px">&#x2192; ${{esc(p.recname)}}</span>` : '';
-      const link = pnl ? `/admin/object/page/${{encodeURIComponent(pnl)}}?env=${{ENV}}` : '#';
+      const link = pnl ? `/admin/page?name=${{encodeURIComponent(pnl)}}&env=${{ENV}}` : '#';
       return `<div class="page-row" style="padding-left:${{6+lvl*20}}px">
         <span class="page-badge" style="background:${{col}}22;color:${{col}};border:1px solid ${{col}}44">${{esc(rel)}}</span>
         <a href="${{link}}" style="color:#c8d8e8;font-family:monospace;font-size:12px;text-decoration:none" onmouseover="this.style.color='#44aaff'" onmouseout="this.style.color='#c8d8e8'">${{esc(pnl)}}</a>
@@ -1730,7 +1730,7 @@ function renderComponent(d, name, panel) {{
       const acts = actionChips(pl.actions);
       return `<div class="sec-card">
         <div class="sec-card-hdr">
-          <a href="/admin/object/permissionlist/${{encodeURIComponent(pl.classid)}}?env=${{ENV}}" class="sec-pl">${{esc(pl.classid)}}</a>
+          <a href="/admin/permissionlist/${{encodeURIComponent(pl.classid)}}?env=${{ENV}}" class="sec-pl">${{esc(pl.classid)}}</a>
           <div>${{acts}}</div>
         </div>
         ${{via}}${{ops}}

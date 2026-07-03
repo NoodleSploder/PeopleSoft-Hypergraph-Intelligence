@@ -343,7 +343,7 @@ def log_viewer(
             )
             comp = r.get("component") or "—"
             comp_link = (
-                f'<a href="/admin/object/component/{comp}?env={r.get("env","")}" '
+                f'<a href="/admin/component?name={comp}&env={r.get("env","")}" '
                 f'style="color:#00e5ff" target="_blank">{comp}</a>'
                 if comp != "—" else "—"
             )
@@ -508,7 +508,7 @@ def log_session_view(
             sc = "color:#ff6b6b" if status >= 500 else ("color:#ffd700" if status >= 400 else "color:#7faab2")
             comp = r.get("component") or "—"
             comp_link = (
-                f'<a href="/admin/object/component/{comp}?env={r.get("env","")}" '
+                f'<a href="/admin/component?name={comp}&env={r.get("env","")}" '
                 f'style="color:#00e5ff" target="_blank">{comp}</a>'
                 if comp != "—" else "—"
             )
