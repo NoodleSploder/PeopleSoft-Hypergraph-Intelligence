@@ -798,13 +798,50 @@ def build(env="HCM", limit=50, persist=True):
 
             add_node(graph, "application_engine", applid, applid, row)
 
+            # Node type "section" matches ae.py's program_graph() (the compact
+            # graph preview) — was "ae_section" here, so the same AE section
+            # had two different node ids depending which code path built it,
+            # and the two graphs couldn't be cross-referenced.
             sect_result = ae.sections(env, applid)
             for sect in sect_result["items"]:
                 sect_name = sect.get("ae_section")
                 if sect_name:
                     sect_node_name = f"{applid}.{sect_name}"
-                    add_node(graph, "ae_section", sect_node_name, sect_name, sect)
-                    add_edge(graph, "application_engine", applid, "ae_section", sect_node_name, "CONTAINS", sect)
+                    add_node(graph, "section", sect_node_name, sect_name, sect)
+                    add_edge(graph, "application_engine", applid, "section", sect_node_name, "CONTAINS", sect)
+
+            # CALLS (cross-program or cross-section) and PeopleCode CONTAINS
+            # edges — program_graph() promises both; the persisted KG had
+            # neither.
+            step_result = ae.steps(env, applid)
+            for step in step_result["items"]:
+                act = str(step.get("ae_acttype") or "").strip()
+                if act == "P":
+                    sect_name = step.get("ae_section", "")
+                    step_name = step.get("ae_step", "")
+                    if sect_name and step_name:
+                        ref = f"{applid}.{sect_name}.{step_name}"
+                        encoded = peoplecode.encode_reference(ref)
+                        add_node(graph, "peoplecode", encoded, ref, step)
+                        add_edge(graph, "application_engine", applid, "peoplecode", encoded, "CONTAINS", step)
+                elif act == "C":
+                    # AE_DO_APPL_ID is always populated for a "Call Section"
+                    # step, even same-program calls — so it's only a genuine
+                    # cross-program call when it differs from the current
+                    # applid. When a target section is also given, that's
+                    # always the more precise edge regardless of program.
+                    called_appl = str(step.get("ae_do_appl_id") or "").strip()
+                    called_sect = str(step.get("ae_do_section") or step.get("ae_onabend_section") or "").strip()
+                    if called_sect:
+                        target_appl = called_appl if (called_appl and called_appl.upper() != applid.upper()) else applid
+                        if target_appl != applid:
+                            add_node(graph, "application_engine", target_appl, target_appl, {})
+                        called_node = f"{target_appl}.{called_sect}"
+                        add_node(graph, "section", called_node, called_sect, {})
+                        add_edge(graph, "application_engine", applid, "section", called_node, "CALLS", step)
+                    elif called_appl and called_appl.upper() != applid.upper():
+                        add_node(graph, "application_engine", called_appl, called_appl, {})
+                        add_edge(graph, "application_engine", applid, "application_engine", called_appl, "CALLS", step)
 
             state_result = ae.state_records(env, applid)
             for state in state_result["items"]:

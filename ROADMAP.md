@@ -317,13 +317,14 @@ Continue enriching graph relationships.
 - Continue aligning provider-specific Knowledge Graph ingestion with UOM
   `_relationships` / `_graph` relationship definitions — an audit (see
   "UOM/KG Alignment" below) covered ~20 of the highest-traffic provider
-  types and found 9 genuine mismatches; 6 are fixed (below), 3 remain:
-  `component → record` broader page-record usage, `page` subpages/security
-  edges (page-level security isn't modeled in the KG at all — only
-  component-level), and Application Engine's `CALLS`/PeopleCode edges +
-  node-type mismatch (`ae_section` vs `section` — same section has two
-  different ids depending which code path built it). The remaining ~34
-  provider types were not audited yet.
+  types and found 9 genuine mismatches; 7 are fixed (below), 2 remain:
+  `component → record` broader page-record usage and `page` subpages/
+  security edges (page-level security isn't modeled in the KG at all — only
+  component-level). The remaining ~34 provider types were not audited yet.
+  Also noted: AE PeopleCode-step `CONTAINS` edges are a no-op on both the
+  UOM side and the KG side in this environment — `AE_ACTTYPE == 'P'` never
+  matches here, a pre-existing schema-version gap in `ae.py`'s own reference
+  implementation, not something introduced by this alignment work.
 
 ### ✅ Completed (2026-07-03) — UOM/KG Alignment fixes (partial)
 
@@ -377,13 +378,29 @@ list above). Fixed 6 of the 9:
   relationships (`PSBCITEM`) too. Added `ci → menu` (`DECLARED_ON`),
   `ci → record` (`USES`), and `ci → field` (`EXPOSES`) + `record → field`
   (`CONTAINS`) edges.
+- **Application Engine `CALLS`/PeopleCode edges + `ae_section`/`section`
+  node-type mismatch**: `application_engines()` used node type `ae_section`
+  while `ae.py`'s `program_graph()` (the compact preview) uses `section` —
+  the same AE section had two different ids depending which code path built
+  it, so the two graphs couldn't be cross-referenced at all. Renamed to
+  `section` to match. Also added `CALLS` edges for "Call Section" steps.
+  **Real bug found while porting `program_graph()`'s own logic**:
+  `AE_DO_APPL_ID` is *always* populated on a Call-Section step, even for a
+  same-program call — treating any non-blank value as "cross-program call"
+  (as the reference implementation does) produces a self-loop
+  (`AA_CONV_JPN CALLS AA_CONV_JPN`) for the extremely common same-program
+  case. Fixed by preferring the section-level target whenever one is given
+  (always more precise regardless of program) and only emitting a
+  program-level `CALLS` edge when the called program genuinely differs from
+  the caller.
 
 **Verified**: fresh graph rebuild (`limit=50`) — 4,026 `HAS_PERMISSION`
 edges, 568 `HAS_MEMBER` edges, 98 `SENDS`/`RECEIVES` edges, 50
 `portal_registry` `CONTAINS` edges, 50 `tree → field` `USES` edges, 9
 `ci → menu` `DECLARED_ON` edges, 811 `ci → field` `EXPOSES` edges, 138
-`ci → record` `USES` edges (all up from 0). `make check` 91/91; smoke
-test 69/69 (no admin page touched).
+`ci → record` `USES` edges, 106 AE `CALLS` edges with **zero self-loops**
+(all up from 0). `make check` 91/91; smoke test 69/69 (`/admin/ae` — the one
+page that reads AE section data — spot-checked and still renders).
 
 ### ✅ Completed (2026-07-03) — Dynamic SQL READS/WRITES coverage
 

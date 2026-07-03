@@ -6,6 +6,60 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — UOM/KG Alignment Fixes, Round 3 (AE) — 69/69
+
+### Application Engine: section node-type mismatch + CALLS edges
+
+Last of the "clean win" fixes from the original alignment audit — the
+other 2 remaining mismatches (page-level security modeling,
+component→record broader page usage) are bigger structural gaps, not
+quick edge additions, and stay in the backlog.
+
+`application_engines()` used node type `ae_section`, while `ae.py`'s
+`program_graph()` (the actual compact graph preview shown in the Object
+Explorer) uses `section` for the same concept — meaning the exact same AE
+section had two different node ids depending which code path built it, so
+neither graph could reference the other's version of that section at all.
+Renamed to `section` to match, and added `CALLS` edges for "Call Section"
+steps (`AE_ACTTYPE = 'C'`), which were entirely missing from the KG.
+
+**Real bug found while porting `program_graph()`'s own logic, not just
+copy-pasting it**: `AE_DO_APPL_ID` (the called-program field) is *always*
+populated on a Call-Section step — even for the extremely common
+same-program case, where PeopleSoft just puts the calling program's own
+applid there. The reference implementation's logic (`if called_appl: link
+program→program CALLS elif called_sect: link program→section`) treats any
+non-blank `ae_do_appl_id` as "this is a cross-program call," which produces
+a self-loop edge (`AA_CONV_JPN CALLS AA_CONV_JPN`) for same-program calls —
+confirmed via `ae.steps('HCM', 'AA_CONV_JPN')`: every Call-Section step had
+`ae_do_appl_id: 'AA_CONV_JPN'` (itself) with the real target only visible in
+`ae_do_section`. Fixed in the graphdb.py port (not in ae.py itself — didn't
+want to touch the UOM reference implementation without being asked) by
+always preferring the section-level target when one is given, and only
+emitting a program-level edge when the called program genuinely differs
+from the caller.
+
+**Also investigated, not a new bug**: AE→PeopleCode `CONTAINS` edges
+(`AE_ACTTYPE = 'P'` steps) never appear — traced this all the way back and
+confirmed `ae.py:program_graph()` itself also produces zero PeopleCode
+nodes for the same program in this environment (`AE_ACTTYPE` doesn't behave
+the way the code expects here — a pre-existing schema-version gap on both
+sides, not something this alignment pass introduced or needs to fix).
+
+**Verified**: fresh graph rebuild — 148 `section` nodes (0 leftover
+`ae_section` nodes), 106 `CALLS` edges with **zero self-loops** (confirmed
+self-loops existed before the fix via the exact same rebuild, then gone
+after). `/admin/ae` (the one admin page that reads AE section data)
+spot-checked and still renders. `make check` 91/91; smoke test 69/69.
+
+This closes 7 of the original 9 mismatches found in today's audit. 2 remain
+(documented in ROADMAP.md): `component → record` broader page-record usage,
+and page-level security modeling (the KG only models security at component
+granularity — a real structural gap, not a quick edge addition). ~34
+provider types were never audited in the first place.
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — UOM/KG Alignment Fixes, Round 2 (tree, ci) — 69/69
 
 ### Continued the alignment backlog: tree → field, ci → menu/record/field
