@@ -6,6 +6,49 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — Message UOM Cross-References + IB Subscription Crash Fix — 67/67
+
+### Message Cross-References in Object Explorer
+
+Extended `attach_graph_context()` in `routers/peoplesoft.py` to cover the last
+remaining UOM provider named in the Phase 5 roadmap ("message, tree, project,
+portal" — tree/portal were completed earlier the same day):
+
+- **`message`**: "Records Contained in This Message" (outbound `CONTAINS` →
+  `record`, sourced from `PSMSGREC`) and "Projects Deploying This Message"
+  (inbound `DEPLOYS` ← `project`)
+- **`project`** deliberately left uncovered: `PSPROJECTITEM` targets span
+  nearly every object type, so a dedicated per-type xref section would just
+  re-list what the generic "Knowledge Graph Neighbors" section already shows.
+
+### Bug fix: IB Message Subscriptions crash on integer `gensubproc`
+
+While verifying against a message with real `CONTAINS` edges
+(`ALTACCT_CF_FULLSYNC`), `/api/peoplesoft/object/message/{name}` 500'd:
+
+```
+File "connectors/uom.py", line 5943, in sections_for_ib_message
+    genproc = (s.get("gensubproc") or "").strip()
+AttributeError: 'int' object has no attribute 'strip'
+```
+
+`PSSUBDEFN.GENSUBPROC` comes back as an int for some rows (likely `0`/falsy
+values from Oracle NUMBER columns bypassing the `or ""` guard only when
+truthy-but-non-string). Fixed by wrapping in `str(...)` before `.strip()`.
+Pre-existing bug, unrelated to this session's other changes — surfaced only
+because this was the first time a message with populated subscriptions and
+schema records was exercised end-to-end.
+
+**Verified**:
+- `curl /api/peoplesoft/object/message/ALTACCT_CF_FULLSYNC?env=HCM` → 200,
+  shows "Records Contained in This Message" (`record:ALTACCT_TBL`) and no
+  longer crashes on the Subscriptions section
+- `/admin/object/message/ALTACCT_CF_FULLSYNC?env=HCM` → 200
+- `make check` — 91/91 files, 11/11 unit tests
+- `python3 scripts/smoke_admin_shell.py` — 67/67 OK
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — Tree & Portal UOM Cross-Reference Sections — 67/67
 
 ### Tree and Portal Registry Cross-References in Object Explorer

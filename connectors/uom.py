@@ -5940,7 +5940,7 @@ def sections_for_ib_message(obj):
             meta_parts = []
             if action:
                 meta_parts.append(f"action: {action}")
-            genproc = (s.get("gensubproc") or "").strip()
+            genproc = str(s.get("gensubproc") or "").strip()
             if genproc:
                 meta_parts.append(f"proc: {genproc}")
             items.append({

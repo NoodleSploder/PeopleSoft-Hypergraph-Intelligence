@@ -307,6 +307,15 @@ def attach_graph_context(payload, env):
                              src_type="project", edge_type="DEPLOYS",
                              section_name="Projects Deploying This Tree",
                              note="Projects that include this tree in a deployment (from Knowledge Graph)")
+    if obj_type == "message":
+        _attach_outbound_xref(payload, env, node_id,
+                              tgt_type="record", edge_type="CONTAINS",
+                              section_name="Records Contained in This Message",
+                              note="Records used to define this IB message's structure (from Knowledge Graph)")
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="project", edge_type="DEPLOYS",
+                             section_name="Projects Deploying This Message",
+                             note="Projects that include this message in a deployment (from Knowledge Graph)")
     if obj_type == "portal_registry":
         _attach_inbound_xref(payload, env, node_id,
                              src_type="project", edge_type="DEPLOYS",

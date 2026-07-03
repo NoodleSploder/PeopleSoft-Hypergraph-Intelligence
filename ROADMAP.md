@@ -319,6 +319,9 @@ Every object should answer:
   - Tree: "Record Keyed by This Tree" (outbound USES → record), "Projects Deploying This Tree" (inbound DEPLOYS)
   - Portal Registry: "Projects Deploying This Portal Object", "Content Services Linking to This Portal Object"
   - Generic `_attach_outbound_xref()` helper added alongside existing `_attach_inbound_xref()`
+- ✅ Consistent cross-reference sections for message UOM provider (Done 2026-07-03)
+  - Message: "Records Contained in This Message" (outbound CONTAINS → record), "Projects Deploying This Message" (inbound DEPLOYS)
+  - Project provider intentionally left to the generic "Knowledge Graph Neighbors" section — its DEPLOYS targets span nearly every object type, so a dedicated per-type xref section would just duplicate that list
 
 ---
 
