@@ -3383,3 +3383,271 @@ async function loadAll() {
 
 loadAll();
 </script>""")
+
+
+@router.get("/access", response_class=HTMLResponse)
+def admin_access():
+    return _shell("Access Path", "access", content="""
+<style>
+.ap-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:12px 16px;background:rgba(0,20,40,.6);border-bottom:1px solid #1a2a3a;margin-bottom:0}
+.ap-mode-btn{padding:5px 14px;border-radius:4px;font-size:12px;cursor:pointer;border:1px solid;
+  background:transparent;transition:.15s}
+.ap-mode-btn.active{background:rgba(0,229,255,.15);border-color:#00e5ff;color:#00e5ff}
+.ap-mode-btn:not(.active){border-color:#2a3a4a;color:#7faab2}
+.ap-inp{background:#0a1520;border:1px solid #1a2a3a;color:#c8d8e8;padding:6px 10px;
+  border-radius:4px;font-size:13px;width:260px}
+.ap-inp:focus{outline:none;border-color:#00e5ff80}
+.ap-btn{padding:6px 16px;border-radius:4px;border:1px solid #00e5ff60;background:rgba(0,229,255,.1);
+  color:#00e5ff;font-size:12px;cursor:pointer}
+.ap-btn:hover{background:rgba(0,229,255,.2)}
+.ap-stats{display:flex;gap:12px;flex-wrap:wrap;padding:10px 16px;
+  border-bottom:1px solid #1a2a3a;background:rgba(0,10,20,.4)}
+.ap-stat{background:rgba(0,229,255,.06);border:1px solid rgba(0,229,255,.18);
+  border-radius:4px;padding:6px 14px;font-size:12px;color:#7faab2}
+.ap-stat b{font-size:18px;color:#00e5ff;display:block}
+.ap-body{padding:16px;overflow:auto;height:calc(100vh - 195px)}
+.ap-filter{background:#0a1520;border:1px solid #1a2a3a;color:#c8d8e8;padding:4px 8px;
+  border-radius:3px;font-size:12px;width:200px;margin-bottom:10px}
+.ap-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.ap-tbl th{background:#0a1828;color:#7faab2;padding:6px 10px;text-align:left;
+  border-bottom:1px solid #1a2a3a;position:sticky;top:0}
+.ap-tbl td{padding:5px 10px;border-bottom:1px solid #0d1a28;vertical-align:top}
+.ap-tbl tr:hover td{background:rgba(0,229,255,.04)}
+.ap-link{color:#00e5ff;text-decoration:none;font-size:11px}
+.ap-link:hover{text-decoration:underline}
+.ap-pill{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;margin:1px}
+.ap-pill.d{background:rgba(0,150,255,.15);border:1px solid #0096ff40;color:#5bc8ff}
+.ap-pill.u{background:rgba(0,255,150,.12);border:1px solid #00ff9640;color:#5fffa8}
+.ap-pill.a{background:rgba(255,200,0,.12);border:1px solid #ffc80040;color:#ffd84d}
+.ap-none{color:#4a5a6a;font-size:12px;padding:20px;text-align:center}
+.ap-path{color:#4a6a8a;font-size:11px}
+.ap-path span{color:#7faab2}
+.ap-section{margin-bottom:6px;color:#00e5ff;font-size:11px;font-weight:600;
+  letter-spacing:.5px;padding:4px 0;border-bottom:1px solid #1a2a3a;text-transform:uppercase}
+.ap-warn{background:rgba(255,180,0,.1);border:1px solid #ffc00040;border-radius:4px;
+  color:#ffc44d;font-size:11px;padding:8px 12px;margin-bottom:10px}
+</style>
+
+<div class="ap-toolbar">
+  <button class="ap-mode-btn active" id="modeComp" onclick="setMode('comp')">Component → Who Has Access</button>
+  <button class="ap-mode-btn" id="modeOpr" onclick="setMode('opr')">Operator → What Can They Access</button>
+  <span id="modeInputs" style="display:flex;align-items:center;gap:8px">
+    <input class="ap-inp" id="compInput" placeholder="Component name e.g. JOB_DATA" onkeydown="if(event.key==='Enter')run()">
+  </span>
+  <button class="ap-btn" onclick="run()">Search</button>
+  <span id="apStatus" style="font-size:11px;color:#7faab2"></span>
+</div>
+
+<div id="apStats" class="ap-stats" style="display:none"></div>
+
+<div class="ap-body" id="apBody">
+  <div class="ap-none">Enter a component name or OPRID above and click Search</div>
+</div>
+
+<script>
+let _mode = 'comp';
+let _env = () => (document.getElementById('globalEnv') || {}).value || 'HCM';
+let _raw = [];
+
+function setMode(m) {
+  _mode = m;
+  document.getElementById('modeComp').className = 'ap-mode-btn' + (m==='comp'?' active':'');
+  document.getElementById('modeOpr').className = 'ap-mode-btn' + (m==='opr'?' active':'');
+  const inp = document.getElementById('compInput');
+  inp.placeholder = m === 'comp' ? 'Component name e.g. JOB_DATA' : 'OPRID e.g. PS';
+  inp.value = '';
+  document.getElementById('apStats').style.display = 'none';
+  document.getElementById('apBody').innerHTML = '<div class="ap-none">Enter a ' + (m==='comp'?'component name':'operator OPRID') + ' above and click Search</div>';
+}
+
+async function run() {
+  const val = document.getElementById('compInput').value.trim().toUpperCase();
+  if (!val) return;
+  const st = document.getElementById('apStatus');
+  st.textContent = 'Loading…';
+  const env = _env();
+  try {
+    if (_mode === 'comp') {
+      const r = await fetch('/api/peoplesoft/security/components/' + encodeURIComponent(val) + '/access?env=' + env);
+      const d = await r.json();
+      renderComp(d, val);
+    } else {
+      const r = await fetch('/api/peoplesoft/security/operators/' + encodeURIComponent(val) + '/components?env=' + env);
+      const d = await r.json();
+      renderOpr(d, val, env);
+    }
+    st.textContent = '';
+  } catch(e) {
+    st.textContent = 'Error: ' + e.message;
+  }
+}
+
+function pick(row, ...keys) {
+  for (const k of keys) {
+    const v = row[k] ?? row[k.toLowerCase()] ?? row[k.toUpperCase()];
+    if (v != null) return v;
+  }
+  return '';
+}
+
+function accessPill(row) {
+  const cd = (pick(row,'ACCESSCD','accesscd')||'').toUpperCase();
+  const disp = (pick(row,'DISPLAYONLY','displayonly')||'0').toString();
+  const auth = pick(row,'AUTHORIZEDACTIONS','authorizedactions');
+  let type = 'u'; let label = 'Update';
+  if (cd === 'D' || disp === '1') { type='d'; label='Display'; }
+  else if (cd === 'A') { type='a'; label='Add'; }
+  else if (auth) {
+    const bits = parseInt(auth,10)||0;
+    if ((bits & 1) && (bits & 2)) { type='u'; label='Full'; }
+    else if (bits & 1) { type='d'; label='Display'; }
+    else if (bits & 2) { type='u'; label='Update'; }
+    else if (bits & 4) { type='a'; label='Add'; }
+  }
+  return '<span class="ap-pill ' + type + '">' + label + '</span>';
+}
+
+function renderComp(d, comp) {
+  const st = document.getElementById('apStats');
+  const cnt = d.counts || {};
+  st.style.display = 'flex';
+  st.innerHTML = '<div class="ap-stat"><b>' + (cnt.users||0) + '</b>Operators</div>' +
+    '<div class="ap-stat"><b>' + (cnt.roles||0) + '</b>Roles</div>' +
+    '<div class="ap-stat"><b>' + (cnt.permissionlists||0) + '</b>Permission Lists</div>' +
+    '<div class="ap-stat"><b>' + (cnt.access_paths||0) + '</b>Access Paths</div>';
+
+  const body = document.getElementById('apBody');
+  if (!d.access || !d.access.length) {
+    body.innerHTML = '<div class="ap-none">No access grants found for component ' + esc(comp) + '</div>';
+    return;
+  }
+
+  const warn = (d.warnings||[]).length ? '<div class="ap-warn">⚠ ' + d.warnings.join('; ') + '</div>' : '';
+
+  // Group by operator
+  const byOpr = {};
+  for (const row of d.access) {
+    const op = (pick(row,'ROLEUSER','roleuser')||'').toUpperCase();
+    if (!op) continue;
+    if (!byOpr[op]) byOpr[op] = [];
+    byOpr[op].push(row);
+  }
+  const oprids = Object.keys(byOpr).sort();
+
+  // Filter input
+  const filterHtml = '<input class="ap-filter" id="aprFilter" placeholder="Filter operators…" oninput="filterComp(this.value)">';
+
+  let html = warn + filterHtml + '<div id="aprList">';
+  for (const op of oprids) {
+    const rows = byOpr[op];
+    const paths = rows.map(r => {
+      const pl = esc(pick(r,'CLASSID','classid')||'');
+      const role = esc(pick(r,'ROLENAME','rolename')||'');
+      return '<span class="ap-path">' + esc(op) + ' → <span>' + role + '</span> → <span>' + pl + '</span> → <span>' + esc(comp) + '</span></span> ' + accessPill(r);
+    }).join('<br>');
+    html += '<div class="ap-opr-row" data-opr="' + esc(op) + '" style="padding:8px 0;border-bottom:1px solid #0d1a28">' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+      '<a class="ap-link" href="/admin/object/operator/' + esc(op) + '">' + esc(op) + '</a>' +
+      '</div>' + paths + '</div>';
+  }
+  html += '</div>';
+  body.innerHTML = html;
+  _raw = d.access;
+}
+
+function filterComp(val) {
+  val = (val||'').toUpperCase();
+  document.querySelectorAll('.ap-opr-row').forEach(el => {
+    el.style.display = !val || el.dataset.opr.includes(val) ? '' : 'none';
+  });
+}
+
+function renderOpr(rows, oprid, env) {
+  const st = document.getElementById('apStats');
+
+  if (!rows || !rows.length) {
+    st.style.display = 'none';
+    document.getElementById('apBody').innerHTML = '<div class="ap-none">No component access found for operator ' + esc(oprid) + '</div>';
+    return;
+  }
+
+  // Distinct counts
+  const comps = new Set(rows.map(r => (pick(r,'PNLGRPNAME','pnlgrpname')||'').toUpperCase()).filter(Boolean));
+  const roles = new Set(rows.map(r => pick(r,'ROLENAME','rolename')).filter(Boolean));
+  const pls = new Set(rows.map(r => pick(r,'CLASSID','classid')).filter(Boolean));
+
+  st.style.display = 'flex';
+  st.innerHTML = '<div class="ap-stat"><b>' + comps.size + '</b>Components</div>' +
+    '<div class="ap-stat"><b>' + roles.size + '</b>Roles</div>' +
+    '<div class="ap-stat"><b>' + pls.size + '</b>Permission Lists</div>' +
+    '<div class="ap-stat"><b>' + rows.length + '</b>Access Paths</div>';
+
+  // Deduplicate to component level — pick first row per component, track unique paths
+  const byComp = {};
+  for (const row of rows) {
+    const c = (pick(row,'PNLGRPNAME','pnlgrpname')||'').toUpperCase();
+    if (!c) continue;
+    if (!byComp[c]) byComp[c] = [];
+    byComp[c].push(row);
+  }
+  const compList = Object.keys(byComp).sort();
+
+  const filterHtml = '<input class="ap-filter" id="aprFilterC" placeholder="Filter components…" oninput="filterOpr(this.value)">';
+
+  const warn = '';
+  let html = warn + filterHtml;
+  html += '<table class="ap-tbl"><thead><tr>' +
+    '<th>Component</th><th>Description</th><th>Access</th><th>Via Role / PL</th></tr></thead><tbody id="aprTbody">';
+
+  for (const c of compList) {
+    const pathRows = byComp[c];
+    // Collect unique role+pl combos
+    const via = [...new Set(pathRows.map(r => {
+      const role = pick(r,'ROLENAME','rolename')||'';
+      const pl = pick(r,'CLASSID','classid')||'';
+      return esc(role) + ' / ' + esc(pl);
+    }))].join('<br>');
+    const descr = esc(pick(pathRows[0],'COMPONENT_DESCR','component_descr')||'');
+    const pill = accessPill(pathRows[0]);
+    html += '<tr class="ap-comp-row" data-comp="' + esc(c) + '">' +
+      '<td><a class="ap-link" href="/admin/object/component/' + esc(c) + '">' + esc(c) + '</a></td>' +
+      '<td style="color:#7faab2">' + descr + '</td>' +
+      '<td>' + pill + '</td>' +
+      '<td style="font-size:11px;color:#4a6a8a">' + via + '</td></tr>';
+  }
+  html += '</tbody></table>';
+  document.getElementById('apBody').innerHTML = html;
+}
+
+function filterOpr(val) {
+  val = (val||'').toUpperCase();
+  document.querySelectorAll('.ap-comp-row').forEach(el => {
+    el.style.display = !val || el.dataset.comp.includes(val) ? '' : 'none';
+  });
+}
+
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const params = new URLSearchParams(location.search);
+  const comp = params.get('comp');
+  const opr = params.get('opr');
+  if (comp) {
+    setMode('comp');
+    document.getElementById('compInput').value = comp;
+    run();
+  } else if (opr) {
+    setMode('opr');
+    document.getElementById('compInput').value = opr;
+    run();
+  }
+});
+
+if (typeof window !== 'undefined') {
+  window.onEnvChange = function(env) {
+    const val = document.getElementById('compInput').value.trim();
+    if (val) run();
+  };
+}
+</script>""")

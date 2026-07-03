@@ -40,6 +40,7 @@ _NAV_GROUPS = [
     ]),
     ("Security", [
         ("secaudit",       "Security Audit",  "/admin/secaudit"),
+        ("access",         "Access Path",     "/admin/access"),
         ("security",       "Security",        "/admin/security"),
         ("operator",       "Operators",       "/admin/operator"),
         ("role",           "Roles",           "/admin/role"),
