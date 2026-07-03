@@ -126,20 +126,20 @@ h2{color:#00e5ff;font-size:12px;letter-spacing:2px;text-transform:uppercase;
     <a class="ql" href="/admin/objects">Object Search</a>
     <a class="ql" href="/admin/component">Components</a>
     <a class="ql" href="/admin/page">Pages</a>
-    <a class="ql" href="/admin/permissionlist">Perm Lists</a>
     <a class="ql" href="/admin/record">Records</a>
     <a class="ql" href="/admin/ae">AE Programs</a>
+    <a class="ql" href="/admin/peoplecode">PeopleCode</a>
     <a class="ql" href="/admin/graph">Graph Explorer</a>
     <a class="ql" href="/admin/ib">IB Explorer</a>
     <a class="ql" href="/admin/tracing">Tracing</a>
     <a class="ql" href="/admin/sqlws">SQL Workspace</a>
-    <a class="ql" href="/admin/security">Security</a>
-    <a class="ql" href="/admin/peoplecode">PeopleCode</a>
+    <a class="ql" href="/admin/secaudit">Security Audit</a>
+    <a class="ql" href="/admin/compflow">Event Flow</a>
+    <a class="ql" href="/admin/compseq">PC Timeline</a>
+    <a class="ql" href="/admin/sqrsearch">SQR Search</a>
     <a class="ql" href="/admin/impact">Impact</a>
-    <a class="ql" href="/admin/promotions">Promotions</a>
     <a class="ql" href="/admin/topology">Topology</a>
     <a class="ql" href="/admin/log_viewer">Log Viewer</a>
-    <a class="ql" href="/admin/log_session">Session Chain</a>
     <a class="ql" href="/admin/users">Users</a>
     <a class="ql purple" href="/admin/assistant">AI Assistant</a>
   </div>

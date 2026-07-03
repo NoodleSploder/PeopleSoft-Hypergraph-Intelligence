@@ -86,6 +86,7 @@ _NAV_GROUPS = [
         ("sqr",        "SQR Explorer",  "/admin/sqr"),
         ("sqrsearch",  "SQR Search",    "/admin/sqrsearch"),
         ("compflow",   "Comp Event Flow", "/admin/compflow"),
+        ("compseq",    "PC Timeline",    "/admin/compseq"),
     ]),
     ("Perf", [
         ("pmmetric", "PM Metrics",      "/admin/pmmetric"),

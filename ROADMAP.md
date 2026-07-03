@@ -1208,6 +1208,16 @@ AI tools for log diagnosis; session chain correlation web→app; error surface w
 
 **Remaining:** Process Scheduler log ingestion for Windows-hosted schedulers (SMB/WinRM transport) — blocked until a Windows scheduler server is available.
 
+## ✅ Component Processing Sequence Timeline (2026-07-02)
+
+- `/admin/compseq` — PC Timeline: enter component name (same autocomplete as compflow), renders canonical PeopleSoft processing lifecycle in 4 phase columns (Search → Build → Interaction → Save)
+- Each of the 20 canonical event slots rendered as a card: cyan if delivered PC exists, amber if custom PC, dark-grey if empty; click to expand inline source with PeopleCode syntax highlighting
+- Summary stats bar: Total Slots (20), With PeopleCode, Custom Events, Delivered Events, Empty Slots
+- Per-program source fetch via /api/peoplesoft/components/{comp}/event-source (up to 6 per event); custom programs show lastupdoprid in amber
+- Event metadata includes canonical scope (Component/Record/Field), purpose note, program count, and record names involved
+- "PC Timeline" added to Platform nav and home page Quick Navigation
+- Addresses Processing Sequence Intelligence roadmap: Event-Aware Metadata Indexing (the canonical sequence view exposes event execution context), Delivered vs Custom comparison (custom badge + source expansion)
+
 ## ✅ What Changed Expansion + Security Audit (2026-07-02)
 
 - **What Changed** expanded from 9 → 20 object types: Records, Components, Pages, AE Programs, Fields, PeopleCode, SQL Defs, Perm Lists, Roles (original 9) + Menus (PSMENUDEFN), Queries (PSQRYDEFN), Projects (PSPROJECTDEFN.descrlong), Processes (PS_PRCSDEFN), App Packages (PSPACKAGEDEFN), IB Messages (PSMSGDEFN), IB Routings (PSIBRTNGDEFN, filtered ~GENERATED~), Trees (PSTREEDEFN.tree_name), Translate Values (PSXLATITEM GROUP BY fieldname), Component Interfaces (PSBCDEFN)

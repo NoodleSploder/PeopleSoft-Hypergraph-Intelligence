@@ -284,3 +284,284 @@ window.onEnvChange=()=>{{const comp=document.getElementById('compInp').value.tri
 {f"document.addEventListener('DOMContentLoaded', () => load());" if preload else ""}
 </script>
 """)
+
+
+@router.get("/compseq", response_class=HTMLResponse)
+def admin_compseq(request: Request, env: str = "HCM", comp: str = ""):
+    preload = bool(comp)
+    return _shell("PC Timeline", "compseq", content=f"""
+<style>
+.cs-bar{{display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid #1a2a3a;
+  background:#060d16;flex-wrap:wrap}}
+.cs-inp{{background:#0a1520;border:1px solid #1a2a3a;color:#c8d8e8;padding:6px 12px;
+  border-radius:4px;font-size:13px;width:300px;font-family:monospace}}
+.cs-inp:focus{{outline:none;border-color:#00e5ff55}}
+.cs-btn{{padding:6px 18px;border-radius:4px;background:#00e5ff;color:#000;
+  font-weight:bold;font-size:12px;border:none;cursor:pointer}}
+.cs-btn:hover{{background:#33eeff}}
+.cs-body{{padding:18px 20px}}
+.cs-phases{{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}}
+.cs-phase{{background:rgba(0,20,30,.6);border:1px solid #1a2a3a;border-radius:6px;overflow:hidden}}
+.cs-phase-hdr{{padding:8px 12px;font-size:11px;font-weight:700;letter-spacing:.5px;
+  text-transform:uppercase;border-bottom:1px solid #1a2a3a}}
+.cs-phase-search .cs-phase-hdr{{color:#88ccff;background:rgba(0,100,200,.12)}}
+.cs-phase-build  .cs-phase-hdr{{color:#44ddaa;background:rgba(0,160,100,.10)}}
+.cs-phase-inter  .cs-phase-hdr{{color:#ffaa44;background:rgba(200,100,0,.10)}}
+.cs-phase-save   .cs-phase-hdr{{color:#ff6666;background:rgba(200,40,40,.12)}}
+.cs-slot{{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.04);cursor:default}}
+.cs-slot:last-child{{border-bottom:none}}
+.cs-slot.has-pc{{cursor:pointer}}
+.cs-slot.has-pc:hover{{background:rgba(0,229,255,.05)}}
+.cs-evt-name{{font-size:12px;font-weight:600;font-family:monospace}}
+.cs-slot.no-pc .cs-evt-name{{color:#2a3a4a}}
+.cs-slot.has-pc.delivered .cs-evt-name{{color:#00e5ff}}
+.cs-slot.has-pc.custom   .cs-evt-name{{color:#ffb400}}
+.cs-evt-meta{{font-size:10px;color:#446;margin-top:2px}}
+.cs-slot.has-pc.custom .cs-evt-meta{{color:#7a5a00}}
+.cs-badge{{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:600;
+  margin-left:6px;vertical-align:middle}}
+.cs-badge-cnt{{background:rgba(0,229,255,.15);color:#00e5ff}}
+.cs-badge-custom{{background:rgba(255,180,0,.15);color:#ffb400}}
+.cs-badge-scope{{background:rgba(255,255,255,.07);color:#7faab2}}
+.cs-src{{display:none;padding:10px 12px;background:#020a12;border-top:1px solid #1a2a3a;
+  font-size:12px;line-height:1.6}}
+.cs-src.open{{display:block}}
+.cs-src pre{{margin:0;overflow-x:auto;font-size:11px;color:#8ab;white-space:pre-wrap;word-break:break-word}}
+.cs-prog-hdr{{font-size:11px;color:#556;margin-bottom:6px;border-bottom:1px solid #1a2a3a;
+  padding-bottom:4px}}
+.cs-spinner{{color:#446;font-size:12px;font-style:italic}}
+.cs-stats{{display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap}}
+.cs-stat{{background:rgba(0,20,30,.6);border:1px solid #1a2a3a;border-radius:4px;
+  padding:10px 16px;text-align:center}}
+.cs-stat-val{{font-size:22px;font-weight:700;color:#00e5ff;line-height:1}}
+.cs-stat-lbl{{font-size:10px;color:#7faab2;text-transform:uppercase;letter-spacing:.5px}}
+.cs-owner{{font-size:11px;color:#446;margin-bottom:14px}}
+.cs-legend{{display:flex;gap:12px;font-size:11px;margin-bottom:16px;flex-wrap:wrap}}
+.cs-legend-item{{display:flex;align-items:center;gap:5px}}
+.cs-dot{{width:10px;height:10px;border-radius:2px;flex-shrink:0}}
+.cs-no-data{{color:#446;font-style:italic;font-size:13px;margin-top:30px;text-align:center}}
+</style>
+
+<div class="cs-bar">
+  <span style="font-size:13px;font-weight:700;color:#00e5ff;letter-spacing:.5px">PC Timeline</span>
+  <span style="color:#1a2a3a">|</span>
+  <input id="compInp" class="cs-inp" placeholder="Component name…"
+    value="{comp}" oninput="onInput(this.value)" onkeydown="if(event.key==='Enter')load()">
+  <button class="cs-btn" onclick="load()">Analyse</button>
+  <span id="status" class="cs-spinner"></span>
+</div>
+<div class="cs-body" id="body">
+  <div class="cs-no-data" id="placeholder">Enter a component name to see its PeopleCode processing timeline.</div>
+</div>
+
+<script>
+const ENV = () => document.getElementById('globalEnv')?.value || '{env}';
+
+// Canonical PeopleSoft processing sequence
+const SEQUENCE = [
+  {{
+    id: 'search', label: 'Search Phase', cls: 'cs-phase-search',
+    desc: 'Executes before the component search dialog opens',
+    events: [
+      {{ name:'SearchInit',    scope:'Component',    note:'Initialise search page' }},
+      {{ name:'SearchSave',    scope:'Component',    note:'Validate search criteria' }},
+      {{ name:'SearchDefault', scope:'Record/Field', note:'Default search keys' }},
+    ]
+  }},
+  {{
+    id: 'build', label: 'Build Phase', cls: 'cs-phase-build',
+    desc: 'Executes when the component buffer is loaded',
+    events: [
+      {{ name:'PreBuild',     scope:'Component',    note:'Before buffers loaded' }},
+      {{ name:'FieldDefault', scope:'Record/Field', note:'Default field values' }},
+      {{ name:'FieldFormula', scope:'Record/Field', note:'Derived / formula fields' }},
+      {{ name:'RowInit',      scope:'Record/Field', note:'Initialise each row' }},
+      {{ name:'PostBuild',    scope:'Component',    note:'After buffers loaded' }},
+      {{ name:'Activate',     scope:'Component',    note:'Page activation' }},
+      {{ name:'RowSelect',    scope:'Record/Field', note:'Filter rows on select' }},
+    ]
+  }},
+  {{
+    id: 'inter', label: 'Interaction Phase', cls: 'cs-phase-inter',
+    desc: 'Executes during user interaction (field changes, row actions)',
+    events: [
+      {{ name:'FieldEdit',    scope:'Record/Field', note:'Validate field value' }},
+      {{ name:'FieldChange',  scope:'Record/Field', note:'React to field change' }},
+      {{ name:'PrePopup',     scope:'Record/Field', note:'Before popup menu' }},
+      {{ name:'ItemSelected', scope:'Record/Field', note:'List item selected' }},
+      {{ name:'RowInsert',    scope:'Record',       note:'Row inserted' }},
+      {{ name:'RowDelete',    scope:'Record',       note:'Row deleted' }},
+    ]
+  }},
+  {{
+    id: 'save', label: 'Save Phase', cls: 'cs-phase-save',
+    desc: 'Executes during the save cycle',
+    events: [
+      {{ name:'SaveEdit',       scope:'Record/Field', note:'Validate before save' }},
+      {{ name:'SavePreChange',  scope:'Record/Field', note:'Before DB write' }},
+      {{ name:'Workflow',       scope:'Component',    note:'Workflow/notification' }},
+      {{ name:'SavePostChange', scope:'Record/Field', note:'After DB write' }},
+    ]
+  }},
+];
+
+let _evtMap = {{}};  // event name → array of matching rows from API
+
+function onInput(v) {{
+  if (!v.trim()) {{
+    document.getElementById('body').innerHTML =
+      '<div class="cs-no-data" id="placeholder">Enter a component name to see its PeopleCode processing timeline.</div>';
+  }}
+}}
+
+async function load() {{
+  const comp = document.getElementById('compInp').value.trim().toUpperCase();
+  if (!comp) return;
+  const st = document.getElementById('status');
+  st.textContent = 'Loading…';
+  document.getElementById('body').innerHTML = '<div class="cs-spinner" style="margin:30px 0">Querying…</div>';
+  try {{
+    const r = await fetch('/api/peoplesoft/components/' + encodeURIComponent(comp) + '/events?env=' + ENV());
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    st.textContent = '';
+    render(comp, d);
+  }} catch(e) {{
+    st.textContent = '';
+    document.getElementById('body').innerHTML = '<div class="cs-no-data">Error: ' + esc(String(e)) + '</div>';
+  }}
+}}
+
+function esc(s){{return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}}
+
+function render(comp, d) {{
+  const events = d.events || [];
+  const owner = d.owner || '';
+
+  // Build lookup: event name → rows
+  _evtMap = {{}};
+  events.forEach(e => {{
+    (_evtMap[e.event] = _evtMap[e.event] || []).push(e);
+  }});
+
+  // Stats
+  const totalSlots = SEQUENCE.reduce((s,ph) => s + ph.events.length, 0);
+  const activeEvents = new Set(events.map(e => e.event));
+  const customRows = events.filter(e => e.modified);
+  const customEvents = new Set(customRows.map(e => e.event));
+
+  let html = '<div class="cs-stats">';
+  html += `<div class="cs-stat"><div class="cs-stat-val">${{totalSlots}}</div><div class="cs-stat-lbl">Total Slots</div></div>`;
+  html += `<div class="cs-stat"><div class="cs-stat-val" style="color:#00e5ff">${{activeEvents.size}}</div><div class="cs-stat-lbl">With PeopleCode</div></div>`;
+  html += `<div class="cs-stat"><div class="cs-stat-val" style="color:#ffb400">${{customEvents.size}}</div><div class="cs-stat-lbl">Custom Events</div></div>`;
+  html += `<div class="cs-stat"><div class="cs-stat-val" style="color:#4a9a4a">${{activeEvents.size - customEvents.size}}</div><div class="cs-stat-lbl">Delivered Events</div></div>`;
+  html += `<div class="cs-stat"><div class="cs-stat-val" style="color:#888">${{totalSlots - activeEvents.size}}</div><div class="cs-stat-lbl">Empty Slots</div></div>`;
+  html += '</div>';
+
+  if (owner) html += `<div class="cs-owner">Owner: <span style="color:#7faab2">${{esc(owner)}}</span></div>`;
+
+  html += '<div class="cs-legend">';
+  html += '<div class="cs-legend-item"><div class="cs-dot" style="background:#00e5ff"></div><span style="color:#7faab2">Delivered PeopleCode</span></div>';
+  html += '<div class="cs-legend-item"><div class="cs-dot" style="background:#ffb400"></div><span style="color:#7faab2">Custom PeopleCode</span></div>';
+  html += '<div class="cs-legend-item"><div class="cs-dot" style="background:#1a2a3a"></div><span style="color:#3a4a5a">No PeopleCode</span></div>';
+  html += '</div>';
+
+  html += '<div class="cs-phases">';
+  SEQUENCE.forEach(phase => {{
+    html += `<div class="cs-phase ${{phase.cls}}">`;
+    html += `<div class="cs-phase-hdr">${{phase.label}}</div>`;
+    phase.events.forEach(ev => {{
+      const rows = _evtMap[ev.name] || [];
+      const hasPC = rows.length > 0;
+      const isCustom = rows.some(r => r.modified);
+      const stateCls = !hasPC ? 'no-pc' : (isCustom ? 'has-pc custom' : 'has-pc delivered');
+      const id = 'slot_' + ev.name;
+
+      let meta = `<div class="cs-evt-meta">${{esc(ev.scope)}} · ${{esc(ev.note)}}`;
+      if (hasPC) {{
+        // Summarise programs
+        const scopes = [...new Set(rows.map(r => r.scope))];
+        const recs = [...new Set(rows.filter(r => r.record).map(r => r.record))];
+        meta += ` · ${{rows.length}} program${{rows.length===1?'':'s'}}`;
+        if (recs.length) meta += ` (${{recs.slice(0,3).map(r => '<span style="color:#4a8a9a">'+esc(r)+'</span>').join(', ')}}${{recs.length>3?'…':''}})`;
+      }}
+      meta += '</div>';
+
+      let badges = '';
+      if (hasPC) {{
+        badges += `<span class="cs-badge cs-badge-cnt">${{rows.length}}</span>`;
+        if (isCustom) badges += `<span class="cs-badge cs-badge-custom">custom</span>`;
+      }}
+
+      const onclick = hasPC ? `onclick="toggleSlot('${{ev.name}}','${{esc(comp)}}')"` : '';
+      html += `<div class="cs-slot ${{stateCls}}" id="${{id}}" ${{onclick}}>
+        <div class="cs-evt-name">${{esc(ev.name)}}${{badges}}</div>
+        ${{meta}}
+      </div>
+      <div class="cs-src" id="${{id}}_src"></div>`;
+    }});
+    html += '</div>';
+  }});
+  html += '</div>';
+
+  document.getElementById('body').innerHTML = html;
+}}
+
+async function toggleSlot(evtName, comp) {{
+  const srcEl = document.getElementById('slot_' + evtName + '_src');
+  if (!srcEl) return;
+  if (srcEl.classList.contains('open')) {{
+    srcEl.classList.remove('open');
+    return;
+  }}
+  const rows = _evtMap[evtName] || [];
+  if (!rows.length) return;
+
+  srcEl.classList.add('open');
+  srcEl.innerHTML = '<span class="cs-spinner">Loading source…</span>';
+
+  // Fetch source for each program row (up to 6)
+  const toFetch = rows.slice(0, 6);
+  const parts = [];
+  for (const row of toFetch) {{
+    const params = new URLSearchParams({{env: ENV(), event: evtName,
+      record: row.record || '', field: row.field || ''}});
+    try {{
+      const r = await fetch('/api/peoplesoft/components/' + encodeURIComponent(comp)
+        + '/event-source?' + params);
+      const d = r.ok ? await r.json() : null;
+      const src = d?.source || '';
+      let hdr = `${{esc(evtName)}}`;
+      if (row.scope !== 'Component') hdr += ` · ${{esc(row.record||'')}}`;
+      if (row.field) hdr += `.${{esc(row.field)}}`;
+      if (row.modified) hdr += ` <span style="color:#ffb400;font-size:10px">● custom (${{esc(row.lastupdoprid)}})</span>`;
+      parts.push(`<div class="cs-prog-hdr">${{hdr}}</div>
+        <pre>${{src ? highlightPC(src) : '<span style="color:#446">Source unavailable</span>'}}</pre>`);
+    }} catch(e) {{
+      parts.push(`<div class="cs-prog-hdr">${{esc(evtName)}}</div><pre style="color:#446">Error loading source</pre>`);
+    }}
+  }}
+  if (rows.length > 6) parts.push(`<div class="cs-prog-hdr" style="color:#446">… ${{rows.length - 6}} more programs not shown</div>`);
+  srcEl.innerHTML = parts.join('<hr style="border-color:#1a2a3a;margin:10px 0">');
+}}
+
+function highlightPC(src) {{
+  const KW = 'If|Else|End-If|For|End-For|While|End-While|Evaluate|When|When-Other|End-Evaluate|Function|Return|End-Function|Local|Global|Component|Exists|All|None|Error|Warning|MessageBox|SQLExec|CreateSQL|GetRecord|CreateRecord|CreateObject|ObjectDoMethod|Fetch|Close|UpdateValue|InsertRow|DeleteRow|FlushBulkInserts|CommitWork|RollbackWork|DoSave|DoSaveNow|Transfer|TransferPage|WinMessage|Hide|UnHide|Gray|UnGray|Enable|Disable|SetDefault|ClearDefault|SetLabel|PeopleCode|End-'.split('|');
+  let h = esc(src);
+  h = h.replace(/\/\*[\s\S]*?\*\//g, m => `<span style="color:#4a6a4a">${{m}}</span>`);
+  h = h.replace(/&amp;[A-Za-z_][A-Za-z0-9_]*/g, m => `<span style="color:#88ddff">${{m}}</span>`);
+  h = h.replace(/"[^"]*"/g, m => `<span style="color:#ccbb88">${{m}}</span>`);
+  KW.forEach(kw => {{
+    h = h.replace(new RegExp('\\b' + kw.replace(/-/g,'\\-') + '\\b', 'g'),
+      `<span style="color:#aa88ff">${{kw}}</span>`);
+  }});
+  return h;
+}}
+
+window.onEnvChange = () => {{
+  const comp = document.getElementById('compInp').value.trim();
+  if (comp) load();
+}};
+{f"document.addEventListener('DOMContentLoaded', () => load());" if preload else ""}
+</script>
+""")
