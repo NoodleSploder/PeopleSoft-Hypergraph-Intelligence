@@ -1283,6 +1283,37 @@ def peoplesoft_component_access(component: str, env: str = "HCM"):
     }
 
 
+@router.get("/api/peoplesoft/security/bulk-component-access")
+def peoplesoft_bulk_component_access(components: str, env: str = "HCM"):
+    """Return aggregate user/role/PL counts for a comma-separated list of component names."""
+    comp_list = [c.strip().upper() for c in components.split(",") if c.strip()]
+    if not comp_list:
+        return {"user_count": 0, "role_count": 0, "pl_count": 0, "components": []}
+    try:
+        source = psdb.auth_component_source(env)
+        users, roles, pls = set(), set(), set()
+        for comp in comp_list[:50]:
+            try:
+                rows = psdb.component_access(env, comp)
+                for row in rows or []:
+                    ru = str(row.get("roleuser") or "").strip()
+                    rn = str(row.get("rolename") or "").strip()
+                    cl = str(row.get("classid") or "").strip()
+                    if ru: users.add(ru)
+                    if rn: roles.add(rn)
+                    if cl: pls.add(cl)
+            except Exception:
+                continue
+        return {
+            "user_count": len(users),
+            "role_count": len(roles),
+            "pl_count": len(pls),
+            "components_analyzed": len(comp_list),
+        }
+    except Exception as exc:
+        return {"user_count": 0, "role_count": 0, "pl_count": 0, "error": str(exc)}
+
+
 @router.get("/api/peoplesoft/security/explain")
 def peoplesoft_security_explain(oprid: str, component: str, env: str = "HCM"):
     result = psdb.explain_operator_component_access(env, oprid, component)

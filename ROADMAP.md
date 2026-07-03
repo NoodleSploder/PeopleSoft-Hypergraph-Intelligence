@@ -306,10 +306,16 @@ Every object should answer:
 - Record objects: `PTF Tests Covering This Record` section — lists PTF automated tests with USES edges (235 edges in HCM KG)
 - Generic `_attach_inbound_xref()` helper in `routers/peoplesoft.py` — reusable cross-reference builder for any (src_type, edge_type) combination; silently skips when no KG edges exist
 
+### ✅ Completed (2026-07-02)
+
+- IB Message UOM: `Service Operations` section — operations that reference this message via PSOPERATION.MSGNAME (REST) or IB_OPERATIONNAME match (traditional IB)
+- IB Message UOM: `Routings` section — routings carrying this message via PSIBRTNGDEFN.IB_OPERATIONNAME
+- IB Message UOM: `Subscriptions` section — pub/sub subscriptions registered for this message (PSSUBDEFN.MSGNAME)
+
 ### Remaining
 
 - Universal "what references me / what do I reference" coverage across all object types
-- Consistent cross-reference sections across remaining UOM providers (message, tree, project, portal)
+- Consistent cross-reference sections for tree, portal UOM providers
 
 ---
 

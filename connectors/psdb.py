@@ -6684,13 +6684,86 @@ def get_ib_message(env_name, msgname):
         except Exception as exc:
             warnings.append(f"PSMSGREC: {exc}")
 
+    # Service operations that reference this message
+    # Path 1: PSOPERATION.MSGNAME (REST/mapped operations)
+    # Path 2: IB_OPERATIONNAME = msgname (traditional IB — operation name == message name)
+    operations = []
+    if ptmetadata.has_table(env_name, "PSOPERATION"):
+        try:
+            rest_ops = [dict(r) for r in query(env_name, """
+                SELECT IB_OPERATIONNAME, IB_SERVICENAME, DESCR, RTNGTYPE,
+                       IB_RESTMETHOD, IB_REST_SERVICE, LASTUPDDTTM, LASTUPDOPRID
+                  FROM SYSADM.PSOPERATION
+                 WHERE MSGNAME = :id
+                 ORDER BY IB_OPERATIONNAME
+                 FETCH FIRST 50 ROWS ONLY
+            """, {"id": msgname.upper()}) or []]
+            # Traditional IB: operation name matches message name
+            trad_ops = [dict(r) for r in query(env_name, """
+                SELECT IB_OPERATIONNAME, IB_SERVICENAME, DESCR, RTNGTYPE,
+                       IB_RESTMETHOD, IB_REST_SERVICE, LASTUPDDTTM, LASTUPDOPRID
+                  FROM SYSADM.PSOPERATION
+                 WHERE IB_OPERATIONNAME = :id
+                 FETCH FIRST 5 ROWS ONLY
+            """, {"id": msgname.upper()}) or []]
+            seen_ops = set()
+            for op in rest_ops + trad_ops:
+                k = op.get("ib_operationname", "")
+                if k and k not in seen_ops:
+                    seen_ops.add(k)
+                    operations.append(op)
+        except Exception as exc:
+            warnings.append(f"PSOPERATION (msg ref): {exc}")
+
+    # Routings: direct lookup by IB_OPERATIONNAME = msgname (traditional IB)
+    # plus via any REST operations found above
+    routings = []
+    if ptmetadata.has_table(env_name, "PSIBRTNGDEFN"):
+        op_names = list({o["ib_operationname"] for o in operations if o.get("ib_operationname")}
+                        | {msgname.upper()})
+        placeholders = ", ".join(f":op{i}" for i in range(len(op_names)))
+        binds = {f"op{i}": v for i, v in enumerate(op_names)}
+        try:
+            routings = [dict(r) for r in query(env_name, f"""
+                SELECT ROUTINGDEFNNAME, IB_OPERATIONNAME, RTNGTYPE, EFF_STATUS,
+                       SENDERNODENAME, RECEIVERNODENAME, DESCR
+                  FROM SYSADM.PSIBRTNGDEFN
+                 WHERE IB_OPERATIONNAME IN ({placeholders})
+                   AND ROUTINGDEFNNAME NOT LIKE '~%%'
+                 ORDER BY ROUTINGDEFNNAME
+                 FETCH FIRST 100 ROWS ONLY
+            """, binds) or []]
+        except Exception as exc:
+            warnings.append(f"PSIBRTNGDEFN (msg ref): {exc}")
+
+    # Subscriptions (pub/sub — PSSUBDEFN.MSGNAME)
+    subscriptions = []
+    if ptmetadata.has_table(env_name, "PSSUBDEFN"):
+        try:
+            subscriptions = [dict(r) for r in query(env_name, """
+                SELECT SUBNAME, MSGNAME, ACTIONNAME, ACTIONTYPE, SUBSTATUS,
+                       GENSUBPROC, RETRYONFAIL, LASTUPDDTTM, LASTUPDOPRID
+                  FROM SYSADM.PSSUBDEFN
+                 WHERE MSGNAME = :id
+                 ORDER BY SUBNAME
+                 FETCH FIRST 50 ROWS ONLY
+            """, {"id": msgname.upper()}) or []]
+        except Exception as exc:
+            warnings.append(f"PSSUBDEFN (msg ref): {exc}")
+
     return {
         "definition": defn,
         "versions": versions,
         "schema_records": schema_records,
+        "operations": operations,
+        "routings": routings,
+        "subscriptions": subscriptions,
         "counts": {
             "versions": len(versions),
             "schema_records": len(schema_records),
+            "operations": len(operations),
+            "routings": len(routings),
+            "subscriptions": len(subscriptions),
         },
         "warnings": warnings,
     }

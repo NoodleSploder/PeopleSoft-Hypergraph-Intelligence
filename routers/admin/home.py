@@ -135,6 +135,7 @@ h2{color:#00e5ff;font-size:12px;letter-spacing:2px;text-transform:uppercase;
     <a class="ql" href="/admin/sqlws">SQL Workspace</a>
     <a class="ql" href="/admin/secaudit">Security Audit</a>
     <a class="ql" href="/admin/access">Access Path</a>
+    <a class="ql" href="/admin/riskanalysis">Risk Analyzer</a>
     <a class="ql" href="/admin/compflow">Event Flow</a>
     <a class="ql" href="/admin/compseq">PC Timeline</a>
     <a class="ql" href="/admin/sqrsearch">SQR Search</a>

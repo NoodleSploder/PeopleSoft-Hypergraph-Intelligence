@@ -2416,3 +2416,282 @@ document.getElementById('sinceDate').value = isoDate(7);
 runAll();
 </script>
 </body></html>""")
+
+
+@router.get("/riskanalysis", response_class=HTMLResponse)
+def admin_riskanalysis():
+    return _shell("Change Risk Analyzer", "riskanalysis", content="""
+<style>
+.ra-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:12px 16px;background:rgba(0,20,40,.6);border-bottom:1px solid #1a2a3a}
+.ra-inp{background:#0a1520;border:1px solid #1a2a3a;color:#c8d8e8;padding:6px 10px;
+  border-radius:4px;font-size:13px;width:280px}
+.ra-inp:focus{outline:none;border-color:#00e5ff80}
+.ra-btn{padding:6px 16px;border-radius:4px;border:1px solid #00e5ff60;
+  background:rgba(0,229,255,.1);color:#00e5ff;font-size:12px;cursor:pointer}
+.ra-btn:hover{background:rgba(0,229,255,.2)}
+.ra-body{padding:16px;overflow:auto;height:calc(100vh - 100px)}
+.ra-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.ra-card{background:rgba(0,10,20,.6);border:1px solid #1a2a3a;border-radius:6px;padding:14px}
+.ra-card-title{font-size:11px;color:#7faab2;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+.ra-stat{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.ra-num{font-size:28px;font-weight:700;color:#00e5ff;min-width:60px}
+.ra-label{font-size:12px;color:#7faab2}
+.ra-risk{display:inline-block;padding:3px 12px;border-radius:10px;font-size:11px;font-weight:600;letter-spacing:.5px}
+.ra-risk.low{background:rgba(0,200,100,.15);border:1px solid #00c86440;color:#00e080}
+.ra-risk.med{background:rgba(255,180,0,.15);border:1px solid #ffb40040;color:#ffd040}
+.ra-risk.high{background:rgba(255,80,80,.15);border:1px solid #ff505040;color:#ff8080}
+.ra-risk.crit{background:rgba(255,40,40,.25);border:1px solid #ff282840;color:#ff5050}
+.ra-section{margin-bottom:16px}
+.ra-sec-hdr{font-size:11px;color:#00e5ff;text-transform:uppercase;letter-spacing:.5px;
+  padding:6px 0;border-bottom:1px solid #1a2a3a;margin-bottom:8px;
+  display:flex;align-items:center;gap:8px}
+.ra-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.ra-tbl th{background:#0a1828;color:#7faab2;padding:5px 8px;text-align:left;
+  border-bottom:1px solid #1a2a3a;font-weight:500}
+.ra-tbl td{padding:4px 8px;border-bottom:1px solid #0d1a28;vertical-align:middle}
+.ra-tbl tr:hover td{background:rgba(0,229,255,.03)}
+.ra-link{color:#00e5ff;text-decoration:none;font-size:11px}
+.ra-link:hover{text-decoration:underline}
+.ra-pill{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;margin:1px;
+  background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.25);color:#7faab2}
+.ra-bar{height:4px;background:#1a2a3a;border-radius:2px;margin-top:3px}
+.ra-bar-fill{height:100%;border-radius:2px;background:#00e5ff;transition:width .4s}
+.ra-none{color:#4a5a6a;font-size:12px;padding:20px;text-align:center}
+.ra-warn{background:rgba(255,180,0,.1);border:1px solid #ffc00040;border-radius:4px;
+  color:#ffc44d;font-size:11px;padding:8px 12px;margin-bottom:10px}
+.ra-progress{font-size:11px;color:#7faab2}
+</style>
+
+<div class="ra-toolbar">
+  <input class="ra-inp" id="projInput" placeholder="Project name e.g. PATCH862"
+    onkeydown="if(event.key==='Enter')analyze()">
+  <button class="ra-btn" onclick="analyze()">Analyze Risk</button>
+  <span id="raStatus" class="ra-progress"></span>
+</div>
+
+<div class="ra-body" id="raBody">
+  <div class="ra-none">Enter a PeopleSoft project name (from PSPROJECTDEFN) to analyze its deployment risk</div>
+</div>
+
+<script>
+const TYPE_LABEL = {
+  0:'Record', 2:'Page', 4:'Component', 5:'CI', 6:'Menu', 7:'App Engine', 8:'App Package',
+  9:'Field', 10:'PS Query', 25:'SQL Def', 26:'Role', 27:'Perm List', 30:'AE SQL Step',
+  33:'Process Def', 34:'Process Job', 43:'AE Activity', 44:'PeopleCode', 46:'Related Content',
+  48:'Portal Registry', 49:'IB Handler', 51:'IB Routing', 55:'Classic Menu', 58:'Tree',
+  74:'PS Query', 104:'App Class', 106:'Msg Catalog Set'
+};
+
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function pick(r,...ks){for(const k of ks){const v=r[k]??r[k.toLowerCase()]??r[k.toUpperCase()];if(v!=null)return v;}return ''}
+
+let _env=()=>(document.getElementById('globalEnv')||{}).value||'HCM';
+
+async function sqlx(sql){
+  const r=await fetch('/api/sqlws/execute',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({sql,env:_env(),binds:{},max_rows:500})});
+  const d=await r.json();
+  return d.rows||[];
+}
+
+function setStatus(msg){document.getElementById('raStatus').textContent=msg}
+
+async function analyze(){
+  const proj=(document.getElementById('projInput').value||'').trim().toUpperCase();
+  if(!proj)return;
+  setStatus('Loading project items…');
+  const body=document.getElementById('raBody');
+  body.innerHTML='<div class="ra-none">Analyzing…</div>';
+
+  // Step 1: Load project definition
+  const defnRows=await sqlx(`SELECT PROJECTNAME, DESCRLONG, LASTUPDDTTM, LASTUPDOPRID FROM SYSADM.PSPROJECTDEFN WHERE PROJECTNAME='${proj}'`);
+  if(!defnRows.length){body.innerHTML='<div class="ra-none">Project not found: '+esc(proj)+'</div>';setStatus('');return;}
+  const defn=defnRows[0];
+
+  // Step 2: Load items grouped by type
+  setStatus('Loading items…');
+  const itemRows=await sqlx(`SELECT OBJECTTYPE, OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3, OBJECTVALUE4, UPGRADEACTION FROM SYSADM.PSPROJECTITEM WHERE PROJECTNAME='${proj}' ORDER BY OBJECTTYPE, OBJECTVALUE1`);
+
+  // Group by type
+  const byType={};
+  for(const r of itemRows){
+    const t=parseInt(pick(r,'OBJECTTYPE','objecttype')||0);
+    if(!byType[t])byType[t]=[];
+    byType[t].push(r);
+  }
+  const totalItems=itemRows.length;
+  const typeCount=Object.keys(byType).length;
+
+  // Extract key collections
+  const records=(byType[0]||[]).map(r=>((pick(r,'OBJECTVALUE1','objectvalue1')||'').trim().toUpperCase())).filter(n=>n&&n!==' ');
+  const components=(byType[4]||[]).map(r=>((pick(r,'OBJECTVALUE1','objectvalue1')||'').trim().toUpperCase())).filter(n=>n&&n!==' ');
+  const aeprograms=(byType[7]||[]).map(r=>((pick(r,'OBJECTVALUE1','objectvalue1')||'').trim().toUpperCase())).filter(n=>n&&n!==' ');
+  const pages=(byType[2]||[]).map(r=>((pick(r,'OBJECTVALUE1','objectvalue1')||'').trim().toUpperCase())).filter(n=>n&&n!==' ');
+
+  // Step 3: Component security impact via dedicated bulk endpoint
+  let userCount=0;
+  let roleCount=0;
+  let plCount=0;
+  if(components.length){
+    setStatus('Analyzing component access (this may take a moment)…');
+    const compParam=components.slice(0,20).join(',');
+    try{
+      const sr=await fetch('/api/peoplesoft/security/bulk-component-access?components='+encodeURIComponent(compParam)+'&env='+_env());
+      const sd=await sr.json();
+      userCount=sd.user_count||0;
+      roleCount=sd.role_count||0;
+      plCount=sd.pl_count||0;
+    }catch(e){/* skip */}
+  }
+
+  // Step 6: Compute risk score
+  const risk=computeRisk(totalItems,records.length,components.length,userCount,aeprograms.length);
+
+  setStatus('');
+
+  // Render
+  body.innerHTML=renderPage(proj,defn,{
+    totalItems,typeCount,byType,records,components,aeprograms,pages,
+    userCount,roleCount,plCount,sqrImpact,aeImpact,risk
+  });
+}
+
+function computeRisk(total,recs,comps,users,ae){
+  let score=0;
+  if(recs>20)score+=30; else if(recs>5)score+=15; else if(recs>0)score+=5;
+  if(comps>10)score+=25; else if(comps>3)score+=12; else if(comps>0)score+=5;
+  if(users>100)score+=30; else if(users>20)score+=15; else if(users>0)score+=8;
+  if(ae>5)score+=15; else if(ae>0)score+=8;
+  if(total>500)score+=10; else if(total>100)score+=5;
+  return score;
+}
+
+function riskLabel(score){
+  if(score>=70)return['crit','CRITICAL'];
+  if(score>=45)return['high','HIGH'];
+  if(score>=20)return['med','MEDIUM'];
+  return['low','LOW'];
+}
+
+function renderPage(proj,defn,d){
+  const {totalItems,typeCount,byType,records,components,aeprograms,pages,
+         userCount,roleCount,plCount,risk}=d;
+  const [rCls,rLbl]=riskLabel(risk);
+  const descr=((pick(defn,'DESCRLONG','descrlong')||'').split('\\n')[0]||'').trim().slice(0,120);
+  const updby=(pick(defn,'LASTUPDOPRID','lastupdoprid')||'').trim();
+  const upddt=(pick(defn,'LASTUPDDTTM','lastupddttm')||'').toString().slice(0,16);
+
+  const statCards=`<div class="ra-grid">
+    <div class="ra-card">
+      <div class="ra-card-title">Project</div>
+      <div style="font-size:14px;color:#c8d8e8;margin-bottom:6px">${esc(proj)}</div>
+      ${descr?'<div style="font-size:11px;color:#7faab2;margin-bottom:6px">'+esc(descr)+'</div>':''}
+      <div style="font-size:11px;color:#4a6a8a">${updby?'Last updated by '+esc(updby)+' ':''} ${upddt}</div>
+    </div>
+    <div class="ra-card">
+      <div class="ra-card-title">Risk Assessment</div>
+      <div style="margin-bottom:10px"><span class="ra-risk ${rCls}">${rLbl} RISK</span>
+        <span style="font-size:11px;color:#4a6a8a;margin-left:8px">score: ${risk}/100</span></div>
+      <div class="ra-bar"><div class="ra-bar-fill" style="width:${Math.min(risk,100)}%;background:${rCls==='crit'?'#ff5050':rCls==='high'?'#ff8040':rCls==='med'?'#ffd040':'#00e080'}"></div></div>
+    </div>
+  </div>
+  <div class="ra-grid">
+    <div class="ra-card">
+      <div class="ra-card-title">Objects in Project</div>
+      <div class="ra-stat"><span class="ra-num">${totalItems}</span><div class="ra-label">Total objects<br><span style="font-size:10px">${typeCount} distinct types</span></div></div>
+      <div style="font-size:11px;color:#7faab2">
+        ${records.length?'<span class="ra-pill">'+records.length+' Records</span>':''}
+        ${components.length?'<span class="ra-pill">'+components.length+' Components</span>':''}
+        ${aeprograms.length?'<span class="ra-pill">'+aeprograms.length+' AE Programs</span>':''}
+        ${pages.length?'<span class="ra-pill">'+pages.length+' Pages</span>':''}
+      </div>
+    </div>
+    <div class="ra-card">
+      <div class="ra-card-title">Affected Users</div>
+      <div class="ra-stat"><span class="ra-num">${userCount}</span>
+        <div class="ra-label">Operators with access<br>to modified components</div></div>
+      <div style="font-size:11px;color:#7faab2">
+        ${roleCount?'<span class="ra-pill">'+roleCount+' Roles</span>':''}
+        ${plCount?'<span class="ra-pill">'+plCount+' Perm Lists</span>':''}
+        ${!components.length?'<span style="color:#4a6a8a">No components in project</span>':''}
+      </div>
+    </div>
+  </div>`;
+
+  // Object type breakdown
+  let typeRows='';
+  const sortedTypes=Object.entries(byType).sort((a,b)=>b[1].length-a[1].length);
+  for(const [t,items] of sortedTypes){
+    const lbl=TYPE_LABEL[parseInt(t)]||'Type '+t;
+    const pct=Math.round((items.length/totalItems)*100);
+    typeRows+=`<tr><td style="color:#c8d8e8">${esc(lbl)}</td>
+      <td style="text-align:right;color:#00e5ff;font-weight:600">${items.length}</td>
+      <td style="width:120px"><div class="ra-bar"><div class="ra-bar-fill" style="width:${pct}%"></div></div></td>
+      <td style="font-size:10px;color:#4a6a8a;text-align:right">${pct}%</td></tr>`;
+  }
+
+  // Records table
+  let recTable='';
+  if(records.length){
+    recTable=`<div class="ra-section">
+      <div class="ra-sec-hdr">Records (${records.length})<span style="color:#4a6a8a;font-size:10px">SQL tables modified by this project</span></div>
+      <table class="ra-tbl"><thead><tr><th>Record Name</th><th>View in Explorer</th></tr></thead><tbody>`;
+    for(const r of records.slice(0,50)){
+      recTable+=`<tr><td style="color:#c8d8e8">${esc(r)}</td>
+        <td><a class="ra-link" href="/admin/object/record/${esc(r)}">Record Explorer →</a></td></tr>`;
+    }
+    if(records.length>50)recTable+=`<tr><td colspan="2" style="color:#4a6a8a;font-size:11px">… and ${records.length-50} more</td></tr>`;
+    recTable+='</tbody></table></div>';
+  }
+
+  // Components table
+  let compTable='';
+  if(components.length){
+    compTable=`<div class="ra-section">
+      <div class="ra-sec-hdr">Components (${components.length})<span style="color:#4a6a8a;font-size:10px">End-user screens modified by this project</span></div>
+      <table class="ra-tbl"><thead><tr><th>Component</th><th>Access Path</th><th>View</th></tr></thead><tbody>`;
+    for(const c of components.slice(0,30)){
+      compTable+=`<tr><td style="color:#c8d8e8">${esc(c)}</td>
+        <td><a class="ra-link" href="/admin/access?comp=${esc(c)}">Who has access →</a></td>
+        <td><a class="ra-link" href="/admin/object/component/${esc(c)}">Explorer →</a></td></tr>`;
+    }
+    if(components.length>30)compTable+=`<tr><td colspan="3" style="color:#4a6a8a;font-size:11px">… and ${components.length-30} more</td></tr>`;
+    compTable+='</tbody></table></div>';
+  }
+
+  // AE Programs
+  let aeTable='';
+  if(aeprograms.length){
+    aeTable=`<div class="ra-section">
+      <div class="ra-sec-hdr">App Engine Programs (${aeprograms.length})<span style="color:#4a6a8a;font-size:10px">Batch programs modified by this project</span></div>
+      <table class="ra-tbl"><thead><tr><th>AE Program</th><th>View</th></tr></thead><tbody>`;
+    for(const ae of aeprograms.slice(0,20)){
+      aeTable+=`<tr><td style="color:#c8d8e8">${esc(ae)}</td>
+        <td><a class="ra-link" href="/admin/object/application_engine/${esc(ae)}">AE Explorer →</a></td></tr>`;
+    }
+    if(aeprograms.length>20)aeTable+=`<tr><td colspan="2" style="color:#4a6a8a;font-size:11px">… and ${aeprograms.length-20} more</td></tr>`;
+    aeTable+='</tbody></table></div>';
+  }
+
+  return `${statCards}
+  <div class="ra-section">
+    <div class="ra-sec-hdr">Object Type Breakdown</div>
+    <table class="ra-tbl"><thead><tr><th>Type</th><th style="text-align:right">Count</th><th>Share</th><th></th></tr></thead>
+    <tbody>${typeRows}</tbody></table>
+  </div>
+  ${recTable}${compTable}${aeTable}`;
+}
+
+if(typeof window!=='undefined'){
+  window.onEnvChange=function(){
+    const v=(document.getElementById('projInput').value||'').trim();
+    if(v)analyze();
+  };
+  document.addEventListener('DOMContentLoaded',()=>{
+    const p=new URLSearchParams(location.search).get('proj');
+    if(p){document.getElementById('projInput').value=p;analyze();}
+  });
+}
+</script>""")

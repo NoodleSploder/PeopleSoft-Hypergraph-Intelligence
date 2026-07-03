@@ -73,6 +73,7 @@ _NAV_GROUPS = [
         ("pcsearch",   "PC Search",       "/admin/pcsearch"),
     ]),
     ("Platform", [
+        ("riskanalysis","Risk Analyzer", "/admin/riskanalysis"),
         ("whatchanged","What Changed", "/admin/whatchanged"),
         ("prcsdefn",   "Processes",    "/admin/prcsdefn"),
         ("ae",         "AE Programs",  "/admin/ae"),

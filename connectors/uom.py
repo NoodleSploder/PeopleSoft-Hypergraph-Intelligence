@@ -5714,7 +5714,35 @@ def ib_message_object(env, msgname):
         if recname:
             item["_links"] = {"admin": object_url("record", recname)}
             schema_records.append(item)
-    relationships = {"schema_records": schema_records}
+
+    operations = []
+    for row in data.get("operations", []) or []:
+        op = str(row.get("ib_operationname") or "").strip()
+        if op:
+            item = dict(row)
+            item["name"] = op
+            item["_links"] = {"admin": f"/admin/object/ib_operation/{op}"}
+            operations.append(item)
+
+    routings = []
+    for row in data.get("routings", []) or []:
+        rname = str(row.get("routingdefnname") or "").strip()
+        if rname:
+            item = dict(row)
+            item["name"] = rname
+            item["_links"] = {"admin": f"/admin/object/ib_routing/{rname}"}
+            routings.append(item)
+
+    subscriptions = []
+    for row in data.get("subscriptions", []) or []:
+        sname = str(row.get("subname") or "").strip()
+        if sname:
+            item = dict(row)
+            item["name"] = sname
+            subscriptions.append(item)
+
+    relationships = {"schema_records": schema_records, "operations": operations,
+                     "routings": routings, "subscriptions": subscriptions}
     graph = relationship_graph(
         "message",
         msgname.upper(),
@@ -5753,6 +5781,9 @@ def ib_message_object(env, msgname):
         "lastupddttm": defn.get("lastupddttm"),
         "versions": data.get("versions", []),
         "schema_records": data.get("schema_records", []),
+        "operations": operations,
+        "routings": routings,
+        "subscriptions": subscriptions,
         "counts": data.get("counts", {}),
         "_raw": data,
         "_links": {"admin": "/admin/ibmessage"},
@@ -5829,6 +5860,100 @@ def sections_for_ib_message(obj):
             "title": f"Schema Records ({len(schema_recs)})",
             "type": "items",
             "items": items,
+        })
+
+    # Service operations that use this message
+    ops = obj.get("operations", [])
+    if ops:
+        _rtng_type_lbl = {"A": "Async", "S": "Sync", "": ""}
+        items = []
+        for o in ops:
+            op = (o.get("ib_operationname") or o.get("name") or "").strip()
+            svc = (o.get("ib_servicename") or "").strip()
+            descr = (o.get("descr") or "").strip()
+            rtype = _rtng_type_lbl.get((o.get("rtngtype") or "").strip(), o.get("rtngtype") or "")
+            chips = []
+            if rtype:
+                chips.append({"label": rtype, "cls": "chip-info"})
+            meta_parts = []
+            if svc:
+                meta_parts.append(f"svc: {svc}")
+            if descr:
+                meta_parts.append(descr[:60])
+            items.append({
+                "name": op,
+                "chips": chips or [{"label": "Service Op", "cls": "chip-ok"}],
+                "meta": " | ".join(meta_parts) or None,
+                "_links": o.get("_links", {}),
+            })
+        sections.append({
+            "id": "operations",
+            "title": f"Service Operations ({len(ops)})",
+            "type": "items",
+            "items": items,
+            "data": {"note": "Service operations that reference this message as request or response"},
+        })
+
+    # Routings that carry this message
+    rtng_list = obj.get("routings", [])
+    if rtng_list:
+        items = []
+        for r in rtng_list:
+            rname = (r.get("routingdefnname") or r.get("name") or "").strip()
+            op = (r.get("ib_operationname") or "").strip()
+            sender = (r.get("sendernodename") or "").strip()
+            receiver = (r.get("receivernodename") or "").strip()
+            status = (r.get("eff_status") or "").strip()
+            chips = [{"label": "Active" if status == "A" else "Inactive",
+                      "cls": "chip-ok" if status == "A" else "chip-muted"}]
+            meta_parts = []
+            if op:
+                meta_parts.append(f"op: {op}")
+            if sender and receiver:
+                meta_parts.append(f"{sender} → {receiver}")
+            items.append({
+                "name": rname,
+                "chips": chips,
+                "meta": " | ".join(meta_parts) or None,
+                "_links": r.get("_links", {}),
+            })
+        sections.append({
+            "id": "routings",
+            "title": f"Routings ({len(rtng_list)})",
+            "type": "items",
+            "items": items,
+            "data": {"note": "Routings carrying this message via associated service operations"},
+        })
+
+    # Subscriptions
+    subs = obj.get("subscriptions", [])
+    if subs:
+        _sub_status = {0: "Inactive", 1: "Active", 2: "Error"}
+        items = []
+        for s in subs:
+            sname = (s.get("subname") or s.get("name") or "").strip()
+            action = (s.get("actionname") or "").strip()
+            status_val = s.get("substatus", 0)
+            status_lbl = _sub_status.get(status_val, str(status_val))
+            chips = [{"label": status_lbl,
+                      "cls": "chip-ok" if status_val == 1 else ("chip-warn" if status_val == 2 else "chip-muted")}]
+            meta_parts = []
+            if action:
+                meta_parts.append(f"action: {action}")
+            genproc = (s.get("gensubproc") or "").strip()
+            if genproc:
+                meta_parts.append(f"proc: {genproc}")
+            items.append({
+                "name": sname,
+                "chips": chips,
+                "meta": " | ".join(meta_parts) or None,
+            })
+        sections.append({
+            "id": "subscriptions",
+            "title": f"Subscriptions ({len(subs)})",
+            "type": "items",
+            "items": items,
+            "data": {"note": "Pub/sub subscriptions registered for this message (PSSUBDEFN)"},
         })
 
     return sections
