@@ -27,7 +27,11 @@ PeopleSoft Hypergraph Intelligence provides:
 -   nginx / reverse proxy visibility
 -   Multi-environment support for HCM, FSCM, and future PeopleSoft
     pillars
--   A foundation for AI-assisted PeopleSoft troubleshooting
+-   AI-assisted PeopleSoft troubleshooting (Claude / OpenAI / Ollama, 19+ tools)
+-   Filesystem source artifact intelligence (SQR, SQC, COBOL/copybook) alongside
+    database metadata
+-   A Plugin SDK for adding custom object/graph/runtime providers and admin
+    pages without editing core files
 
 ------------------------------------------------------------------------
 
@@ -43,9 +47,12 @@ PeopleSoft-Hypergraph-Intelligence/
 ├── ROADMAP.md                      # Current status and remaining work
 ├── DEVELOPMENT_DIARY.md            # Chronological engineering journal
 ├── HANDOFF_PROMPT.md               # AI-agent handoff instructions
-├── PHASE2.md                       # Phase planning notes
+├── PLUGINS.md                      # Plugin SDK: extension points, loading, worked example
+├── PHASE2.md                       # Historical planning notes (superseded by Phase 8, implemented)
 ├── config/
 │   └── role_mapping.yml            # PeopleSoft role → Authelia group mapping
+├── plugins/
+│   └── example_hello.py            # Worked Plugin SDK example (object/graph/runtime provider + admin page)
 ├── connectors/
 │   ├── ae.py                       # Application Engine metadata/runtime helpers
 │   ├── ai.py                       # AI provider abstraction (AIProvider ABC + get_provider factory)
@@ -54,6 +61,10 @@ PeopleSoft-Hypergraph-Intelligence/
 │   ├── ai_ollama.py                # Ollama local inference provider implementation
 │   ├── ai_tools.py                 # AI tool definitions and dispatch (wraps existing connectors)
 │   ├── alerts.py                   # Runtime alert checks
+│   ├── appsrvproc.py               # SSH `ps`-based live Tuxedo/App Server process tracking
+│   ├── cobolparser.py              # COBOL/copybook parser (program vs copybook, COPY/CALL, EXEC SQL)
+│   ├── cobol_db.py                 # SQLite COBOL index (data/cobol.db)
+│   ├── cobolingest.py              # SSH-based COBOL filesystem indexer
 │   ├── driftdb.py                  # SQLite drift snapshot store (data/drift.db)
 │   ├── envcompare.py               # Cross-environment comparison logic
 │   ├── execution.py                # Oracle execution/runtime queries
@@ -61,18 +72,25 @@ PeopleSoft-Hypergraph-Intelligence/
 │   ├── graphshape.py               # Shared graph payload annotations and edge type aliases
 │   ├── ib.py                       # Integration Broker metadata/runtime discovery
 │   ├── impact.py                   # Impact forecasting: project KG traversal + env risk scoring
+│   ├── incidentdb.py                # SQLite incident record + RCA snapshot store (data/incidents.db)
 │   ├── logdb.py                    # SQLite log store (data/logs.db): web, app, error tables
 │   ├── logingest.py                # Log ingestion orchestrator: SSH→parse→store per source
-│   ├── logparser.py                # Line parsers: pia_access, pia_error, appsrv, tuxedo, apache, f5
+│   ├── logparser.py                # Line parsers: pia_access, pia_error, appsrv, tuxedo, apache, f5, igw, prcs_ae
 │   ├── nginx.py                    # nginx log/status helpers
 │   ├── oracle.py                   # Oracle connectivity helpers
-│   ├── peoplecode.py               # PeopleCode decoding/source helpers
+│   ├── peoplecode.py               # PeopleCode decoding/source helpers; canonical processing sequence
 │   ├── peoplesoft.py               # PeopleSoft environment helpers
+│   ├── plugins.py                  # Plugin SDK registries (object/graph/runtime providers, nav/routers)
+│   ├── pluginloader.py             # Discovers and loads plugins/*.py at startup, per-plugin isolation
 │   ├── promotiondb.py              # SQLite promotion event log (data/promotions.db)
 │   ├── psdb.py                     # Core PeopleSoft DB metadata access
 │   ├── ptmetadata.py               # PeopleTools/version-aware metadata discovery
-│   ├── scheduler.py                # Background scheduler: 24h graph snapshots + 60s log ingest
+│   ├── runtimedb.py                 # SQLite runtime metrics history (data/runtime.db)
+│   ├── scheduler.py                # Background scheduler: graph snapshots, runtime snapshots, log ingest
 │   ├── sqlws.py                    # SQL Workspace backend helpers
+│   ├── sqrdb.py                    # SQLite SQR/SQC index (data/sqr.db)
+│   ├── sqringest.py                # SSH-based SQR filesystem indexer
+│   ├── sqrparser.py                # Pure SQR/SQC parser (tables, includes, procedures)
 │   ├── sshclient.py                # Paramiko SSH/SFTP wrapper with per-host connection pooling
 │   ├── system.py                   # Host/service/container/log management
 │   ├── tracing.py                  # Transaction tracing helpers
@@ -82,19 +100,25 @@ PeopleSoft-Hypergraph-Intelligence/
 │   │   ├── __init__.py             #   Re-exports router; triggers sub-module imports
 │   │   ├── _core.py                #   Shared: router obj, nav groups, _shell, CSS/JS
 │   │   ├── home.py                 #   /admin/, /admin/users
-│   │   ├── logs.py                 #   /admin/logs, /admin/log_errors, /admin/log_viewer, /admin/log_session
-│   │   ├── security.py             #   /admin/security, /record, /field, /operator, /role, /peoplecode
+│   │   ├── logs.py                 #   /admin/logs, /admin/log_errors, /admin/log_viewer, /admin/log_session, /admin/igw, /admin/prcs-ae
+│   │   ├── security.py             #   /admin/security, /record, /field, /operator, /role, /peoplecode, /secaudit, /access
 │   │   ├── graph.py                #   /admin/graph, /object, /portal, /metadata, /graphdb
-│   │   ├── runtime.py              #   /admin/runtime, /infra, /tracing, /envcompare, /drift, /promotions
+│   │   ├── runtime.py              #   /admin/runtime, /infra, /tracing, /envcompare, /drift, /promotions, /topology
 │   │   ├── data.py                 #   /admin/sqlws, /query, /conqrs
 │   │   ├── integration.py          #   /admin/ib, /ibmessage, /ibapp, /ibsvcgrp, /ibrtng, /iboper
 │   │   ├── objects.py              #   /admin/ci, /tree, /menu, /appclass, /adsdef, /cbskill, /approval, /contsvc, /urldef
 │   │   ├── portal.py               #   /admin/navcoll, /relcontent, /efmapping, /dropzone, /pivotgrid, /srchdef, /srchcat, /xpub, /stylesheet, /pcsearch
-│   │   ├── platform.py             #   /admin/prcsdefn, /filelayout, /xlat, /project, /msgcat, /archobj, /timezone, /locale, /ptftest
+│   │   ├── platform.py             #   /admin/prcsdefn, /filelayout, /xlat, /project, /msgcat, /archobj, /timezone, /locale, /ptftest, /ae, /component, /page, /riskanalysis
 │   │   ├── perf.py                 #   /admin/pmmetric, /pmtrans, /pmevent
+│   │   ├── compflow.py             #   /admin/compflow (Component Event Flow), /admin/compseq (PC Timeline)
+│   │   ├── rca.py                  #   /admin/rca (Incident RCA)
+│   │   ├── incidents.py            #   /admin/incidents (list + detail/replay)
+│   │   ├── sqr_view.py             #   /admin/sqr, /sqrsearch, /sqrdeps, /sqrcompare
+│   │   ├── cobol_view.py           #   /admin/cobol (list + detail)
 │   │   └── tools.py                #   /admin/reports, /tools, /impact, /assistant, /docs
 │   ├── assistant.py                # AI Assistant API (/api/assistant/*)
 │   ├── authelia_admin.py           # Authelia user/group administration
+│   ├── cobol.py                    # COBOL Source Artifact Intelligence API (/api/cobol/*)
 │   ├── drift.py                    # Drift snapshot/alert API (/api/drift/*)
 │   ├── envcompare.py               # Environment comparison API
 │   ├── field.py                    # Field metadata API
@@ -103,6 +127,7 @@ PeopleSoft-Hypergraph-Intelligence/
 │   ├── ib.py                       # Integration Broker API
 │   ├── identity.py                 # PeopleSoft → Authelia identity workflow
 │   ├── impact_api.py               # Impact forecasting API (/api/impact/*)
+│   ├── incident.py                 # Incident recording API (/api/incidents/*)
 │   ├── live.py                     # Live event stream API
 │   ├── logs.py                     # Log Intelligence REST API (/api/logs/*)
 │   ├── metadata.py                 # Metadata/version/relationship APIs
@@ -113,8 +138,9 @@ PeopleSoft-Hypergraph-Intelligence/
 │   ├── promotions.py               # Promotion event log API (/api/promotions/*)
 │   ├── record.py                   # Record metadata API
 │   ├── role.py                     # Role/security API
-│   ├── runtime.py                  # Runtime Monitor, ASH, domains, alerts
+│   ├── runtime.py                  # Runtime Monitor, ASH, domains, alerts, app server processes, plugin providers
 │   ├── sqlws.py                    # SQL Workspace API
+│   ├── sqr.py                      # SQR Source Artifact Intelligence API (/api/sqr/*)
 │   ├── system.py                   # Infrastructure/service/container API
 │   ├── topology.py                 # Environment topology API
 │   └── tracing.py                  # Transaction tracing API
@@ -123,7 +149,11 @@ PeopleSoft-Hypergraph-Intelligence/
 │   ├── knowledge_graph_FSCM.json   # Generated graph snapshot/cache
 │   ├── drift.db                    # SQLite: scheduled drift snapshots and alerts
 │   ├── logs.db                     # SQLite: ingested web/app log entries and errors
-│   └── promotions.db               # SQLite: manual promotion event log
+│   ├── promotions.db               # SQLite: manual promotion event log
+│   ├── runtime.db                  # SQLite: runtime metrics history
+│   ├── incidents.db                # SQLite: incident records + RCA snapshots
+│   ├── sqr.db                      # SQLite: SQR/SQC source index
+│   └── cobol.db                    # SQLite: COBOL source index
 ├── logs/
 │   ├── identity_audit.jsonl        # Identity workflow audit trail
 │   └── provision_requests.json     # Provision request state
@@ -156,15 +186,18 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-Core dependencies:
+Core dependencies (see `requirements.txt` for the authoritative list):
 
 ``` text
 fastapi
 uvicorn
 oracledb
 pydantic
-python-dotenv
-paramiko       # SSH/SFTP for remote log ingestion
+requests
+jinja2
+python-multipart
+PyYAML
+paramiko       # SSH/SFTP for remote log/SQR/COBOL ingestion
 ```
 
 AI provider dependencies (install only the providers you use):
@@ -420,6 +453,8 @@ reading only new bytes since the last run (byte-offset tracking per file).
 | `apache_access` | Apache / nginx | Combined access log (standard NCSA) |
 | `apache_error` | Apache / nginx | Error log |
 | `f5_access` | F5 LTM | HSL iRule access log (NCSA combined format) |
+| `prcs_ae` | Process Scheduler (AESRV) | Tuxedo AESRV log — applid, process instance, error detection (configured in `log_sources`, same as other types) |
+| `igw_error_log` | Integration Gateway | `errorLog.html` — HTML block parser; configured separately in `config.json`'s `igw_log_sources` array, not `log_sources` |
 
 **Multiple web/app servers:** Add one entry per server. Give each a unique `name`
 and point to its own `ssh_host` alias.
@@ -665,7 +700,7 @@ Chat request body:
 Set `"stream": true` to receive a Server-Sent Events stream with `tool_start`,
 `tool_result`, `content`, and `done` events.
 
-The assistant has access to 14 tools backed by live PeopleSoft Hypergraph Intelligence connectors:
+The assistant has access to 19 tools backed by live PeopleSoft Hypergraph Intelligence connectors:
 
 | Tool | Purpose |
 |------|---------|
@@ -683,6 +718,11 @@ The assistant has access to 14 tools backed by live PeopleSoft Hypergraph Intell
 | `log_search` | Search ingested web/app log entries by user, component, time |
 | `log_errors` | Grouped error summary from ingested logs |
 | `session_log_chain` | Full web→app log chain for a user in a time window |
+| `environment_health` | Overall health snapshot for an environment |
+| `ib_diagnostics` | Integration Broker queue/routing diagnostics |
+| `process_scheduler_health` | Process Scheduler queue/error health |
+| `component_events` | Canonical processing-sequence events for a component (search/build/interaction/save phases) |
+| `sqr_program` | Look up an SQR/SQC program's tables, includes, and dependencies |
 
 ### Log Intelligence
 
@@ -761,6 +801,53 @@ GET /api/runtime/domains?env=HCM
 GET /api/runtime/alerts?env=HCM&db=HRDMO
 GET /api/runtime/ash?db=HRDMO&minutes=30
 GET /api/runtime/ash/sql?db=HRDMO&minutes=30
+GET /api/runtime/appserver-processes?env=HCM   # Live Tuxedo/App Server process list via SSH ps
+GET /api/runtime/plugins                        # List registered plugin runtime providers
+GET /api/runtime/plugins/{name}?env=HCM         # Fetch a specific plugin provider's status
+```
+
+### SQR Source Artifact Intelligence
+
+```text
+GET  /api/sqr/stats
+GET  /api/sqr/sources?env=HCM
+GET  /api/sqr/programs?q=&type=sqr|sqc&env=HCM&page=1&per_page=50
+GET  /api/sqr/program/{filename}
+GET  /api/sqr/program/{filename}/source
+GET  /api/sqr/table/{table_name}
+GET  /api/sqr/sqc/{sqc_name}/users
+GET  /api/sqr/deps/{filename}                   # Include dependency graph (forward + reverse)
+GET  /api/sqr/envcompare?env_a=HCM&env_b=FSCM   # Side-by-side environment comparison
+GET  /api/sqr/search?q=&type=&source_key=       # Full-text source search
+GET  /api/sqr/overrides?env=HCM                 # Filenames present in both delivered and custom
+POST /api/sqr/ingest                             # Trigger re-index (background)
+GET  /api/sqr/ingest/status
+```
+
+### COBOL Source Artifact Intelligence
+
+```text
+GET  /api/cobol/stats
+GET  /api/cobol/sources?env=HCM
+GET  /api/cobol/programs?q=&type=program|copybook&env=HCM&page=1&per_page=50
+GET  /api/cobol/program/{filename}
+GET  /api/cobol/program/{filename}/source
+GET  /api/cobol/table/{table_name}
+GET  /api/cobol/deps/{filename}                 # COPY dependency graph (forward + reverse)
+GET  /api/cobol/search?q=&type=&source_key=
+POST /api/cobol/ingest
+GET  /api/cobol/ingest/status
+```
+
+### Incident Recording
+
+```text
+POST   /api/incidents                    # Create incident (optionally capture RCA snapshot)
+GET    /api/incidents?state=open|resolved&env=
+GET    /api/incidents/{id}               # Get incident + all captured snapshots
+PATCH  /api/incidents/{id}
+DELETE /api/incidents/{id}
+GET    /api/incidents/{id}/snapshot      # Re-run RCA and attach a fresh snapshot
 ```
 
 ### Transaction Tracing
@@ -874,6 +961,28 @@ Output:
 
 ------------------------------------------------------------------------
 
+## Plugin SDK
+
+Add custom object providers, Knowledge Graph builders, runtime status providers, and
+admin dashboard pages without editing any core file. Drop a Python module into
+`plugins/` (e.g. `plugins/my_plugin.py`) exposing a `register(sdk)` function; it's
+discovered and loaded automatically at startup, with per-plugin failure isolation — a
+broken plugin is logged and skipped, never crashes the server or other plugins.
+
+```python
+def register(sdk):
+    sdk.register_object_provider("my_type", my_object_fn, my_payload_fn, registry_meta={...})
+    sdk.register_graph_provider("my_provider", my_graph_loader)
+    sdk.register_runtime_provider("my_status", my_fetch_fn, label="My Status")
+    sdk.register_nav_entry("My Group", "my_page", "My Page", "/admin/plugin/my-page")
+    sdk.register_router(my_fastapi_router)
+```
+
+See `PLUGINS.md` for the full walkthrough of all four extension points and
+`plugins/example_hello.py` for a complete worked example.
+
+------------------------------------------------------------------------
+
 ## nginx Reverse Proxy
 
 ``` nginx
@@ -897,9 +1006,10 @@ location /api/ {
 
 Always keep the following synchronized:
 
--   ARCHITECTURE.md
--   ROADMAP.md
--   DEVELOPMENT_DIARY.md
+-   ARCHITECTURE.md — design rules, subsystem boundaries, provider contracts
+-   ROADMAP.md — current status and remaining work only
+-   DEVELOPMENT_DIARY.md — dated narrative: what changed, why, how it was verified
+-   PLUGINS.md — Plugin SDK docs; update when `connectors/plugins.py`'s registries change
 
 ------------------------------------------------------------------------
 
