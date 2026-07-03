@@ -5914,3 +5914,55 @@ Verification:
 
 Commits:
 - `5f8e16b` feat(risk): Change Risk Analyzer + IB message cross-reference intelligence
+
+---
+
+### SQR Override Intelligence (pending commit)
+
+Extended SQR source-artifact analysis beyond the existing duplicate-filename-only
+`/overrides` check to the full override picture: **overridden** (customized copy of a
+delivered program), **custom-only** (net-new custom code), **delivered-only** (count
+only — avoids dumping hundreds of unmodified rows in normal operation).
+
+`connectors/sqrdb.py`'s `override_summary(env_source_keys)` runs three SQL queries per
+env against `sqr_programs`: an INNER JOIN (delivered ∩ custom filename match) for
+`overridden`, a `NOT EXISTS` anti-join for `custom_only`, and a `NOT EXISTS` count for
+`delivered_only_count`. `GET /api/sqr/override-summary?env=` wires it to
+`config.json`'s `sqr_sources` grouped by env.
+
+**Verification against real data**: this demo environment's custom-SQR source trees
+are empty (`SELECT source_key, COUNT(*) FROM sqr_programs GROUP BY source_key` shows
+only `hcm_sqr_delivered`/`fscm_sqr_delivered`, 179 rows each — zero custom rows
+indexed). Live curl correctly returns `0 overridden / 0 custom-only / 179
+delivered-only` per env — an honest result, not a bug, but it can't prove the
+categorization logic actually works end-to-end. To verify that separately: copied
+`data/sqr.db` to a scratch file, inserted a synthetic override row (reused a real
+delivered filename `askeffdt.sqc` under a fake `hcm_sqr_custom` source_key) and a
+synthetic custom-only row (`CUSTOMONLY.sqr`), then called `override_summary()` against
+the scratch DB directly — confirmed `overridden: ['askeffdt.sqc']`, `custom_only:
+['CUSTOMONLY.sqr']`, `delivered_only: 178` (one less than the real 179, as expected).
+
+**Bug found and fixed**: the new `/admin/sqroverrides` admin page
+(`routers/admin/sqr_view.py`) failed the smoke test with `SyntaxError: Unexpected
+token '}'`. Root cause: this file's `_shell()`-content strings follow a
+three-part-concatenation convention — `content = f"""...(HTML/CSS, genuine f-string,
+needs {{ }} doubling)...""" + _ESC_JS + """...(JS, plain string, needs single { }
+because it is NOT f-prefixed)..."""`. I wrote the new page's JS segment using doubled
+braces as if the whole thing were one f-string, so Python passed the literal `{{`/`}}`
+straight through into the served JavaScript, breaking parsing. Confirmed via: (1) full
+server restart ruling out staleness, (2) direct `importlib.reload()` + calling the
+function in isolation ruling out any caching layer, (3) isolated test proving Python's
+f-string brace-unescaping works as expected in general, (4) comparing against the
+working sibling function `sqr_analytics()` in the same file, whose JS after its own
+`_ESC_JS` correctly uses single braces. Fixed by de-doubling every brace in the
+JS segment.
+
+Also added: `/admin/sqroverrides` nav entry (Platform group), smoke-test coverage
+(`scripts/smoke_admin_shell.py`).
+
+Verification:
+- `curl /api/sqr/override-summary` → correct real-data result (see above)
+- Scratch-DB test → correct categorization with synthetic override/custom-only rows
+- `/admin/sqroverrides` renders, JS confirmed single-braced (`grep -c '{{'` → 0)
+- `python3 scripts/smoke_admin_shell.py` → 70/70 (was 69/69 before this page)
+- `make check` → 100/100 files, 11/11 tests

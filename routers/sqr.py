@@ -109,6 +109,36 @@ def sqr_overrides(env: Optional[str] = Query(None)):
     return {"overrides": results, "count": len(results)}
 
 
+@router.get("/override-summary")
+def sqr_override_summary(env: Optional[str] = Query(None)):
+    """Return delivered-only / custom-only / overridden categorization per
+    environment — a fuller override-intelligence view than /overrides
+    (which only reports the overridden/duplicate-filename case)."""
+    import json
+    from pathlib import Path
+    from connectors import sqrdb
+    sqrdb.init_db()
+
+    cfg_path = Path(__file__).parent.parent / "config.json"
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+
+    all_sources = cfg.get("sqr_sources", [])
+    if env:
+        all_sources = [s for s in all_sources if s.get("env", "").upper() == env.upper()]
+
+    env_source_keys: dict = {}
+    for s in all_sources:
+        e = s.get("env", "UNKNOWN")
+        st = s.get("source_type", "")
+        if st not in ("delivered", "custom"):
+            continue
+        env_source_keys.setdefault(e, {"delivered": [], "custom": []})
+        env_source_keys[e][st].append(s["key"])
+
+    return sqrdb.override_summary(env_source_keys)
+
+
 @router.get("/analytics")
 def sqr_analytics():
     from connectors import sqrdb

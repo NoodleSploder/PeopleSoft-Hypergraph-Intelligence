@@ -203,6 +203,7 @@ DEFAULT_PAGES = [
     ("/admin/sqrsearch",  ".ds-page-title",  False, True,  []),
     ("/admin/sqrdeps",    ".ds-toolbar",     False, True,  []),
     ("/admin/sqrcompare", ".cmp-toolbar",    False, True,  []),
+    ("/admin/sqroverrides", ".ov-toolbar",   False, True,  []),
     ("/admin/access",     ".ap-toolbar",     False, True,  []),
     ("/admin/cobol",      ".cbl-toolbar",    False, True,  []),
     ("/admin/riskanalysis",".ds-page-title", False, True,  []),

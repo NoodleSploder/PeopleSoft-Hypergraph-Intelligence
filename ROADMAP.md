@@ -270,9 +270,24 @@ comparison.
   detail (Overview / COPY Dependency Graph / Source)
 - KG edges: `cobol_program → record` READS/WRITES, `→ cobol_program` COPIES/CALLS
 
+### SQR Override Intelligence — ✅ Complete
+- `connectors/sqrdb.py`'s `override_summary()` classifies every configured delivered/
+  custom source pair per env into three categories: **overridden** (same filename in
+  both — customized copy of a delivered program), **custom-only** (filename exists only
+  in custom — net-new custom code), **delivered-only** (count only, to avoid dumping
+  hundreds of unmodified rows). Extends the older `/overrides` endpoint (which only
+  detected the overridden/duplicate-filename case) to the full picture.
+- `GET /api/sqr/override-summary?env=` — verified live against real Oracle-backed index
+  data (`hcm_sqr_delivered`/`fscm_sqr_delivered`, 179 programs each); this environment's
+  custom-source trees are empty so the honest live result is `0 overridden / 0 custom-only
+  / 179 delivered-only` per env — correctness of the categorization logic itself was
+  proven separately against a scratch copy of `sqr.db` seeded with a synthetic override
+  row and a synthetic custom-only row.
+- `/admin/sqroverrides` — new admin page (stat cards + tabbed overridden/custom-only
+  tables per environment).
+
 ### Remaining
-- Override intelligence (custom-vs-delivered duplicate/orphan detection), broader
-  diff modes (syntax-aware, ignore whitespace/comments), analytics dashboards
+- Broader diff modes (syntax-aware, ignore whitespace/comments), analytics dashboards
   (complexity/hotspot metrics), and AI-assisted explanation (explain/summarize/
   modernize) are all still "Planned" — no concrete blocker, just not prioritized yet.
 - Runtime correlation (tie Process Scheduler executions back to SQR/COBOL source) is

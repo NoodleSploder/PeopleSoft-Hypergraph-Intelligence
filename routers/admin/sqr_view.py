@@ -1393,3 +1393,151 @@ window.onEnvChange=()=>{{}};
 """
     return _shell("SQR Environment Comparison", "sqrcompare", content=content)
 
+
+@router.get("/sqroverrides", response_class=HTMLResponse)
+def sqr_overrides_page():
+    """SQR Override Intelligence: delivered-only / custom-only / overridden
+    categorization per environment, beyond the plain duplicate-filename check."""
+    content = f"""
+<style>
+*{{box-sizing:border-box}}
+.ov-toolbar{{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
+.ov-sel{{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:5px 8px;font-size:12px;border-radius:3px}}
+.ov-btn{{background:#00e5ff;border:none;padding:5px 14px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;border-radius:3px}}
+.ov-btn:hover{{background:#33eeff}}
+.stat-row{{display:flex;gap:10px;flex-wrap:wrap;padding:12px 16px}}
+.stat-card{{background:#0a161e;border:1px solid #00e5ff22;border-radius:4px;padding:8px 16px;min-width:140px}}
+.stat-num{{font-size:20px;font-weight:bold;font-family:monospace}}
+.stat-lbl{{font-size:10px;color:#445;margin-top:2px}}
+.stat-card.overridden .stat-num{{color:#ffcc44}}
+.stat-card.custom-only .stat-num{{color:#44aaff}}
+.stat-card.delivered-only .stat-num{{color:#556}}
+.tabs{{display:flex;gap:0;padding:0 16px;border-bottom:1px solid #00e5ff22}}
+.tab{{padding:7px 16px;cursor:pointer;font-size:12px;color:#445;border-bottom:2px solid transparent}}
+.tab.active{{color:#00e5ff;border-bottom-color:#00e5ff}}
+.tab-content{{display:none;padding:10px 16px}}
+.tab-content.active{{display:block}}
+table{{width:100%;border-collapse:collapse;font-size:12px}}
+th{{text-align:left;padding:5px 10px;border-bottom:1px solid #00e5ff22;color:#445;font-size:11px;text-transform:uppercase;letter-spacing:.04em}}
+td{{padding:5px 10px;border-bottom:1px solid #0a1c28;font-family:monospace;font-size:11px}}
+tr:hover td{{background:#0a161e}}
+.empty{{padding:24px;text-align:center;color:#334;font-size:12px}}
+.note{{padding:10px 16px;font-size:11px;color:#556;border-bottom:1px solid #0a1c28}}
+a{{color:#00e5ff;text-decoration:none}}a:hover{{text-decoration:underline}}
+#status{{font-size:11px;color:#445;margin-left:auto}}
+</style>
+
+<div class="ov-toolbar">
+  <a href="/admin/sqr" style="color:#7faab2;font-size:12px;text-decoration:none">&larr; SQR Explorer</a>
+  <select class="ov-sel" id="envSel"><option value="">All environments</option></select>
+  <button class="ov-btn" onclick="load()">Analyze</button>
+  <span id="status"></span>
+</div>
+
+<div class="note">
+  <b style="color:#7faab2">overridden</b> = filename in both delivered and custom trees (a genuine customization) &middot;
+  <b style="color:#7faab2">custom-only</b> = filename in custom but not delivered (new custom program, or a former override whose delivered baseline was later removed &mdash; a single snapshot can't tell these apart) &middot;
+  <b style="color:#7faab2">delivered-only</b> = shown as a count only, not a browsable list (can be tens of thousands of rows)
+</div>
+
+<div id="body"><div class="empty">Select an environment (or leave blank for all) and click Analyze.</div></div>
+
+<script>
+""" + _ESC_JS + """
+const $ = id => document.getElementById(id);
+
+async function loadEnvs() {
+  try {
+    const r = await fetch('/api/sqr/sources');
+    const d = await r.json();
+    const sel = $('envSel');
+    (d.envs || []).forEach(e => {
+      const opt = document.createElement('option');
+      opt.value = e; opt.textContent = e;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+async function load() {
+  const env = $('envSel').value;
+  $('status').textContent = 'Loading…';
+  $('body').innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const url = '/api/sqr/override-summary' + (env ? `?env=${encodeURIComponent(env)}` : '');
+    const r = await fetch(url);
+    const data = await r.json();
+    $('status').textContent = '';
+    render(data);
+  } catch(e) {
+    $('status').textContent = '';
+    $('body').innerHTML = `<div class="empty">Error: ${esc(String(e))}</div>`;
+  }
+}
+
+function renderList(items, cols) {
+  if (!items.length) return '<div class="empty">None found.</div>';
+  const header = cols.map(c => `<th>${esc(c.label)}</th>`).join('');
+  const rows = items.map(it => `<tr>${cols.map(c => `<td>${esc(it[c.key] ?? '—')}</td>`).join('')}</tr>`).join('');
+  return `<table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function render(data) {
+  const envs = Object.keys(data);
+  if (!envs.length) {
+    $('body').innerHTML = '<div class="empty">No delivered+custom source pairs configured for this environment.</div>';
+    return;
+  }
+
+  let html = '';
+  envs.forEach(env => {
+    const d = data[env];
+    const c = d.counts || {};
+    html += `<h2 style="padding:12px 16px 0;margin:0;color:#00e5ff;font-size:13px">${esc(env)}</h2>`;
+    html += `<div class="stat-row">
+      <div class="stat-card overridden"><div class="stat-num">${c.overridden||0}</div><div class="stat-lbl">Overridden</div></div>
+      <div class="stat-card custom-only"><div class="stat-num">${c.custom_only||0}</div><div class="stat-lbl">Custom-Only</div></div>
+      <div class="stat-card delivered-only"><div class="stat-num">${c.delivered_only||0}</div><div class="stat-lbl">Delivered-Only (count)</div></div>
+    </div>`;
+    const uid = env.replace(/[^A-Za-z0-9]/g, '');
+    html += `<div class="tabs" id="tabs-${uid}">
+      <div class="tab active" onclick="switchOvTab('${uid}','overridden')">Overridden (${c.overridden||0})</div>
+      <div class="tab" onclick="switchOvTab('${uid}','customonly')">Custom-Only (${c.custom_only||0})</div>
+    </div>`;
+    html += `<div id="tab-${uid}-overridden" class="tab-content active">
+      ${renderList(d.overridden||[], [
+        {key:'filename',label:'Filename'}, {key:'file_type',label:'Type'},
+        {key:'description',label:'Description'},
+        {key:'delivered_key',label:'Delivered Source'}, {key:'custom_key',label:'Custom Source'},
+      ])}
+    </div>`;
+    html += `<div id="tab-${uid}-customonly" class="tab-content">
+      ${renderList(d.custom_only||[], [
+        {key:'filename',label:'Filename'}, {key:'file_type',label:'Type'},
+        {key:'description',label:'Description'}, {key:'custom_key',label:'Custom Source'},
+      ])}
+    </div>`;
+  });
+  $('body').innerHTML = html;
+}
+
+function switchOvTab(uid, which) {
+  const tabsBar = document.getElementById('tabs-' + uid);
+  if (tabsBar) tabsBar.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  const overridden = document.getElementById(`tab-${uid}-overridden`);
+  const customOnly = document.getElementById(`tab-${uid}-customonly`);
+  if (overridden) overridden.classList.toggle('active', which === 'overridden');
+  if (customOnly) customOnly.classList.toggle('active', which === 'customonly');
+  if (tabsBar) {
+    const idx = which === 'overridden' ? 0 : 1;
+    const tabs = tabsBar.querySelectorAll('.tab');
+    if (tabs[idx]) tabs[idx].classList.add('active');
+  }
+}
+
+loadEnvs();
+window.onEnvChange=()=>{};
+</script>
+"""
+    return _shell("SQR Override Intelligence", "sqroverrides", content=content)
+

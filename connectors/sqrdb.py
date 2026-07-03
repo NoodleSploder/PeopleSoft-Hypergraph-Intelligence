@@ -263,6 +263,90 @@ def overrides(env_source_keys: dict[str, list[str]]) -> list[dict]:
     return results
 
 
+def override_summary(env_source_keys: dict[str, list[str]]) -> dict:
+    """Return delivered-only / custom-only / overridden categorization for
+    each env, beyond just the duplicate-filename check `overrides()` does.
+
+    env_source_keys = {"HCM": {"delivered": ["hcm_sqr_delivered"],
+                                "custom":    ["hcm_sqr_custom"]}, ...}
+
+    Returns {env: {overridden: [...], delivered_only_count, custom_only_count,
+                   custom_only: [...] (capped, see below)}}.
+
+    Notes on what this can and can't detect from a single snapshot:
+      - "overridden" = filename present in both delivered and custom trees —
+        a genuine customization of a delivered program.
+      - "custom_only" = filename present in custom but not delivered. This is
+        the practical union of what the roadmap called "custom-only objects"
+        and "orphaned customizations" (a custom program whose delivered
+        baseline was removed in a later PeopleTools upgrade) — a single
+        snapshot can't distinguish "always custom" from "orphaned" without
+        historical data, so both are reported under one category rather than
+        guessing.
+      - "delivered_only" is reported as a count only (can be tens of thousands
+        of rows for a full delivered library — not useful as a browsable list,
+        just a scale indicator for the two.
+      - "missing delivered files" (a delivered file expected but absent) is
+        not computed — there's no independent manifest of what *should* exist
+        to compare against.
+    """
+    c = _conn()
+    result = {}
+    for env, type_map in env_source_keys.items():
+        del_keys = type_map.get("delivered", [])
+        cust_keys = type_map.get("custom", [])
+        if not del_keys or not cust_keys:
+            continue
+        del_ph = ",".join("?" for _ in del_keys)
+        cust_ph = ",".join("?" for _ in cust_keys)
+
+        overridden = c.execute(f"""
+            SELECT d.filename, d.source_key AS delivered_key, cu.source_key AS custom_key,
+                   d.file_type, d.description
+              FROM sqr_programs d
+              JOIN sqr_programs cu
+                ON lower(cu.filename) = lower(d.filename)
+               AND cu.source_key IN ({cust_ph})
+             WHERE d.source_key IN ({del_ph})
+             ORDER BY d.filename
+        """, list(cust_keys) + list(del_keys)).fetchall()
+
+        custom_only = c.execute(f"""
+            SELECT cu.filename, cu.source_key AS custom_key, cu.file_type, cu.description
+              FROM sqr_programs cu
+             WHERE cu.source_key IN ({cust_ph})
+               AND NOT EXISTS (
+                   SELECT 1 FROM sqr_programs d
+                    WHERE lower(d.filename) = lower(cu.filename)
+                      AND d.source_key IN ({del_ph})
+               )
+             ORDER BY cu.filename
+        """, list(cust_keys) + list(del_keys)).fetchall()
+
+        delivered_only_count = c.execute(f"""
+            SELECT COUNT(*) FROM sqr_programs d
+             WHERE d.source_key IN ({del_ph})
+               AND NOT EXISTS (
+                   SELECT 1 FROM sqr_programs cu
+                    WHERE lower(cu.filename) = lower(d.filename)
+                      AND cu.source_key IN ({cust_ph})
+               )
+        """, list(del_keys) + list(cust_keys)).fetchone()[0]
+
+        result[env] = {
+            "overridden": [dict(r) for r in overridden],
+            "custom_only": [dict(r) for r in custom_only],
+            "delivered_only_count": delivered_only_count,
+            "counts": {
+                "overridden": len(overridden),
+                "custom_only": len(custom_only),
+                "delivered_only": delivered_only_count,
+            },
+        }
+    c.close()
+    return result
+
+
 def stats() -> dict:
     """Return high-level counts."""
     c = _conn()

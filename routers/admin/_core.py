@@ -90,6 +90,7 @@ _NAV_GROUPS = [
         ("sqrsearch",  "SQR Search",    "/admin/sqrsearch"),
         ("sqrdeps",    "SQR Dep Graph", "/admin/sqrdeps"),
         ("sqrcompare", "SQR Env Diff",  "/admin/sqrcompare"),
+        ("sqroverrides", "SQR Overrides", "/admin/sqroverrides"),
         ("cobol",      "COBOL Explorer", "/admin/cobol"),
         ("compflow",   "Comp Event Flow", "/admin/compflow"),
         ("compseq",    "PC Timeline",    "/admin/compseq"),
