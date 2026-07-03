@@ -334,11 +334,12 @@ TOOLS = [
         "description": (
             "Look up a PeopleSoft SQR batch report or SQC library file. "
             "Returns the program's metadata (description, release, revision), the database tables it reads and writes, "
-            "and the SQC include files it depends on. "
+            "the SQC include files it depends on, and (when indexed) its full source code — "
+            "use the source to explain, summarize, or assess modernization for the program when asked. "
             "Use this for questions about what a batch report does, which tables it touches, "
             "which programs include a given SQC library, or impact analysis on SQR programs. "
-            "Examples: 'What does AMAE1100.SQR do?', 'What tables does PAYCHECK.SQR write to?', "
-            "'Which SQR programs include SETENV.SQC?'"
+            "Examples: 'What does AMAE1100.SQR do?', 'Explain PAYCHECK.SQR in plain English', "
+            "'What tables does PAYCHECK.SQR write to?', 'Which SQR programs include SETENV.SQC?'"
         ),
         "input_schema": {
             "type": "object",
@@ -357,6 +358,40 @@ TOOLS = [
                 "query": {
                     "type": "string",
                     "description": "Search term (used with lookup_type=search or table_users or sqc_users)",
+                },
+            },
+            "required": ["lookup_type"],
+        },
+    },
+    {
+        "name": "cobol_program",
+        "description": (
+            "Look up a PeopleSoft COBOL program or copybook file. "
+            "Returns the program's metadata (description, compiled status), the database tables it reads and writes, "
+            "the COPY dependencies it pulls in, and (when indexed) its full source code — "
+            "use the source to explain, summarize, or assess modernization for the program when asked. "
+            "Use this for questions about what a COBOL program does, which tables it touches, "
+            "which programs COPY a given copybook, or impact analysis on COBOL programs. "
+            "Examples: 'What does PSPPMTAX.CBL do?', 'Explain this COBOL program in plain English', "
+            "'What tables does it write to?', 'Which programs COPY PTCALOGM?'"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": "COBOL filename (e.g. 'PSPPMTAX.CBL'). Can also be a partial name to search.",
+                },
+                "lookup_type": {
+                    "type": "string",
+                    "enum": ["program", "table_users", "copy_deps", "search"],
+                    "description": "program=look up a specific file; table_users=which programs use this table; "
+                                   "copy_deps=forward+reverse COPY dependency closure for this file; "
+                                   "search=keyword search across programs.",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Search term (used with lookup_type=search or table_users)",
                 },
             },
             "required": ["lookup_type"],
@@ -936,6 +971,18 @@ def _project_impact(env: str, project: str) -> dict:
     return result
 
 
+_SOURCE_TRUNCATE_CHARS = 12000
+
+
+def _truncate_source(detail: dict) -> dict:
+    src = detail.get("source_text")
+    if src and len(src) > _SOURCE_TRUNCATE_CHARS:
+        detail["source_text"] = src[:_SOURCE_TRUNCATE_CHARS]
+        detail["source_truncated"] = True
+        detail["source_full_length"] = len(src)
+    return detail
+
+
 def _sqr_program(lookup_type: str, filename: str = None, query: str = None) -> dict:
     from connectors import sqrdb
     sqrdb.init_db()
@@ -948,7 +995,7 @@ def _sqr_program(lookup_type: str, filename: str = None, query: str = None) -> d
             # Try search fallback
             results = sqrdb.search_programs(q=name, per_page=5)
             return {"found": False, "suggestions": results.get("results", [])}
-        return {"found": True, "program": detail}
+        return {"found": True, "program": _truncate_source(detail)}
     elif lookup_type == "table_users":
         tbl = (filename or query or "").strip().upper()
         if not tbl:
@@ -963,6 +1010,34 @@ def _sqr_program(lookup_type: str, filename: str = None, query: str = None) -> d
         q = (query or filename or "").strip()
         results = sqrdb.search_programs(q=q, per_page=20)
         return results
+    return {"error": f"Unknown lookup_type: {lookup_type}"}
+
+
+def _cobol_program(lookup_type: str, filename: str = None, query: str = None) -> dict:
+    from connectors import cobol_db
+    cobol_db.init_db()
+    if lookup_type == "program":
+        name = (filename or "").strip()
+        if not name:
+            return {"error": "filename required for lookup_type=program"}
+        detail = cobol_db.get_program(name)
+        if not detail:
+            results = cobol_db.search_programs(q=name, per_page=5)
+            return {"found": False, "suggestions": results.get("results", [])}
+        return {"found": True, "program": _truncate_source(detail)}
+    elif lookup_type == "table_users":
+        tbl = (filename or query or "").strip().upper()
+        if not tbl:
+            return {"error": "provide filename or query with table name"}
+        return {"programs": cobol_db.get_programs_for_table(tbl)}
+    elif lookup_type == "copy_deps":
+        name = (filename or query or "").strip()
+        if not name:
+            return {"error": "provide filename for lookup_type=copy_deps"}
+        return cobol_db.get_copy_deps(name)
+    elif lookup_type == "search":
+        q = (query or filename or "").strip()
+        return cobol_db.search_programs(q=q, per_page=20)
     return {"error": f"Unknown lookup_type: {lookup_type}"}
 
 
@@ -1017,5 +1092,6 @@ _HANDLERS = {
     "ib_diagnostics":          _ib_diagnostics,
     "process_scheduler_health": _process_scheduler_health,
     "sqr_program":             _sqr_program,
+    "cobol_program":           _cobol_program,
     "component_events":        _component_events,
 }

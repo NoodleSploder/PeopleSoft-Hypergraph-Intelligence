@@ -292,10 +292,25 @@ comparison.
 - `/admin/sqroverrides` — new admin page (stat cards + tabbed overridden/custom-only
   tables per environment).
 
+### AI-Assisted Explanation — ✅ Complete
+- `connectors/ai_tools.py`'s existing `sqr_program` tool now also returns indexed
+  `source_text` (previously only metadata/tables/includes), truncated to 12,000 chars
+  (`_truncate_source()`) to stay within a reasonable tool-result token budget —
+  verified against the largest indexed program (`sysrtdfn.sqc`, 171,506 chars raw).
+- New `cobol_program` tool (mirrors `sqr_program`'s shape: `program`/`table_users`/
+  `search` lookup types, plus COBOL-specific `copy_deps`) — COBOL had no AI tool at
+  all before this; same source-text truncation applied.
+- With real source in the tool result, "explain/summarize/assess this program" falls
+  out of the existing agentic tool loop for free — no new endpoint, no separate
+  summarization pipeline. Verified live end-to-end against the real OpenAI-backed
+  assistant (`/admin/assistant`): asked it to explain both `PTCALOGM.cbl` (COBOL) and
+  `sysrtdfn.sqc` (SQR) — it correctly invoked the new/updated tools and produced
+  accurate plain-English explanations matching the real source.
+
 ### Remaining
-- Broader diff modes (syntax-aware, ignore whitespace/comments), analytics dashboards
-  (complexity/hotspot metrics), and AI-assisted explanation (explain/summarize/
-  modernize) are all still "Planned" — no concrete blocker, just not prioritized yet.
+- Broader diff modes (syntax-aware, ignore whitespace/comments) and analytics
+  dashboards (complexity/hotspot metrics) are still "Planned" — no concrete blocker,
+  just not prioritized yet.
 - Runtime correlation (tie Process Scheduler executions back to SQR/COBOL source) is
   Planned; no work started.
 

@@ -6000,3 +6000,39 @@ Verification:
   test coverage
 - `python3 scripts/smoke_admin_shell.py` → 71/71 (was 70/70)
 - `make check` → 100/100 files, 11/11 tests
+
+---
+
+### AI-Assisted SQR/COBOL Explanation (pending commit)
+
+Extended the AI Assistant's tool belt so it can explain, summarize, or assess
+modernization for indexed SQR/COBOL source — no new endpoint or summarization
+pipeline needed, since the existing agentic tool loop already turns raw data
+into conversational explanations once the source is in the tool result.
+
+- `connectors/ai_tools.py`'s `sqr_program` tool previously returned only
+  metadata/tables/includes from `sqrdb.get_program()` — it turns out
+  `get_program()` already includes `source_text` (via `SELECT *`), it just
+  wasn't being surfaced usefully: raw, untruncated, some files are 170KB+.
+  Added `_truncate_source()` (12,000-char cap, `source_truncated` +
+  `source_full_length` flags when clipped) applied to both the SQR tool and
+  the new COBOL one, keeping tool-result token cost bounded.
+- Added `cobol_program`, a new tool mirroring `sqr_program`'s shape
+  (`program`/`table_users`/`search` lookup types) plus a COBOL-specific
+  `copy_deps` (forward+reverse COPY closure, wrapping the existing
+  `cobol_db.get_copy_deps()`). COBOL had no AI tool at all before this —
+  the assistant could reason about SQR programs but not COBOL ones.
+
+Verified with dispatch()-level tests first (truncation confirmed:
+171,506 → 12,000 chars for `sysrtdfn.sqc`; all four `cobol_program`
+lookup_types return correct real data), then live end-to-end against the
+real OpenAI-backed assistant at `/admin/assistant`:
+- "Explain PTCALOGM.cbl" → correctly called `cobol_program`, retrieved real
+  source, produced an accurate one-sentence summary matching the actual
+  COBOL logic (message-logger call, severity check, run-status update)
+- "Explain sysrtdfn.sqc" → correctly called `sqr_program` (unchanged tool
+  name, now source-aware), produced an accurate summary of the runtime
+  table-definition audit procedures
+
+Verification: `make check` 100/100 files + 11/11 tests; smoke test 71/71
+(unchanged — no new admin pages, this is an AI-tool-only change).
