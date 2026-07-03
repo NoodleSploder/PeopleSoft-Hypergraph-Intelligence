@@ -6,6 +6,37 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — COBOL Knowledge Graph Wiring — 68/68
+
+### Follow-up: wired COBOL data into the Knowledge Graph
+
+The COBOL Explorer built earlier today stored COPY/CALL/EXEC-SQL data in
+`data/cobol.db` but nothing fed it into the KG (`data/knowledge_graph_*.json`)
+the way `sqr_programs()` already does for SQR. Closed that gap:
+
+- `connectors/graphdb.py` — new `cobol_programs()` builder, registered in the
+  env build list right after `sqr_programs`. Adds a `cobol_program` node per
+  indexed file plus `READS`/`WRITES` edges to `record` (from EXEC SQL table
+  refs), `COPIES` edges to other `cobol_program` nodes, and `CALLS` edges for
+  static `CALL 'X'` targets (dynamic `CALL WS-VAR` is unresolvable, same
+  limitation SQR already has for computed `DO`/`GOSUB`)
+- `connectors/ptmetadata.py` — `OBJECT_REGISTRY["cobol_program"]` entry
+  (icon, `object_page`, relationships), mirroring `sqr_program`
+- `routers/admin/graph.py` — `/admin/object/cobol_program/{name}` redirects
+  to `/admin/cobol/{name}.cbl`
+
+**Verified**: fresh `graphdb.build(env='HCM', limit=2000)` (took ~8 minutes —
+this rebuilds every provider, not just COBOL) produced 163 `cobol_program`
+nodes, 567 edges (164 CALLS, 403 COPIES, 0 READS/WRITES — none of the 115
+readable delivered `.cbl` files use `EXEC SQL`, consistent with the COBOL
+Explorer session's earlier finding of `distinct_ps_tables: 0`).
+`/api/graph/neighbors/cobol_program:PTCALOGM.CBL` correctly resolves CALLS
+edges to `PTPLOGMS.CBL` and `PTPTEDIT.CBL`. Redirect verified:
+`/admin/object/cobol_program/PTCALOGM.CBL` → 302 → `/admin/cobol/ptcalogm.cbl`.
+`make check` 91/91; smoke test 68/68.
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — COBOL Explorer — 68/68
 
 ### New Feature: PeopleSoft COBOL Source Artifact Intelligence

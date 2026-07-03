@@ -129,8 +129,8 @@ Drawn from `ROADMAP.md` remaining sections — pick the highest-value slice:
 - Plugin SDK: custom object/graph/runtime providers, custom dashboards
 
 ### Phase 10 — Source Artifact Intelligence (remaining)
-- COBOL EXEC SQL / CALL-graph cross-reference into the Knowledge Graph
-  (`connectors/cobol_db.py` has the data; not yet wired into `attach_graph_context`)
+- (none open — COBOL KG wiring done: `cobol_program` node type with READS/WRITES/
+  COPIES/CALLS edges, see `connectors/graphdb.py` `cobol_programs()`)
 - **Note**: After any `sqr_sources` or `cobol_sources` config change, a re-index is
   required (`POST /api/sqr/ingest` / `POST /api/cobol/ingest`)
 - **Note**: most delivered `.cbl` files are mode 700 on the PeopleSoft filesystem and

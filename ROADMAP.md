@@ -1306,10 +1306,29 @@ MESSAGE." (license-preamble-skipping fix verified); `make check` 91/91;
 `python3 scripts/smoke_admin_shell.py` 68/68.
 
 **Remaining:** environment side-by-side SQR comparison (done — see `/admin/sqrcompare`
-above); COBOL EXEC SQL / CALL-graph cross-reference into the Knowledge Graph (not yet
-wired into `attach_graph_context`); no true copybook (`.cpy`) support was needed since
-none exist in this PeopleSoft install, but the schema's `file_type` column already
-generalizes to that case if a future customer environment has them.
+above); no true copybook (`.cpy`) support was needed since none exist in this
+PeopleSoft install, but the schema's `file_type` column already generalizes to that
+case if a future customer environment has them.
+
+### ✅ Done (2026-07-03, session 2) — COBOL Knowledge Graph wiring
+
+- New `cobol_program` KG node type: `connectors/graphdb.py` `cobol_programs()` builder
+  (registered in the env build list) adds `cobol_program → record` READS/WRITES edges
+  (from EXEC SQL table refs), `cobol_program → cobol_program` COPIES edges, and
+  `cobol_program → cobol_program` CALLS edges (static `CALL 'X'` targets — dynamic
+  `CALL WS-VAR` calls can't be resolved and are skipped, same limitation as SQR's
+  `DO`/`GOSUB` handling)
+- `connectors/ptmetadata.py` `OBJECT_REGISTRY["cobol_program"]` entry (icon,
+  `object_page: /admin/cobol`, relationships) — mirrors the existing `sqr_program` entry
+- `routers/admin/graph.py` `/admin/object/cobol_program/{name}` redirects to
+  `/admin/cobol/{name}.cbl`, matching the `sqr_program` → `/admin/sqr/{name}` pattern
+
+**Verified**: fresh `graphdb.build(env='HCM', limit=2000)` produced 163 `cobol_program`
+nodes and 567 edges (164 CALLS, 403 COPIES; 0 READS/WRITES since none of the 115
+readable delivered `.cbl` files use `EXEC SQL`); `/api/graph/neighbors/cobol_program:
+PTCALOGM.CBL` resolves real CALLS edges to `PTPLOGMS.CBL`/`PTPTEDIT.CBL`; redirect
+`/admin/object/cobol_program/PTCALOGM.CBL` → `/admin/cobol/ptcalogm.cbl` (302);
+`make check` 91/91; smoke test 68/68.
 
 ## ✅ Phase 6 — Environment Intelligence (Substantially Complete as of 2026-07-01)
 

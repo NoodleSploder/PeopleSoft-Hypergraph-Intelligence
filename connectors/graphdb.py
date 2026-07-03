@@ -2079,6 +2079,75 @@ def build(env="HCM", limit=50, persist=True):
 
         return added
 
+    def cobol_programs():
+        """Add COBOL program/copybook nodes with table-access, COPY, and CALL edges."""
+        try:
+            from connectors import cobol_db as _cobol_db
+            _cobol_db.init_db()
+        except Exception:
+            return 0
+
+        added = 0
+        page = 1
+        per_page = 500
+        while True:
+            result = _cobol_db.search_programs(page=page, per_page=per_page)
+            rows = result.get("results", [])
+            if not rows:
+                break
+
+            for row in rows:
+                filename = row.get("filename")
+                if not filename:
+                    continue
+                node_name = filename.lower()
+                add_node(graph, "cobol_program", node_name,
+                         row.get("member_name") or node_name,
+                         {**row, "_links": {"admin": f"/admin/cobol/{filename}"}})
+                added += 1
+
+                detail = _cobol_db.get_program(filename)
+                if not detail:
+                    continue
+
+                for tbl in detail.get("tables", []):
+                    tbl_name = (tbl.get("table_name") or "").strip().upper()
+                    if not tbl_name:
+                        continue
+                    ops = tbl.get("operations") or ""
+                    add_node(graph, "record", tbl_name, tbl_name,
+                             {"source": "cobol_program", "cobol_program": node_name})
+                    if any(o in ops for o in ("UPDATE", "INSERT", "DELETE", "CREATE")):
+                        add_edge(graph, "cobol_program", node_name, "record", tbl_name, "WRITES",
+                                 {"operations": ops})
+                    else:
+                        add_edge(graph, "cobol_program", node_name, "record", tbl_name, "READS",
+                                 {"operations": ops})
+
+                for copy_name in detail.get("copies", []):
+                    cn = (copy_name or "").strip().lower()
+                    if not cn:
+                        continue
+                    copy_node = f"{cn}.cbl"
+                    add_node(graph, "cobol_program", copy_node, cn.upper(), {})
+                    add_edge(graph, "cobol_program", node_name, "cobol_program", copy_node, "COPIES",
+                             {"copy_name": cn})
+
+                for call_name in detail.get("calls", []):
+                    call_target = (call_name or "").strip().lower()
+                    if not call_target:
+                        continue
+                    call_node = f"{call_target}.cbl"
+                    add_node(graph, "cobol_program", call_node, call_target.upper(), {})
+                    add_edge(graph, "cobol_program", node_name, "cobol_program", call_node,
+                             "CALLS", {"call_name": call_target})
+
+            if len(rows) < per_page:
+                break
+            page += 1
+
+        return added
+
     def process_definitions():
         if not ptmetadata.has_table(env, "PS_PRCSDEFN"):
             return 0
@@ -2177,6 +2246,7 @@ def build(env="HCM", limit=50, persist=True):
         ("file_layouts", file_layouts),
         ("process_definitions", process_definitions),
         ("sqr_programs", sqr_programs),
+        ("cobol_programs", cobol_programs),
         ("ib_applications", ib_applications),
         ("app_packages", app_packages),
         ("app_classes", app_classes),

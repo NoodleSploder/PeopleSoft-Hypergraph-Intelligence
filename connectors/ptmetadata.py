@@ -1024,6 +1024,17 @@ OBJECT_REGISTRY.setdefault("sqr_program", {
     "relationships": ["READS", "WRITES", "INCLUDES"],
 })
 
+OBJECT_REGISTRY.setdefault("cobol_program", {
+    "display_title": "COBOL Program",
+    "icon": "file-text",
+    "graph_node_type": "cobol_program",
+    "object_page": "/admin/cobol",
+    "discovery": None,
+    "search": None,
+    "supported_versions": ["8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": ["READS", "WRITES", "COPIES", "CALLS"],
+})
+
 for object_type in [
     "content_reference",
     "section",

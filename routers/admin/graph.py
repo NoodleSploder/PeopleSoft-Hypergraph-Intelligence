@@ -1977,6 +1977,11 @@ def admin_object(object_type: str, object_name: str, env: str = "HCM"):
         if not (filename.endswith(".sqr") or filename.endswith(".sqc")):
             filename += ".sqr"
         return RedirectResponse(f"/admin/sqr/{filename}", status_code=302)
+    if object_type == "cobol_program":
+        filename = object_name.lower()
+        if not filename.endswith(".cbl"):
+            filename += ".cbl"
+        return RedirectResponse(f"/admin/cobol/{filename}", status_code=302)
     if object_type == "component":
         return RedirectResponse(f"/admin/component?name={object_name}&env={env}", status_code=302)
     if object_type == "page":
