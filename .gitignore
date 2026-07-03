@@ -111,6 +111,11 @@ logs/*
 # Logs
 /logs/*
 
+logs/*.log
+logs/*.jsonl
+/logs/*.log
+/logs/*.jsonl
+
 # Keep directory structure
 !/data/.gitkeep
 !/data/graph_snapshots/
