@@ -400,9 +400,29 @@ produced `record_event` nodes/edges with zero self-loops from the start (applied
 `{"events": []}` gracefully for a real page, not an error. `make check` 91/91; smoke
 test 69/69 (additions to existing pages, not new dedicated routes).
 
+### Processing Path Explorer UI — ✅ Complete (Component + Record)
+`/admin/compseq` ("PC Timeline") already had a rich ordered phase-card visualization
+for Component sequences (grid of phase columns, per-slot delivered/custom/empty
+coloring, inline source viewing) — the Record Explorer's "Processing Sequence" tab,
+by contrast, only had a plain per-phase table. Added a Component/Record mode toggle
+to `/admin/compseq` reusing the exact same visual language (phase cards, stats row,
+legend, click-to-expand slots) for Record sequences too, rather than building a
+separate page or a generic new visualization — `renderRecord()` consumes the
+already-phased `record_sequence()` API response directly (no client-side canonical-
+sequence re-derivation needed, unlike Component mode, since Record's backend already
+groups events by phase). Record-mode slots show field/last-editor/timestamp metadata
+on click (no source-code viewing — no per-event source endpoint exists for
+record-owned PeopleCode, unlike Component's `/event-source`; the page says so
+honestly rather than pretending).
+
+**Verified live in a real headless browser** (not just curl): switched to Record
+mode, entered `JOB`, confirmed 4 phase cards / 158 slots / 154-with-PeopleCode
+render matching `record_sequence('HCM','JOB')` directly; clicked a populated slot
+and confirmed the metadata panel opens with correct field/status; re-verified
+Component mode (`JOB_DATA`) still renders identically post-change (20 slots, no
+regression).
+
 ### Remaining
-- **Processing Path Explorer** UI (ordered execution-flow visualization, not just
-  event-status tables) for Field/Component-Interface/Transaction-path contexts
 - **Delivered vs Custom Sequence Comparison** beyond the existing `LASTUPDOPRID`
   heuristic — PeopleCode has no delivered-source baseline to diff against (unlike
   SQR/COBOL, which have real parallel delivered+custom trees)

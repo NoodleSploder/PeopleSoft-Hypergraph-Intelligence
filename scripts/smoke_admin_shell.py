@@ -210,6 +210,7 @@ DEFAULT_PAGES = [
     ("/admin/cobol/analytics", ".an-grid",   False, True,  []),
     ("/admin/riskanalysis",".ds-page-title", False, True,  []),
     ("/admin/compflow",   ".ds-page-title",  False, True,  []),
+    ("/admin/compseq",    "#modeSel",        False, True,  []),
     ("/admin/plugin/hello", "table",         False, True,  []),
 ]
 

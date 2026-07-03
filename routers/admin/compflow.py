@@ -345,6 +345,10 @@ def admin_compseq(request: Request, env: str = "HCM", comp: str = ""):
 <div class="cs-bar">
   <span style="font-size:13px;font-weight:700;color:#00e5ff;letter-spacing:.5px">PC Timeline</span>
   <span style="color:#1a2a3a">|</span>
+  <select id="modeSel" class="cs-inp" style="width:130px" onchange="onModeChange()">
+    <option value="component">Component</option>
+    <option value="record">Record</option>
+  </select>
   <input id="compInp" class="cs-inp" placeholder="Component name…"
     value="{comp}" oninput="onInput(this.value)" onkeydown="if(event.key==='Enter')load()">
   <button class="cs-btn" onclick="load()">Analyse</button>
@@ -406,26 +410,44 @@ const SEQUENCE = [
 ];
 
 let _evtMap = {{}};  // event name → array of matching rows from API
+let _recSlotMap = {{}};  // record-mode slot id → event data
+
+function mode() {{ return document.getElementById('modeSel').value; }}
+
+function onModeChange() {{
+  const inp = document.getElementById('compInp');
+  inp.placeholder = mode() === 'record' ? 'Record name…' : 'Component name…';
+  document.getElementById('body').innerHTML =
+    '<div class="cs-no-data" id="placeholder">Enter a ' + mode() + ' name to see its PeopleCode processing timeline.</div>';
+}}
 
 function onInput(v) {{
   if (!v.trim()) {{
     document.getElementById('body').innerHTML =
-      '<div class="cs-no-data" id="placeholder">Enter a component name to see its PeopleCode processing timeline.</div>';
+      '<div class="cs-no-data" id="placeholder">Enter a ' + mode() + ' name to see its PeopleCode processing timeline.</div>';
   }}
 }}
 
 async function load() {{
-  const comp = document.getElementById('compInp').value.trim().toUpperCase();
-  if (!comp) return;
+  const name = document.getElementById('compInp').value.trim().toUpperCase();
+  if (!name) return;
   const st = document.getElementById('status');
   st.textContent = 'Loading…';
   document.getElementById('body').innerHTML = '<div class="cs-spinner" style="margin:30px 0">Querying…</div>';
   try {{
-    const r = await fetch('/api/peoplesoft/components/' + encodeURIComponent(comp) + '/events?env=' + ENV());
-    if (!r.ok) throw new Error(await r.text());
-    const d = await r.json();
-    st.textContent = '';
-    render(comp, d);
+    if (mode() === 'record') {{
+      const r = await fetch('/api/peoplesoft/records/' + encodeURIComponent(name) + '/sequence?env=' + ENV());
+      if (!r.ok) throw new Error(await r.text());
+      const d = await r.json();
+      st.textContent = '';
+      renderRecord(name, d);
+    }} else {{
+      const r = await fetch('/api/peoplesoft/components/' + encodeURIComponent(name) + '/events?env=' + ENV());
+      if (!r.ok) throw new Error(await r.text());
+      const d = await r.json();
+      st.textContent = '';
+      render(name, d);
+    }}
   }} catch(e) {{
     st.textContent = '';
     document.getElementById('body').innerHTML = '<div class="cs-no-data">Error: ' + esc(String(e)) + '</div>';
@@ -505,6 +527,90 @@ function render(comp, d) {{
   html += '</div>';
 
   document.getElementById('body').innerHTML = html;
+}}
+
+function renderRecord(rec, d) {{
+  const phases = d.phases || [];
+  if (!phases.length) {{
+    document.getElementById('body').innerHTML =
+      `<div class="cs-no-data">No canonical Record Field PeopleCode events on <span style="color:#7faab2">${{esc(rec)}}</span>.<br>
+       <span style="font-size:10px;color:#334">Shows only genuinely record-owned PeopleCode (OBJECTID1=1), independent of any component.</span></div>`;
+    return;
+  }}
+
+  const allEvents = phases.flatMap(ph => ph.events);
+  const totalSlots = allEvents.length;
+  const withPC = allEvents.filter(e => e.status !== 'empty');
+  const customEvents = allEvents.filter(e => e.status === 'custom');
+  _recSlotMap = {{}};
+
+  let html = '<div class="cs-stats">';
+  html += `<div class="cs-stat"><div class="cs-stat-val">${{totalSlots}}</div><div class="cs-stat-lbl">Total Slots</div></div>`;
+  html += `<div class="cs-stat"><div class="cs-stat-val" style="color:#00e5ff">${{withPC.length}}</div><div class="cs-stat-lbl">With PeopleCode</div></div>`;
+  html += `<div class="cs-stat"><div class="cs-stat-val" style="color:#ffb400">${{customEvents.length}}</div><div class="cs-stat-lbl">Custom Events</div></div>`;
+  html += `<div class="cs-stat"><div class="cs-stat-val" style="color:#4a9a4a">${{withPC.length - customEvents.length}}</div><div class="cs-stat-lbl">Delivered Events</div></div>`;
+  html += `<div class="cs-stat"><div class="cs-stat-val" style="color:#888">${{totalSlots - withPC.length}}</div><div class="cs-stat-lbl">Empty Slots</div></div>`;
+  html += '</div>';
+
+  html += '<div class="cs-legend">';
+  html += '<div class="cs-legend-item"><div class="cs-dot" style="background:#00e5ff"></div><span style="color:#7faab2">Delivered PeopleCode</span></div>';
+  html += '<div class="cs-legend-item"><div class="cs-dot" style="background:#ffb400"></div><span style="color:#7faab2">Custom PeopleCode</span></div>';
+  html += '<div class="cs-legend-item"><div class="cs-dot" style="background:#1a2a3a"></div><span style="color:#3a4a5a">No PeopleCode</span></div>';
+  html += '</div>';
+
+  const phaseCls = {{search:'cs-phase-search', build:'cs-phase-build', interaction:'cs-phase-inter', save:'cs-phase-save'}};
+
+  html += '<div class="cs-phases">';
+  phases.forEach(ph => {{
+    const cls = phaseCls[ph.phase] || 'cs-phase-build';
+    html += `<div class="cs-phase ${{cls}}">`;
+    html += `<div class="cs-phase-hdr">${{esc(ph.label)}}</div>`;
+    ph.events.forEach((ev, idx) => {{
+      const hasPC = ev.status !== 'empty';
+      const isCustom = ev.status === 'custom';
+      const stateCls = !hasPC ? 'no-pc' : (isCustom ? 'has-pc custom' : 'has-pc delivered');
+      const id = 'rslot_' + ph.phase + '_' + idx;
+
+      let meta = `<div class="cs-evt-meta">${{esc(ev.note||'')}}`;
+      if (ev.field) meta += ` · field ${{esc(ev.field)}}`;
+      if (hasPC && ev.last_oprid) meta += ` · ${{esc(ev.last_oprid)}}`;
+      meta += '</div>';
+
+      let badges = '';
+      if (isCustom) badges += `<span class="cs-badge cs-badge-custom">custom</span>`;
+
+      if (hasPC) _recSlotMap[id] = ev;
+      const onclick = hasPC ? `onclick="toggleRecordSlot('${{id}}')"` : '';
+      html += `<div class="cs-slot ${{stateCls}}" id="${{id}}" ${{onclick}}>
+        <div class="cs-evt-name">${{esc(ev.name)}}${{badges}}</div>
+        ${{meta}}
+      </div>
+      <div class="cs-src" id="${{id}}_src"></div>`;
+    }});
+    html += '</div>';
+  }});
+  html += '</div>';
+
+  document.getElementById('body').innerHTML = html;
+}}
+
+function toggleRecordSlot(id) {{
+  const srcEl = document.getElementById(id + '_src');
+  const ev = _recSlotMap[id];
+  if (!srcEl || !ev) return;
+  if (srcEl.classList.contains('open')) {{
+    srcEl.classList.remove('open');
+    return;
+  }}
+  srcEl.classList.add('open');
+  const recName = document.getElementById('compInp').value.trim().toUpperCase();
+  let hdr = esc(ev.name);
+  if (ev.field) hdr += ` · field ${{esc(ev.field)}}`;
+  if (ev.status === 'custom') hdr += ` <span style="color:#ffb400;font-size:10px">● custom (${{esc(ev.last_oprid||'')}} @ ${{esc(ev.last_dttm||'')}})</span>`;
+  srcEl.innerHTML = `<div class="cs-prog-hdr">${{hdr}}</div>
+    <pre style="color:#556">Record-owned PeopleCode source viewing isn't wired up yet — this
+shows the metadata this platform indexes today (field, last editor, timestamp).
+See the <a href="/admin/object/record/${{esc(recName)}}" style="color:#00e5ff">Record Explorer</a> for full record detail.</pre>`;
 }}
 
 async function toggleSlot(evtName, comp) {{

@@ -6080,3 +6080,47 @@ explicitly in the new COBOL pages rather than perpetuate the bug.
 Verification: live curl on all three affected routes confirms correct/distinct
 content; `python3 scripts/smoke_admin_shell.py` → 72/72 (was 71/71); `make check`
 → 100/100 files, 11/11 tests.
+
+---
+
+### Processing Path Explorer UI: Component/Record Mode Toggle (pending commit)
+
+Closed the "Processing Path Explorer UI" ROADMAP gap by extending the existing
+`/admin/compseq` ("PC Timeline") page rather than building a new one from
+scratch — it already had exactly the visual language the gap called for
+(ordered phase-card grid, per-slot delivered/custom/empty coloring, click-to-
+expand inline detail), just scoped to Component sequences only. The Record
+Explorer's "Processing Sequence" tab (built earlier this session) only ever
+had a plain per-phase table — a real, noticeable gap once compseq's richer
+visualization existed for Component.
+
+Added a Component/Record mode `<select>` to compseq's toolbar. `renderRecord()`
+consumes `record_sequence()`'s API response directly (`{record, phases: [{phase,
+label, desc, events: [{name, status, field, last_oprid, last_dttm}]}]}`) —
+simpler than Component mode's client-side `SEQUENCE` constant + raw-events
+grouping, since Record's backend already canonicalizes into phases. Clicking a
+populated slot shows field/last-editor/timestamp metadata (no source code —
+there's no per-event source-fetch endpoint for record-owned PeopleCode the way
+Component has `/event-source`; the panel says this honestly instead of
+pretending to have source it doesn't).
+
+Avoided a fragile approach I initially wrote (embedding `JSON.stringify(ev)`
+into an inline `onclick` HTML attribute with `&quot;`-escaping) in favor of a
+`_recSlotMap` lookup keyed by slot id — safer against any special characters
+in event data and consistent with how `_evtMap` already works for Component
+mode.
+
+**Verified in a real headless Chrome instance** (driven directly via the
+Chrome DevTools Protocol, reusing `smoke_admin_shell.py`'s `DevTools`/
+`chrome_path`/`wait_for_target` helpers as a library rather than a fresh
+harness): switched to Record mode, entered `JOB`, called `load()`, and
+confirmed the rendered DOM matched `record_sequence('HCM','JOB')` exactly
+(4 phase cards, 158 total slots, 154 with PeopleCode, 0 custom — all real
+counts, not assumed); clicked a populated `FieldDefault` slot and confirmed
+the metadata panel opened with the correct field (`ACTION`); switched back
+to Component mode with `JOB_DATA` and confirmed no regression (20 slots,
+matching pre-change behavior).
+
+Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (was 72/72,
+added `/admin/compseq` coverage which had none before); `make check` →
+100/100 files, 11/11 tests.
