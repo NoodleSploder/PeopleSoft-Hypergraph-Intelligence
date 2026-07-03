@@ -12,5 +12,9 @@ from . import portal     # noqa: F401
 from . import platform   # noqa: F401
 from . import perf       # noqa: F401
 from . import tools      # noqa: F401
+from . import rca        # noqa: F401
+from . import incidents  # noqa: F401
+from . import logs       # noqa: F401
+from . import compflow   # noqa: F401
 
 __all__ = ["router"]

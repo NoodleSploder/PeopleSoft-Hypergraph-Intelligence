@@ -78,6 +78,7 @@ tr:hover td{background:rgba(0,229,255,.02)}
     Oracle DB: <select id="dbSel"><option value="">— none —</option></select>
   </div>
   <button onclick="investigate()">&#128269; Investigate</button>
+  <button class="sec" id="saveBtn" onclick="saveAsIncident()" style="display:none">&#128203; Save as Incident</button>
   <span id="status" style="font-size:10px;color:#445"></span>
 </div>
 
@@ -140,6 +141,7 @@ async function investigate(){
     const url=`/api/runtime/rca?env=${encodeURIComponent(env)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}${db?'&db='+encodeURIComponent(db):''}`;
     const d=await fetch(url).then(r=>r.json());
     document.getElementById('status').textContent='';
+    document.getElementById('saveBtn').style.display='';
     render(d,startRaw,endRaw);
   }catch(e){
     document.getElementById('status').textContent='';
@@ -286,5 +288,27 @@ function render(d,startRaw,endRaw){
 }
 
 window.onEnvChange=()=>{/* env change clears nothing — user re-investigates */};
+
+async function saveAsIncident(){
+  const env=window.dsGetEnv?window.dsGetEnv():'HCM';
+  const startRaw=document.getElementById('startDt').value;
+  const endRaw=document.getElementById('endDt').value;
+  const start=new Date(startRaw).toISOString().replace('T',' ').substring(0,19);
+  const end=new Date(endRaw).toISOString().replace('T',' ').substring(0,19);
+  const title=prompt('Incident title:','Incident '+new Date().toISOString().substring(0,16));
+  if(!title) return;
+  const sev=prompt('Severity (P1/P2/P3/P4):','P3')||'P3';
+  const btn=document.getElementById('saveBtn');
+  btn.disabled=true; btn.textContent='Saving…';
+  try{
+    const res=await fetch('/api/incidents',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({title,env,severity:sev,window_start:start,window_end:end,capture_rca:true})
+    });
+    const d=await res.json();
+    if(!res.ok) throw new Error(d.detail||'Failed');
+    window.location.href='/admin/incidents/'+d.id;
+  }catch(e){alert('Error: '+e);btn.disabled=false;btn.textContent='📋 Save as Incident';}
+}
 </script>
 """)

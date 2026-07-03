@@ -196,6 +196,14 @@ DEFAULT_PAGES = [
     ("/admin/log_errors", "#env-sel",        True, True,  []),
     ("/admin/tools",      "#buildStatus",    False, True,  []),
     ("/admin/docs",       ".ds-page-title",  False, True,  []),
+    ("/admin/rca",        "#startDt",        False, True,  []),
+    ("/admin/incidents",  ".toolbar",        False, True,  []),
+    ("/admin/secaudit",   ".ds-page-title",  False, True,  []),
+    ("/admin/ae",         "#qInput",         False, True,  []),
+    ("/admin/sqrsearch",  ".ds-page-title",  False, True,  []),
+    ("/admin/accesspath", ".ds-page-title",  False, True,  []),
+    ("/admin/riskanalysis",".ds-page-title", False, True,  []),
+    ("/admin/compflow",   ".ds-page-title",  False, True,  []),
 ]
 
 
