@@ -6,6 +6,129 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — Tree & Portal UOM Cross-Reference Sections — 67/67
+
+### Tree and Portal Registry Cross-References in Object Explorer
+
+**`routers/peoplesoft.py`**:
+- New `_attach_outbound_xref(payload, env, node_id, tgt_type, edge_type, section_name, note)` helper —
+  queries `graphdb.neighbors()` outbound, filters by node type prefix, deduplicates, sorts, appends section
+- `attach_graph_context()` now dispatches two new `obj_type` blocks:
+  - **`tree`**: "Record Keyed by This Tree" (outbound `USES` → `record`)
+    and "Projects Deploying This Tree" (inbound `DEPLOYS` ← `project`)
+  - **`portal_registry`**: "Projects Deploying This Portal Object" (inbound `DEPLOYS` ← `project`)
+    and "Content Services Linking to This Portal Object" (inbound `USES` ← `content_service`)
+
+**Verification**: `curl /api/peoplesoft/object/tree/DEPT_SECURITY?env=HCM` shows
+"Record Keyed by This Tree" section with `record:DEPARTMENT` (1 item). 67/67 smoke test OK.
+
+------------------------------------------------------------------------
+
+## 2026-07-03 — SQR Dep Graph, Env Comparison, Incremental Scan — 67/67
+
+### SQR Include Dependency Graph (`/admin/sqrdeps`) + Env Comparison (`/admin/sqrcompare`) + Incremental Scanning
+
+**`connectors/sqrdb.py`**:
+- Added `content_hash TEXT` column migration to `init_db()`
+- Extended `upsert_program()` to accept and store `content_hash`
+- New `get_include_deps(filename, max_depth=6)` — recursive CTE forward + reverse
+  traversal with DISTINCT deduplication (handles multiple source_key rows per filename)
+- New `get_content_hash(filename, source_key)` — hash lookup for incremental scan
+- New `envcompare_sqr(keys_a, keys_b, label_a, label_b)` — side-by-side env diff
+  returning only_a, only_b, in_both (with changed/identical flag per file)
+
+**`connectors/sqringest.py`**:
+- Incremental scanning: computes `hashlib.md5(raw).hexdigest()` before parsing;
+  skips files whose stored hash matches; adds `skipped` count to ingest summary
+
+**`routers/sqr.py`**:
+- `GET /api/sqr/deps/{filename}?max_depth=` — include dep tree + reverse closure
+- `GET /api/sqr/envcompare?env_a=HCM&env_b=FSCM` — side-by-side program diff
+
+**`routers/admin/sqr_view.py`**:
+- `/admin/sqrdeps?q=` — collapsible forward include tree, reverse "Included By" (direct +
+  indirect), force-directed canvas graph with animated spring simulation
+- `/admin/sqrcompare` — env comparison with stat row + 4 tabs (Changed / Only A / Only B / Identical)
+
+**`routers/admin/_core.py`**:
+- Added `sqrdeps` and `sqrcompare` to Platform nav group
+
+**`scripts/smoke_admin_shell.py`**:
+- Fixed `/admin/ae` marker from `#qInput` → `#q`
+- Fixed `/admin/accesspath` (non-existent URL) → `/admin/access` with `.ap-toolbar`
+- Added `/admin/sqrdeps` (`.ds-toolbar`) and `/admin/sqrcompare` (`.cmp-toolbar`)
+
+**Verified**:
+- `battimes.sqr`: 11 direct includes, 11 tree nodes
+- `envcompare HCM vs FSCM`: 179 in_both, 0 only_a, 0 only_b, 0 changed (expected — same delivered base)
+- `make check` — 91/91 OK
+- Smoke test — **67/67 OK** — all pages pass
+
+------------------------------------------------------------------------
+
+## 2026-07-03 — Smoke Test Fixes: /admin/ae and /admin/accesspath — 65/65
+
+### Smoke Test Marker Corrections
+
+- `/admin/ae` used `id="q"` but smoke test looked for `#qInput` → corrected to `#q`
+- `/admin/accesspath` in smoke test pointed to non-existent URL; actual route is `/admin/access`
+  using `.ap-toolbar` as marker → corrected
+
+**Verified**: `65/65 OK` — all pages pass, no failures.
+
+------------------------------------------------------------------------
+
+## 2026-07-03 — SQR Include Dependency Graph — Phase 10
+
+### SQR Dependency Graph (`/admin/sqrdeps`)
+
+Implemented the SQR Include Dependency Graph feature, addressing the first item
+in Phase 10 (Source Artifact Intelligence) roadmap remaining work.
+
+**Problem**: Engineers had no way to visualize or navigate the SQC include tree.
+Given 358 indexed SQR/SQC programs with 1366 include edges, this is a meaningful
+dependency network. There was no way to answer "which SQRs use setenv.sqc?" or
+"what does battimes.sqr transitively depend on?"
+
+**Changes in `connectors/sqrdb.py`**:
+- New `get_include_deps(filename, max_depth=6)` function — returns forward and
+  reverse dependency trees using SQLite recursive CTEs (`WITH RECURSIVE`). Returns:
+  `direct_includes` (DISTINCT), `all_includes` (recursive closure), `include_tree`
+  (nested Python dict with cycle detection), `used_by_direct` (DISTINCT), and
+  `used_by_all` (transitive reverse closure). All queries use DISTINCT to handle
+  multiple source_key rows for the same filename.
+
+**Changes in `routers/sqr.py`**:
+- New `GET /api/sqr/deps/{filename}?max_depth=` endpoint — returns full dependency
+  info for any indexed SQR or SQC file. Useful for impact analysis on SQC changes.
+
+**Changes in `routers/admin/sqr_view.py`**:
+- New `GET /admin/sqrdeps?q=` page — SQR Dependency Graph with:
+  - Search input with preload via `?q=` parameter
+  - Meta bar showing file type, description, direct/total include counts, used-by counts
+  - **Forward tree panel** — collapsible recursive HTML tree; nodes link to their own
+    dep page; cycle nodes colored amber; unindexed SQCs shown in dim gray
+  - **Reverse panel** — "Included By" split into Direct / Indirect sections with links
+  - **Force-directed graph canvas** — vanilla JS spring simulation; root node (cyan),
+    include nodes (green), used-by nodes (orange); arrowheads on edges; 120 frames then
+    settles
+
+**Changes in `routers/admin/_core.py`**:
+- Added `("sqrdeps", "SQR Dep Graph", "/admin/sqrdeps")` to Platform nav group.
+
+**Changes in `scripts/smoke_admin_shell.py`**:
+- Added `/admin/sqrdeps` (marker: `.ds-toolbar`) to smoke test page list.
+
+**Verified**:
+- `battimes.sqr` → 11 direct includes, 18 transitive, 0 used_by
+- `setenv.sqc` → 65 direct users including battimes.sqr
+- `make check` — **91/91 files OK**, all tests pass
+- Smoke test — **64/66 OK** (2 pre-existing failures: `/admin/ae` missing `#qInput`
+  marker, `/admin/accesspath` shell structure mismatch — both pre-date this session)
+- `/admin/sqrdeps` — **OK** in smoke test
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — /admin/reports JS Bug Fix — Smoke Test 57/57
 
 ### Bug Fix — /admin/reports JavaScript Syntax Errors

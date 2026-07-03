@@ -199,9 +199,11 @@ DEFAULT_PAGES = [
     ("/admin/rca",        "#startDt",        False, True,  []),
     ("/admin/incidents",  ".toolbar",        False, True,  []),
     ("/admin/secaudit",   ".ds-page-title",  False, True,  []),
-    ("/admin/ae",         "#qInput",         False, True,  []),
+    ("/admin/ae",         "#q",              False, True,  []),
     ("/admin/sqrsearch",  ".ds-page-title",  False, True,  []),
-    ("/admin/accesspath", ".ds-page-title",  False, True,  []),
+    ("/admin/sqrdeps",    ".ds-toolbar",     False, True,  []),
+    ("/admin/sqrcompare", ".cmp-toolbar",    False, True,  []),
+    ("/admin/access",     ".ap-toolbar",     False, True,  []),
     ("/admin/riskanalysis",".ds-page-title", False, True,  []),
     ("/admin/compflow",   ".ds-page-title",  False, True,  []),
 ]

@@ -144,9 +144,11 @@ Drawn from `ROADMAP.md` remaining sections — pick the highest-value slice:
 | `/admin/compflow` | `compflow.py` | Component Event Flow Explorer with inline PeopleCode source |
 | `/admin/rca` | `rca.py` | Incident RCA: log+runtime+ASH+IB+KG correlation |
 | `/admin/sqrsearch` | `sqr_view.py` | SQR Full-Text Search with syntax-highlighted snippets |
-| `/admin/accesspath` | `security.py` | Access Path Explorer: component-centric and operator-centric |
+| `/admin/access` | `security.py` | Access Path Explorer: component-centric and operator-centric |
 | `/admin/riskanalysis` | `platform.py` | Change Risk Analyzer: project KG blast radius + affected users |
 | `/admin/secaudit` | `security.py` | Security Audit Dashboard: stats, orphan detection, sign-on history |
+| `/admin/sqrdeps` | `sqr_view.py` | SQR Include Dependency Graph: forward tree, reverse "Included By", force-directed canvas |
+| `/admin/sqrcompare` | `sqr_view.py` | SQR Environment Comparison: HCM vs FSCM side-by-side diff (Changed / Only A / Only B / Identical) |
 
 ---
 

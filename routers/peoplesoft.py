@@ -298,6 +298,24 @@ def attach_graph_context(payload, env):
                              src_type="query", edge_type="EXPOSES",
                              section_name="Queries Exposing This Field",
                              note="PS Query definitions that include this field in their output (from Knowledge Graph)")
+    if obj_type == "tree":
+        _attach_outbound_xref(payload, env, node_id,
+                              tgt_type="record", edge_type="USES",
+                              section_name="Record Keyed by This Tree",
+                              note="Records used to key this tree structure (from Knowledge Graph)")
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="project", edge_type="DEPLOYS",
+                             section_name="Projects Deploying This Tree",
+                             note="Projects that include this tree in a deployment (from Knowledge Graph)")
+    if obj_type == "portal_registry":
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="project", edge_type="DEPLOYS",
+                             section_name="Projects Deploying This Portal Object",
+                             note="Projects that include this portal object in a deployment (from Knowledge Graph)")
+        _attach_inbound_xref(payload, env, node_id,
+                             src_type="content_service", edge_type="USES",
+                             section_name="Content Services Linking to This Portal Object",
+                             note="Content service providers that reference this portal object (from Knowledge Graph)")
 
     return payload
 
@@ -555,6 +573,52 @@ def _attach_inbound_xref(payload, env: str, node_id: str,
             "name": src_node.get("name", src_id.split(":", 1)[-1]),
             "id": src_id,
             "_links": {"admin": src_node.get("canonical_url") or ""},
+        })
+
+    if not items:
+        return
+
+    items.sort(key=lambda x: x["name"])
+    payload.setdefault("sections", []).append(section(
+        section_name,
+        items,
+        {"count": len(items), "note": note},
+    ))
+
+
+def _attach_outbound_xref(payload, env: str, node_id: str,
+                           tgt_type: str, edge_type: str,
+                           section_name: str, note: str = "") -> None:
+    """Generic outbound cross-reference section builder.
+
+    Queries the KG for all edges of ``edge_type`` pointing *from* ``node_id``
+    whose target type matches ``tgt_type``, then appends a section.
+    Silently skips if no matching edges exist or on any error.
+    """
+    if any(s.get("name") == section_name for s in payload.get("sections", [])):
+        return
+    try:
+        xgraph = graphdb.neighbors(env, node_id, direction="out", depth=1,
+                                   edge_types=[edge_type])
+    except Exception:
+        return
+
+    xnodes_by_id = {n["id"]: n for n in xgraph.get("nodes", [])}
+    prefix = f"{tgt_type}:"
+    items = []
+    seen = set()
+    for edge in xgraph.get("edges", []):
+        tgt_id = edge.get("target", "")
+        if tgt_id in seen or not tgt_id.startswith(prefix):
+            continue
+        seen.add(tgt_id)
+        tgt_node = xnodes_by_id.get(tgt_id, {})
+        items.append({
+            "relationship": edge_type,
+            "type": tgt_type,
+            "name": tgt_node.get("name", tgt_id.split(":", 1)[-1]),
+            "id": tgt_id,
+            "_links": {"admin": tgt_node.get("canonical_url") or ""},
         })
 
     if not items:

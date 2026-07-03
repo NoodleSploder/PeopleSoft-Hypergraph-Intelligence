@@ -266,3 +266,35 @@ def sqr_source(filename: str, max_kb: int = Query(128, ge=1, le=512)):
         "size":     len(raw),
         "truncated": len(raw) >= max_kb * 1024,
     }
+
+
+@router.get("/deps/{filename}")
+def sqr_deps(filename: str, max_depth: int = Query(6, ge=1, le=10)):
+    """Return full include dependency information for a program.
+
+    Returns direct_includes, recursive all_includes, nested include_tree,
+    used_by_direct (programs that directly include this file), and
+    used_by_all (transitive reverse closure — useful for SQC impact analysis).
+    """
+    from connectors import sqrdb
+    sqrdb.init_db()
+    return sqrdb.get_include_deps(filename, max_depth=max_depth)
+
+
+@router.get("/envcompare")
+def sqr_envcompare(env_a: str = Query("HCM"), env_b: str = Query("FSCM")):
+    """Return side-by-side comparison of SQR programs across two environments."""
+    import json
+    from pathlib import Path
+    from connectors import sqrdb
+    sqrdb.init_db()
+
+    cfg_path = Path(__file__).parent.parent / "config.json"
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+
+    all_sources = cfg.get("sqr_sources", [])
+    keys_a = [s["key"] for s in all_sources if s.get("env", "").upper() == env_a.upper()]
+    keys_b = [s["key"] for s in all_sources if s.get("env", "").upper() == env_b.upper()]
+
+    return sqrdb.envcompare_sqr(keys_a, keys_b, label_a=env_a.upper(), label_b=env_b.upper())

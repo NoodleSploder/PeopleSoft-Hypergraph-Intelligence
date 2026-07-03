@@ -12,8 +12,13 @@ Each source entry in config.json sqr_sources:
     "label":    "FSCM SQR Library",
     "sqr_dir":  "/opt/psoft/fin/..."
   }
+
+Incremental scanning: each file's MD5 hash is stored in sqr_programs.content_hash.
+On subsequent indexing runs, files whose hash matches the stored value are skipped
+(not re-parsed), so only changed or new files are processed.
 """
 
+import hashlib
 import logging
 import time
 
@@ -43,8 +48,9 @@ def index_source(source: dict, progress_cb=None) -> dict:
     key         = source["key"]
     source_type = source.get("source_type", "")
 
-    indexed = 0
-    errors  = 0
+    indexed  = 0
+    skipped  = 0
+    errors   = 0
     error_list = []
 
     for ext in ("sqr", "sqc"):
@@ -63,6 +69,14 @@ def index_source(source: dict, progress_cb=None) -> dict:
             filename = path.split("/")[-1]
             try:
                 raw = sshclient.read_bytes(ssh_host, path, max_bytes=512 * 1024)
+                file_hash = hashlib.md5(raw).hexdigest()
+
+                # Skip unchanged files (incremental scan)
+                stored_hash = sqrdb.get_content_hash(filename, key)
+                if stored_hash and stored_hash == file_hash:
+                    skipped += 1
+                    continue
+
                 try:
                     content = raw.decode("utf-8", errors="replace")
                 except Exception:
@@ -70,7 +84,7 @@ def index_source(source: dict, progress_cb=None) -> dict:
 
                 parsed = sqrparser.parse(content, filename=filename)
                 sqrdb.upsert_program(parsed, filename, ext, key, source_type,
-                                     source_text=content)
+                                     source_text=content, content_hash=file_hash)
                 indexed += 1
             except Exception as exc:
                 errors += 1
@@ -81,6 +95,7 @@ def index_source(source: dict, progress_cb=None) -> dict:
         "source_key":   key,
         "label":        source.get("label", key),
         "indexed":      indexed,
+        "skipped":      skipped,
         "errors":       errors,
         "error_sample": error_list[:5],
         "ts":           time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

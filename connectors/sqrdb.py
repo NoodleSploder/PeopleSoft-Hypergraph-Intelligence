@@ -92,6 +92,8 @@ def init_db() -> None:
                 c.execute("ALTER TABLE sqr_programs ADD COLUMN source_type TEXT")
             if "source_text" not in cols:
                 c.execute("ALTER TABLE sqr_programs ADD COLUMN source_text TEXT")
+            if "content_hash" not in cols:
+                c.execute("ALTER TABLE sqr_programs ADD COLUMN content_hash TEXT")
 
         # Fix stale FK references in sub-tables that point to dropped sqr_programs_v1
         for subtbl, unique in (
@@ -149,7 +151,8 @@ def init_db() -> None:
 
 
 def upsert_program(parsed: dict, filename: str, file_type: str, source_key: str,
-                   source_type: str = "", source_text: str = None) -> int:
+                   source_type: str = "", source_text: str = None,
+                   content_hash: str = None) -> int:
     """Insert or replace one parsed program. Returns program id."""
     import time
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -163,8 +166,8 @@ def upsert_program(parsed: dict, filename: str, file_type: str, source_key: str,
             INSERT INTO sqr_programs
                 (filename, program_name, file_type, source_key, source_type, description,
                  release, revision, sqr_date, table_count, include_count, proc_count,
-                 indexed_at, source_text)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 indexed_at, source_text, content_hash)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(filename, source_key) DO UPDATE SET
                 program_name=excluded.program_name,
                 file_type=excluded.file_type,
@@ -177,7 +180,8 @@ def upsert_program(parsed: dict, filename: str, file_type: str, source_key: str,
                 include_count=excluded.include_count,
                 proc_count=excluded.proc_count,
                 indexed_at=excluded.indexed_at,
-                source_text=excluded.source_text
+                source_text=excluded.source_text,
+                content_hash=excluded.content_hash
         """, (
             filename,
             parsed.get("program_name", ""),
@@ -193,6 +197,7 @@ def upsert_program(parsed: dict, filename: str, file_type: str, source_key: str,
             len(procs),
             now,
             source_text,
+            content_hash,
         ))
 
         row = c.execute(
@@ -478,6 +483,142 @@ def get_include_tree(filename: str) -> dict:
     return tree
 
 
+def get_include_deps(filename: str, max_depth: int = 6) -> dict:
+    """Return full include dependency information for a file.
+
+    Returns:
+        filename         — canonical filename (lowercased)
+        meta             — program metadata row (or None if not indexed)
+        direct_includes  — DISTINCT list of .sqc files this program directly includes
+        all_includes     — recursive closure: all transitively included filenames
+        include_tree     — nested tree [{filename, indexed, children:[...]}, ...]
+        used_by_direct   — programs that directly #include this file (DISTINCT)
+        used_by_all      — recursive reverse closure: all programs that transitively
+                           include this file
+    """
+    c = _conn()
+    fname = filename.lower()
+
+    # ── program metadata ────────────────────────────────────────────────────
+    meta_row = c.execute(
+        "SELECT filename, program_name, file_type, description, "
+        "table_count, include_count, proc_count FROM sqr_programs "
+        "WHERE lower(filename)=? LIMIT 1",
+        (fname,),
+    ).fetchone()
+    meta = dict(meta_row) if meta_row else None
+
+    # ── forward recursive CTE ────────────────────────────────────────────────
+    fwd_rows = c.execute("""
+        WITH RECURSIVE fwd(inc, depth) AS (
+            SELECT lower(i.include_file), 1
+              FROM sqr_includes i
+              JOIN sqr_programs p ON p.id = i.program_id
+             WHERE lower(p.filename) = ?
+            UNION
+            SELECT lower(i2.include_file), fwd.depth + 1
+              FROM sqr_includes i2
+              JOIN sqr_programs p2 ON p2.id = i2.program_id
+              JOIN fwd ON lower(p2.filename) = fwd.inc
+             WHERE fwd.depth < ?
+        )
+        SELECT DISTINCT inc FROM fwd ORDER BY inc
+    """, (fname, max_depth)).fetchall()
+    all_includes = [r[0] for r in fwd_rows]
+
+    # ── direct includes (DISTINCT) ───────────────────────────────────────────
+    direct_rows = c.execute(
+        "SELECT DISTINCT lower(include_file) AS inc FROM sqr_includes i "
+        "JOIN sqr_programs p ON p.id=i.program_id "
+        "WHERE lower(p.filename)=? ORDER BY inc",
+        (fname,),
+    ).fetchall()
+    direct_includes = [r[0] for r in direct_rows]
+
+    # ── indexed set lookup ───────────────────────────────────────────────────
+    all_to_visit = {fname} | set(all_includes)
+    if all_to_visit:
+        ph = ",".join("?" for _ in all_to_visit)
+        indexed_set = {
+            r[0] for r in c.execute(
+                f"SELECT lower(filename) FROM sqr_programs WHERE lower(filename) IN ({ph})",
+                list(all_to_visit),
+            ).fetchall()
+        }
+    else:
+        indexed_set = set()
+
+    # ── build children_map (DISTINCT) for tree construction ─────────────────
+    if all_to_visit:
+        ph2 = ",".join("?" for _ in all_to_visit)
+        edge_rows = c.execute(
+            f"SELECT DISTINCT lower(p.filename) AS parent, lower(i.include_file) AS child "
+            f"FROM sqr_includes i JOIN sqr_programs p ON p.id=i.program_id "
+            f"WHERE lower(p.filename) IN ({ph2})",
+            list(all_to_visit),
+        ).fetchall()
+        children_map: dict[str, list[str]] = {}
+        for er in edge_rows:
+            children_map.setdefault(er[0], []).append(er[1])
+    else:
+        children_map = {}
+
+    def _build_tree(node: str, visited: set, depth: int) -> list[dict]:
+        if depth >= max_depth:
+            return []
+        kids = sorted(children_map.get(node, []))
+        result = []
+        for k in kids:
+            entry = {"filename": k, "indexed": k in indexed_set}
+            if k not in visited:
+                entry["children"] = _build_tree(k, visited | {k}, depth + 1)
+            else:
+                entry["children"] = []
+                entry["cycle"] = True
+            result.append(entry)
+        return result
+
+    include_tree = _build_tree(fname, {fname}, 0)
+
+    # ── reverse direct users (DISTINCT) ─────────────────────────────────────
+    used_by_direct_rows = c.execute(
+        "SELECT DISTINCT lower(p.filename) AS fn, p.file_type, p.description "
+        "FROM sqr_includes i JOIN sqr_programs p ON p.id=i.program_id "
+        "WHERE lower(i.include_file)=? ORDER BY fn",
+        (fname,),
+    ).fetchall()
+    used_by_direct = [dict(r) for r in used_by_direct_rows]
+
+    # ── reverse recursive CTE ────────────────────────────────────────────────
+    rev_rows = c.execute("""
+        WITH RECURSIVE rev(fn, depth) AS (
+            SELECT lower(p.filename), 1
+              FROM sqr_includes i
+              JOIN sqr_programs p ON p.id = i.program_id
+             WHERE lower(i.include_file) = ?
+            UNION
+            SELECT lower(p2.filename), rev.depth + 1
+              FROM sqr_includes i2
+              JOIN sqr_programs p2 ON p2.id = i2.program_id
+              JOIN rev ON lower(i2.include_file) = rev.fn
+             WHERE rev.depth < ?
+        )
+        SELECT DISTINCT fn FROM rev ORDER BY fn
+    """, (fname, max_depth)).fetchall()
+    used_by_all = [r[0] for r in rev_rows]
+
+    c.close()
+    return {
+        "filename":        fname,
+        "meta":            meta,
+        "direct_includes": direct_includes,
+        "all_includes":    all_includes,
+        "include_tree":    include_tree,
+        "used_by_direct":  used_by_direct,
+        "used_by_all":     used_by_all,
+    }
+
+
 def search_source(q: str, file_type: str = None, source_key: str = None, limit: int = 50) -> dict:
     """Search SQR/SQC source text. Returns hits with line-context snippets."""
     if not q or len(q) < 2:
@@ -571,3 +712,106 @@ def source_index_status() -> dict:
     ).fetchone()[0]
     c.close()
     return {"total": total, "indexed": indexed, "pct": round(indexed * 100 / total, 1) if total else 0}
+
+
+def get_content_hash(filename: str, source_key: str) -> str | None:
+    """Return the stored MD5 content_hash for a given program, or None if not set."""
+    c = _conn()
+    row = c.execute(
+        "SELECT content_hash FROM sqr_programs WHERE lower(filename)=lower(?) AND source_key=?",
+        (filename, source_key),
+    ).fetchone()
+    c.close()
+    return row["content_hash"] if row else None
+
+
+def envcompare_sqr(source_keys_a: list[str], source_keys_b: list[str],
+                   label_a: str = "A", label_b: str = "B") -> dict:
+    """Compare two sets of SQR source keys and return a side-by-side diff.
+
+    Returns:
+        label_a, label_b     — display labels
+        only_a               — files present in A but not B (list of {filename, file_type, description, table_count})
+        only_b               — files present in B but not A
+        in_both              — files in both with comparison columns
+        counts               — summary counts
+    """
+    c = _conn()
+
+    def _fetch(keys: list[str]) -> dict:
+        if not keys:
+            return {}
+        ph = ",".join("?" for _ in keys)
+        rows = c.execute(
+            f"SELECT lower(filename) AS fn, filename, file_type, description, "
+            f"table_count, include_count, proc_count, content_hash "
+            f"FROM sqr_programs WHERE source_key IN ({ph})",
+            list(keys),
+        ).fetchall()
+        # dedupe by filename (take first row per filename across source keys)
+        seen = {}
+        for r in rows:
+            if r["fn"] not in seen:
+                seen[r["fn"]] = dict(r)
+        return seen
+
+    map_a = _fetch(source_keys_a)
+    map_b = _fetch(source_keys_b)
+    c.close()
+
+    keys_a = set(map_a)
+    keys_b = set(map_b)
+
+    only_a = sorted(
+        [{"filename": map_a[k]["filename"], "file_type": map_a[k]["file_type"],
+          "description": map_a[k]["description"], "table_count": map_a[k]["table_count"]}
+         for k in keys_a - keys_b],
+        key=lambda x: x["filename"],
+    )
+    only_b = sorted(
+        [{"filename": map_b[k]["filename"], "file_type": map_b[k]["file_type"],
+          "description": map_b[k]["description"], "table_count": map_b[k]["table_count"]}
+         for k in keys_b - keys_a],
+        key=lambda x: x["filename"],
+    )
+    in_both = []
+    for k in sorted(keys_a & keys_b):
+        ra, rb = map_a[k], map_b[k]
+        changed = (
+            ra["table_count"] != rb["table_count"]
+            or ra["include_count"] != rb["include_count"]
+            or ra["description"] != rb["description"]
+            or (ra.get("content_hash") and rb.get("content_hash")
+                and ra["content_hash"] != rb["content_hash"])
+        )
+        in_both.append({
+            "filename": ra["filename"],
+            "file_type": ra["file_type"],
+            "description_a": ra["description"],
+            "description_b": rb["description"],
+            "table_count_a": ra["table_count"],
+            "table_count_b": rb["table_count"],
+            "include_count_a": ra["include_count"],
+            "include_count_b": rb["include_count"],
+            "content_hash_a": ra.get("content_hash"),
+            "content_hash_b": rb.get("content_hash"),
+            "changed": changed,
+        })
+
+    changed_count = sum(1 for r in in_both if r["changed"])
+    return {
+        "label_a":      label_a,
+        "label_b":      label_b,
+        "only_a":       only_a,
+        "only_b":       only_b,
+        "in_both":      in_both,
+        "counts": {
+            "only_a":    len(only_a),
+            "only_b":    len(only_b),
+            "in_both":   len(in_both),
+            "changed":   changed_count,
+            "identical": len(in_both) - changed_count,
+            "total_a":   len(map_a),
+            "total_b":   len(map_b),
+        },
+    }

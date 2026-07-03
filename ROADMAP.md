@@ -315,7 +315,10 @@ Every object should answer:
 ### Remaining
 
 - Universal "what references me / what do I reference" coverage across all object types
-- Consistent cross-reference sections for tree, portal UOM providers
+- ✅ Consistent cross-reference sections for tree, portal UOM providers (Done 2026-07-03)
+  - Tree: "Record Keyed by This Tree" (outbound USES → record), "Projects Deploying This Tree" (inbound DEPLOYS)
+  - Portal Registry: "Projects Deploying This Portal Object", "Content Services Linking to This Portal Object"
+  - Generic `_attach_outbound_xref()` helper added alongside existing `_attach_inbound_xref()`
 
 ---
 
@@ -834,8 +837,19 @@ SQR, COBOL, COPYBOOK, and SQC files become first-class UOM objects that fully pa
 
 - COBOL Explorer
 - COPYBOOK Explorer
-- Dependency graph (SQC include tree, visual)
-- Environment presence (HCM vs FSCM side-by-side)
+
+### ✅ Done (2026-07-03)
+
+- **SQR Include Dependency Graph** — `/admin/sqrdeps?q=` page with collapsible forward
+  include tree, reverse "Included By" panel (direct + indirect), and force-directed
+  canvas graph
+- `GET /api/sqr/deps/{filename}` — recursive CTE forward + reverse traversal with DISTINCT
+- `connectors/sqrdb.get_include_deps()` — recursive CTE traversal
+- **SQR Environment Side-by-Side Comparison** — `/admin/sqrcompare` with 4 tabs (Changed /
+  Only A / Only B / Identical); `GET /api/sqr/envcompare`; compares table counts, include
+  counts, and MD5 content hashes
+- **Incremental SQR Scanning** — MD5 `content_hash` column in `sqr_programs`; ingestor
+  skips unchanged files (hash match); `skipped` count in ingest summary
 
 ---
 
@@ -1296,7 +1310,7 @@ Rich dedicated explorer pages for major PeopleSoft object types, providing deep 
 
 ## ✅ Access Path Explorer (2026-07-02)
 
-- `/admin/accesspath` (Security nav group): dual-mode security analysis — component-centric (who can access this component?) and operator-centric (what can this operator access?)
+- `/admin/access` (Security nav group): dual-mode security analysis — component-centric (who can access this component?) and operator-centric (what can this operator access?)
 - Component mode: complete Permission List → Role → Operator authorization paths; access level breakdown; count summary
 - Operator mode: component permissions, access levels, and granting security objects
 - Environment-aware; URL deep-linking; client-side filtering for rapid security investigation

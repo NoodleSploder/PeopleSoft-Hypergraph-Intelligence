@@ -88,6 +88,8 @@ _NAV_GROUPS = [
         ("ptftest",    "PTF Tests",    "/admin/ptftest"),
         ("sqr",        "SQR Explorer",  "/admin/sqr"),
         ("sqrsearch",  "SQR Search",    "/admin/sqrsearch"),
+        ("sqrdeps",    "SQR Dep Graph", "/admin/sqrdeps"),
+        ("sqrcompare", "SQR Env Diff",  "/admin/sqrcompare"),
         ("compflow",   "Comp Event Flow", "/admin/compflow"),
         ("compseq",    "PC Timeline",    "/admin/compseq"),
     ]),

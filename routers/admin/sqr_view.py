@@ -1016,3 +1016,380 @@ window.onEnvChange=()=>{{}};
 </script>
 """)
 
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _esc_attr(s: str) -> str:
+    return s.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")
+
+
+# ── SQR Include Dependency Graph ──────────────────────────────────────────────
+
+@router.get("/sqrdeps", response_class=HTMLResponse)
+def sqr_deps_page(q: str = ""):
+    """SQR Include Dependency Graph — visualize the SQC include tree."""
+    preload = q.strip()
+    content = f"""
+<style>
+*{{box-sizing:border-box}}
+.ds-toolbar{{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
+.ds-input{{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:5px 10px;font-size:12px;border-radius:3px;width:300px}}
+.ds-input:focus{{outline:none;border-color:#00e5ff}}
+.ds-btn{{background:#00e5ff;border:none;padding:5px 14px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;border-radius:3px}}
+.ds-btn:hover{{background:#33eeff}}
+.ds-btn.sec{{background:transparent;border:1px solid #00e5ff44;color:#00e5ff}}
+.ds-btn.sec:hover{{border-color:#00e5ff;background:rgba(0,229,255,.08)}}
+.main-grid{{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px 16px}}
+@media(max-width:900px){{.main-grid{{grid-template-columns:1fr}}}}
+.panel{{background:#06121a;border:1px solid #00e5ff1a;border-radius:6px;display:flex;flex-direction:column;overflow:hidden}}
+.panel-hdr{{padding:8px 14px;border-bottom:1px solid #00e5ff1a;font-size:11px;font-weight:bold;color:#00e5ff;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px}}
+.panel-body{{flex:1;overflow:auto;padding:10px 14px;max-height:420px}}
+.tree-node{{margin:0;padding:0;list-style:none}}
+.tree-toggle{{cursor:pointer;user-select:none;font-size:11px;color:#00e5ff;margin-right:4px;display:inline-block;width:12px;text-align:center}}
+.tree-file{{font-family:monospace;font-size:12px;color:#d7faff}}
+.tree-file.sqr{{color:#00e5ff}}
+.tree-file.sqc{{color:#7fe0a0}}
+.tree-file.unindexed{{color:#334;font-style:italic}}
+.tree-file.cyclic{{color:#ff8800}}
+.tree-children{{margin-left:16px;border-left:1px solid #00e5ff18;padding-left:8px}}
+.empty{{color:#334;font-size:12px;padding:20px}}
+.badge{{display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:700;margin-left:4px}}
+.badge.sqr{{background:#00e5ff18;color:#00e5ff;border:1px solid #00e5ff33}}
+.badge.sqc{{background:#7fe0a018;color:#7fe0a0;border:1px solid #7fe0a033}}
+.badge.num{{background:#0a1f2e;color:#7faab2;border:1px solid #1a3a4a}}
+.meta-bar{{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 16px 0;font-size:12px}}
+.meta-item{{color:#556}}.meta-val{{color:#d7faff;font-family:monospace}}
+.used-row{{padding:3px 0;font-size:12px;font-family:monospace;color:#d7faff}}
+.used-row a{{color:#00e5ff;text-decoration:none}}
+.used-row a:hover{{text-decoration:underline}}
+.used-row .ft{{font-size:10px;color:#445;margin-left:4px}}
+#status{{font-size:11px;color:#445;margin-left:auto}}
+.graph-panel{{background:#06121a;border:1px solid #00e5ff1a;border-radius:6px;overflow:hidden;margin:0 16px 14px}}
+.graph-hdr{{padding:8px 14px;border-bottom:1px solid #00e5ff1a;font-size:11px;font-weight:bold;color:#00e5ff;text-transform:uppercase;letter-spacing:.05em}}
+canvas{{display:block;background:#030d14}}
+</style>
+
+<div class="ds-toolbar">
+  <a href="/admin/sqr" style="color:#7faab2;font-size:12px;text-decoration:none">← SQR Explorer</a>
+  <input class="ds-input" id="searchInput" placeholder="Enter filename (e.g. battimes.sqr or setenv.sqc)"
+         value="{_esc_attr(preload)}" onkeydown="if(event.key==='Enter')load()">
+  <button class="ds-btn" onclick="load()">Analyze</button>
+  <span id="status"></span>
+</div>
+
+<div id="metaBar" class="meta-bar" style="display:none"></div>
+<div id="graphWrap" style="display:none">
+  <div class="graph-panel">
+    <div class="graph-hdr">Include Graph</div>
+    <canvas id="graphCanvas" height="260"></canvas>
+  </div>
+</div>
+<div class="main-grid" id="mainGrid" style="display:none">
+  <div class="panel">
+    <div class="panel-hdr"><span>Includes (forward tree)</span><span class="badge num" id="fwdCount">0</span></div>
+    <div class="panel-body" id="fwdPanel"><div class="empty">No data yet</div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-hdr"><span>Included By (reverse)</span><span class="badge num" id="revCount">0</span></div>
+    <div class="panel-body" id="revPanel"><div class="empty">No data yet</div></div>
+  </div>
+</div>
+
+<script>
+{_ESC_JS}
+const $ = id => document.getElementById(id);
+function fileExt(f){{return (f||'').split('.').pop().toLowerCase()}}
+function fileClass(f,indexed,cyclic){{
+  if(cyclic) return 'cyclic';
+  if(!indexed) return 'unindexed';
+  return fileExt(f)==='sqr'?'sqr':'sqc';
+}}
+function buildTreeHTML(nodes){{
+  if(!nodes||!nodes.length) return '';
+  let html='<ul class="tree-node">';
+  for(const n of nodes){{
+    const hasKids=n.children&&n.children.length>0;
+    const cls=fileClass(n.filename,n.indexed!==false,n.cycle||n.cyclic);
+    const toggle=hasKids?`<span class="tree-toggle" onclick="toggleNode(this)">&#9656;</span>`
+                        :`<span class="tree-toggle" style="opacity:0">·</span>`;
+    const link=(n.indexed!==false&&!n.cycle&&!n.cyclic)
+      ?`<a href="/admin/sqrdeps?q=${{encodeURIComponent(n.filename)}}" style="color:inherit;text-decoration:none">${{esc(n.filename)}}</a>`
+      :esc(n.filename);
+    const note=(n.cycle||n.cyclic)?' <span style="color:#ff8800;font-size:10px">[cyclic]</span>'
+              :(!n.indexed&&n.indexed!==undefined?' <span style="color:#334;font-size:10px">[not indexed]</span>':'');
+    const kids=hasKids?`<div class="tree-children" style="display:none">${{buildTreeHTML(n.children)}}</div>`:'';
+    html+=`<li style="padding:2px 0">${{toggle}}<span class="tree-file ${{cls}}">${{link}}</span>${{note}}${{kids}}</li>`;
+  }}
+  return html+'</ul>';
+}}
+function toggleNode(el){{
+  const li=el.closest('li');
+  const kids=li.querySelector('.tree-children');
+  if(!kids) return;
+  const open=kids.style.display!=='none';
+  kids.style.display=open?'none':'block';
+  el.innerHTML=open?'&#9656;':'&#9662;';
+}}
+function buildRevHTML(rows){{
+  if(!rows||!rows.length) return '<div class="empty">Nothing includes this file.</div>';
+  return rows.map(r=>{{
+    const fn=r.fn||r.filename||r;
+    const ext=fileExt(fn);
+    return `<div class="used-row"><a href="/admin/sqrdeps?q=${{encodeURIComponent(fn)}}">${{esc(fn)}}</a><span class="ft badge ${{ext}}">${{ext.toUpperCase()}}</span></div>`;
+  }}).join('');
+}}
+
+let _simFrame=null;
+function drawGraph(filename,direct_includes,used_by_direct){{
+  const canvas=$('graphCanvas');
+  if(!canvas) return;
+  canvas.width=canvas.parentElement.clientWidth||800;
+  const W=canvas.width,H=260;
+  const ctx=canvas.getContext('2d');
+  const nodeMap={{}};
+  const edges=[];
+  function addNode(id,type){{if(!nodeMap[id])nodeMap[id]={{id,type,x:W/2+(Math.random()-.5)*200,y:H/2+(Math.random()-.5)*80,vx:0,vy:0}};}}
+  addNode(filename,'root');
+  for(const inc of (direct_includes||[])){{addNode(inc,'inc');edges.push({{s:filename,d:inc}});}}
+  for(const u of (used_by_direct||[])){{const fn=u.fn||u.filename||u;addNode(fn,'user');edges.push({{s:fn,d:filename}});}}
+  const nodes=Object.values(nodeMap);
+  if(nodes.length<2){{$('graphWrap').style.display='none';return;}}
+  $('graphWrap').style.display='block';
+  let frame=0;
+  function tick(){{
+    for(const n of nodes){{n.vx*=0.85;n.vy*=0.85;}}
+    for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){{
+      const a=nodes[i],b=nodes[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;
+      const f=1200/(d*d);a.vx-=f*dx/d;a.vy-=f*dy/d;b.vx+=f*dx/d;b.vy+=f*dy/d;
+    }}
+    for(const e of edges){{
+      const a=nodeMap[e.s],b=nodeMap[e.d];if(!a||!b) continue;
+      const dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1,ideal=120,f=(d-ideal)*0.04;
+      a.vx+=f*dx/d;a.vy+=f*dy/d;b.vx-=f*dx/d;b.vy-=f*dy/d;
+    }}
+    for(const n of nodes){{n.vx+=(W/2-n.x)*0.005;n.vy+=(H/2-n.y)*0.005;n.x=Math.max(60,Math.min(W-60,n.x+n.vx));n.y=Math.max(20,Math.min(H-20,n.y+n.vy));}}
+  }}
+  function render(){{
+    for(let i=0;i<6;i++) tick();
+    ctx.clearRect(0,0,W,H);
+    ctx.strokeStyle='#00e5ff22';ctx.lineWidth=1;
+    for(const e of edges){{
+      const a=nodeMap[e.s],b=nodeMap[e.d];if(!a||!b) continue;
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+      const ang=Math.atan2(b.y-a.y,b.x-a.x),r=14;
+      const tx=b.x-r*Math.cos(ang),ty=b.y-r*Math.sin(ang);
+      ctx.beginPath();ctx.moveTo(tx,ty);ctx.lineTo(tx-8*Math.cos(ang-.4),ty-8*Math.sin(ang-.4));
+      ctx.lineTo(tx-8*Math.cos(ang+.4),ty-8*Math.sin(ang+.4));ctx.closePath();
+      ctx.fillStyle='#00e5ff33';ctx.fill();
+    }}
+    for(const n of nodes){{
+      const col=n.type==='root'?'#00e5ff':n.type==='inc'?'#7fe0a0':'#ff8844';
+      const r=n.type==='root'?14:10;
+      ctx.beginPath();ctx.arc(n.x,n.y,r,0,Math.PI*2);
+      ctx.fillStyle=col+'22';ctx.fill();ctx.strokeStyle=col;ctx.lineWidth=n.type==='root'?2:1.5;ctx.stroke();
+      ctx.fillStyle=col;ctx.font=`${{n.type==='root'?11:10}}px monospace`;ctx.textAlign='center';ctx.textBaseline='middle';
+      const lbl=n.id.length>16?n.id.slice(0,15)+'…':n.id;ctx.fillText(lbl,n.x,n.y+r+10);
+    }}
+    if(++frame<120) requestAnimationFrame(render);
+  }}
+  render();
+}}
+
+async function load(){{
+  const fn=($('searchInput').value||'').trim();
+  if(!fn){{$('status').textContent='Enter a filename first.';return;}}
+  $('status').textContent='Loading…';
+  $('mainGrid').style.display='none';
+  $('metaBar').style.display='none';
+  $('graphWrap').style.display='none';
+  const data=await fetch(`/api/sqr/deps/${{encodeURIComponent(fn)}}`).then(r=>r.json()).catch(e=>({{error:String(e)}}));
+  $('status').textContent='';
+  if(data.error){{$('status').textContent='Error: '+data.error;return;}}
+  const m=data.meta||{{}};
+  const ext=fileExt(data.filename);
+  $('metaBar').innerHTML=`
+    <span class="badge ${{ext}}">${{ext.toUpperCase()}}</span>
+    <span class="meta-item">File: <span class="meta-val">${{esc(data.filename)}}</span></span>
+    ${{m.description?`<span class="meta-item">Desc: <span class="meta-val">${{esc(m.description)}}</span></span>`:''}}
+    <span class="meta-item">Direct includes: <span class="meta-val">${{(data.direct_includes||[]).length}}</span></span>
+    <span class="meta-item">Total deps: <span class="meta-val">${{(data.all_includes||[]).length}}</span></span>
+    <span class="meta-item">Used by (direct): <span class="meta-val">${{(data.used_by_direct||[]).length}}</span></span>
+    <span class="meta-item">Used by (all): <span class="meta-val">${{(data.used_by_all||[]).length}}</span></span>
+    ${{!data.meta?'<span style="color:#ff8800;font-size:11px">&#x26A0; Not in index</span>':''}}
+  `;
+  $('metaBar').style.display='flex';
+  $('fwdPanel').innerHTML=buildTreeHTML(data.include_tree||[])||'<div class="empty">No includes.</div>';
+  $('fwdCount').textContent=(data.all_includes||[]).length;
+  const revDirect=data.used_by_direct||[];
+  const revAll=data.used_by_all||[];
+  let revHtml='';
+  if(revAll.length){{
+    if(revDirect.length){{
+      revHtml+=`<div style="font-size:10px;color:#445;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Direct (${{revDirect.length}})</div>`;
+      revHtml+=buildRevHTML(revDirect);
+    }}
+    const indirect=revAll.filter(fn=>!revDirect.find(d=>(d.fn||d.filename||d)===fn));
+    if(indirect.length){{
+      revHtml+=`<div style="font-size:10px;color:#445;text-transform:uppercase;letter-spacing:.05em;margin:10px 0 6px">Indirect (${{indirect.length}})</div>`;
+      revHtml+=indirect.map(fn=>{{
+        const ext2=fileExt(fn);
+        return `<div class="used-row"><a href="/admin/sqrdeps?q=${{encodeURIComponent(fn)}}">${{esc(fn)}}</a><span class="ft badge ${{ext2}}">${{ext2.toUpperCase()}}</span></div>`;
+      }}).join('');
+    }}
+  }} else revHtml='<div class="empty">No programs include this file.</div>';
+  $('revPanel').innerHTML=revHtml;
+  $('revCount').textContent=revAll.length;
+  $('mainGrid').style.display='grid';
+  drawGraph(data.filename,data.direct_includes,data.used_by_direct);
+}}
+
+{"document.addEventListener('DOMContentLoaded',()=>load());" if preload else ""}
+window.onEnvChange=()=>{{}};
+</script>
+"""
+    return _shell("SQR Dependency Graph", "sqrdeps", content=content)
+
+
+# ── SQR Environment Comparison ────────────────────────────────────────────────
+
+@router.get("/sqrcompare", response_class=HTMLResponse)
+def sqr_compare_page():
+    """SQR environment side-by-side comparison (e.g. HCM vs FSCM)."""
+    content = f"""
+<style>
+*{{box-sizing:border-box}}
+.cmp-toolbar{{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
+.cmp-sel{{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:5px 8px;font-size:12px;border-radius:3px}}
+.cmp-btn{{background:#00e5ff;border:none;padding:5px 14px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;border-radius:3px}}
+.cmp-btn:hover{{background:#33eeff}}
+.stat-row{{display:flex;gap:10px;flex-wrap:wrap;padding:12px 16px}}
+.stat-card{{background:#0a161e;border:1px solid #00e5ff22;border-radius:4px;padding:8px 16px;min-width:110px}}
+.stat-num{{font-size:20px;font-weight:bold;font-family:monospace}}
+.stat-lbl{{font-size:10px;color:#445;margin-top:2px}}
+.stat-card.only-a .stat-num{{color:#ff8844}}
+.stat-card.only-b .stat-num{{color:#44aaff}}
+.stat-card.changed .stat-num{{color:#ffcc44}}
+.stat-card.same .stat-num{{color:#00cc66}}
+.tabs{{display:flex;gap:0;padding:0 16px;border-bottom:1px solid #00e5ff22}}
+.tab{{padding:7px 16px;cursor:pointer;font-size:12px;color:#445;border-bottom:2px solid transparent}}
+.tab.active{{color:#00e5ff;border-bottom-color:#00e5ff}}
+.tab-content{{display:none;padding:10px 16px}}
+.tab-content.active{{display:block}}
+table{{width:100%;border-collapse:collapse;font-size:12px}}
+th{{text-align:left;padding:5px 10px;border-bottom:1px solid #00e5ff22;color:#445;font-size:11px;text-transform:uppercase;letter-spacing:.04em}}
+td{{padding:5px 10px;border-bottom:1px solid #0a1c28;font-family:monospace;font-size:11px}}
+tr:hover td{{background:#0a161e}}
+.empty{{padding:24px;text-align:center;color:#334;font-size:12px}}
+.diff-val{{color:#ffcc44}}
+.same-val{{color:#445}}
+.ft-sqr{{color:#00e5ff}}.ft-sqc{{color:#7fe0a0}}
+a{{color:#00e5ff;text-decoration:none}}a:hover{{text-decoration:underline}}
+#status{{font-size:11px;color:#445;margin-left:auto}}
+</style>
+
+<div class="cmp-toolbar">
+  <a href="/admin/sqr" style="color:#7faab2;font-size:12px;text-decoration:none">← SQR Explorer</a>
+  <select class="cmp-sel" id="envA"><option>HCM</option><option>FSCM</option></select>
+  <span style="color:#445;font-size:12px">vs</span>
+  <select class="cmp-sel" id="envB"><option>FSCM</option><option>HCM</option></select>
+  <button class="cmp-btn" onclick="load()">Compare</button>
+  <span id="status"></span>
+</div>
+
+<div class="stat-row" id="statRow" style="display:none"></div>
+
+<div class="tabs" id="tabBar" style="display:none">
+  <div class="tab active" onclick="switchTab('changed',this)">Changed</div>
+  <div class="tab" onclick="switchTab('onlyA',this)" id="tabOnlyA">Only in A</div>
+  <div class="tab" onclick="switchTab('onlyB',this)" id="tabOnlyB">Only in B</div>
+  <div class="tab" onclick="switchTab('same',this)">Identical</div>
+</div>
+<div id="tab-changed" class="tab-content active"></div>
+<div id="tab-onlyA"   class="tab-content"></div>
+<div id="tab-onlyB"   class="tab-content"></div>
+<div id="tab-same"    class="tab-content"></div>
+
+<script>
+{_ESC_JS}
+const $ = id => document.getElementById(id);
+
+function switchTab(name, el){{
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  $('tab-'+name).classList.add('active');
+}}
+
+function ftClass(ft){{return ft==='sqr'?'ft-sqr':'ft-sqc';}}
+
+function renderSingle(rows, env, emptyMsg){{
+  if(!rows.length) return `<div class="empty">${{emptyMsg}}</div>`;
+  return `<table><thead><tr>
+    <th>File</th><th>Type</th><th>PS_ Tables</th><th>Description</th>
+  </tr></thead><tbody>`+
+  rows.map(r=>`<tr>
+    <td><a href="/admin/sqr/${{encodeURIComponent(r.filename)}}">${{esc(r.filename)}}</a></td>
+    <td><span class="${{ftClass(r.file_type)}}">${{esc(r.file_type||'')}}</span></td>
+    <td style="color:#00e5ff">${{r.table_count||0}}</td>
+    <td style="color:#7faab2">${{esc(r.description||'')}}</td>
+  </tr>`).join('')+'</tbody></table>';
+}}
+
+function renderChanged(rows, labelA, labelB){{
+  if(!rows.length) return '<div class="empty">No differences found between environments.</div>';
+  return `<table><thead><tr>
+    <th>File</th><th>Type</th>
+    <th>Tables (${{esc(labelA)}})</th><th>Tables (${{esc(labelB)}})</th>
+    <th>Includes (${{esc(labelA)}})</th><th>Includes (${{esc(labelB)}})</th>
+    <th>Content Hash</th>
+  </tr></thead><tbody>`+
+  rows.filter(r=>r.changed).map(r=>{{
+    const tDiff=r.table_count_a!==r.table_count_b;
+    const iDiff=r.include_count_a!==r.include_count_b;
+    const hDiff=r.content_hash_a&&r.content_hash_b&&r.content_hash_a!==r.content_hash_b;
+    return `<tr>
+      <td><a href="/admin/sqr/${{encodeURIComponent(r.filename)}}">${{esc(r.filename)}}</a></td>
+      <td><span class="${{ftClass(r.file_type)}}">${{esc(r.file_type||'')}}</span></td>
+      <td class="${{tDiff?'diff-val':'same-val'}}">${{r.table_count_a||0}}</td>
+      <td class="${{tDiff?'diff-val':'same-val'}}">${{r.table_count_b||0}}</td>
+      <td class="${{iDiff?'diff-val':'same-val'}}">${{r.include_count_a||0}}</td>
+      <td class="${{iDiff?'diff-val':'same-val'}}">${{r.include_count_b||0}}</td>
+      <td style="font-size:10px;color:${{hDiff?'#ffcc44':'#445'}}">${{hDiff?'DIFFERS':r.content_hash_a?'SAME':'—'}}</td>
+    </tr>`;
+  }}).join('')+'</tbody></table>';
+}}
+
+async function load(){{
+  const envA=$('envA').value, envB=$('envB').value;
+  if(envA===envB){{$('status').textContent='Select different environments.';return;}}
+  $('status').textContent='Loading…';
+  $('statRow').style.display='none';
+  $('tabBar').style.display='none';
+  const data=await fetch(`/api/sqr/envcompare?env_a=${{encodeURIComponent(envA)}}&env_b=${{encodeURIComponent(envB)}}`).then(r=>r.json()).catch(e=>({{error:String(e)}}));
+  $('status').textContent='';
+  if(data.error){{$('status').textContent='Error: '+data.error;return;}}
+  const c=data.counts||{{}};
+  $('statRow').innerHTML=`
+    <div class="stat-card"><div class="stat-num">${{c.total_a||0}}</div><div class="stat-lbl">${{esc(data.label_a)}} total</div></div>
+    <div class="stat-card"><div class="stat-num">${{c.total_b||0}}</div><div class="stat-lbl">${{esc(data.label_b)}} total</div></div>
+    <div class="stat-card changed"><div class="stat-num">${{c.changed||0}}</div><div class="stat-lbl">Changed</div></div>
+    <div class="stat-card same"><div class="stat-num">${{c.identical||0}}</div><div class="stat-lbl">Identical</div></div>
+    <div class="stat-card only-a"><div class="stat-num">${{c.only_a||0}}</div><div class="stat-lbl">Only in ${{esc(data.label_a)}}</div></div>
+    <div class="stat-card only-b"><div class="stat-num">${{c.only_b||0}}</div><div class="stat-lbl">Only in ${{esc(data.label_b)}}</div></div>
+  `;
+  $('statRow').style.display='flex';
+  $('tabOnlyA').textContent=`Only in ${{data.label_a}} (${{c.only_a||0}})`;
+  $('tabOnlyB').textContent=`Only in ${{data.label_b}} (${{c.only_b||0}})`;
+  $('tab-changed').innerHTML=renderChanged(data.in_both||[],data.label_a,data.label_b);
+  $('tab-onlyA').innerHTML=renderSingle(data.only_a||[],data.label_a,`No files exist only in ${{data.label_a}}.`);
+  $('tab-onlyB').innerHTML=renderSingle(data.only_b||[],data.label_b,`No files exist only in ${{data.label_b}}.`);
+  $('tab-same').innerHTML=renderSingle((data.in_both||[]).filter(r=>!r.changed),'',' All shared files have differences.');
+  $('tabBar').style.display='flex';
+}}
+
+document.addEventListener('DOMContentLoaded',()=>load());
+window.onEnvChange=()=>{{}};
+</script>
+"""
+    return _shell("SQR Environment Comparison", "sqrcompare", content=content)
+
