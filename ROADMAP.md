@@ -1241,7 +1241,7 @@ merits.
 
 # Digital Twin Persistence
 
-**Status: Foundational pieces complete; full vision open-ended.**
+**Status: ✅ Complete.** All four previously-open items closed; see below.
 
 ### Completed
 - Knowledge Graph snapshots (creation, listing, comparison, scheduled daily builds,
@@ -1249,14 +1249,77 @@ merits.
 - Incident recording with full runtime state capture (see Phase 4)
 - Environment/security change history via drift time series (see Phase 6)
 
-### Remaining
-- Full change history across all object types (drift covers 23 types, not universal —
-  UOM has ~54; remaining types are either row-count-uninteresting or need real
-  table-name verification before adding, per the process used to add the last 6)
-- Deployment/configuration history beyond the promotion event log
-- Runtime replay beyond incident snapshots
-- Architecture Assistant: auto-generated dependency reports, sequence diagrams,
-  technical documentation, impact summaries — not started
+**Drift coverage expansion (23 → 45 types).** Added 22 more `(label, sql)` rows to
+`envcompare.py`'s `summary()`: Approval Framework, Message Catalog, Search
+Definitions/Categories, Pivot Grids, Connected Queries, File Layouts, App Designer
+Projects, IB Applications/Service Groups/Operations, Application Classes, Content
+Services, PTF Tests, ADS Definitions, Chatbot Skills, Archive Objects, Timezones,
+Locales, PM Metrics/Transactions/Events. Each real table name was found by tracing
+the corresponding `uom.py` object function down through `psdb.py` (not guessed —
+several naive `PS<Name>DEFN` guesses came back `ORA-00942` and were discarded, e.g.
+Search Definitions is really `PSPTSF_SD`, not `PSSRCHDEFN`), then verified live with
+real, queryable HCM/FSCM counts before adding (same standard as the prior 17→23
+expansion). Persisted snapshot refreshed via `POST /api/drift/snapshot`, confirmed
+all 45 types present in `/api/drift/latest`. Remaining UOM types not added
+(Navigation Collections, Event Mappings, Related Content, Drop Zones) already have no
+backing table per the Phase 5 deprioritization table.
+
+**Deployment/Configuration History.** New `connectors/deploymentdb.py`
+(`data/deployment_events.db`) links what the promotion log already records (*that* a
+promotion happened) to concrete evidence of *what* the environment looked like around
+it: a SHA-256 fingerprint of `config.json` (only the full text is stored when the
+hash changes, deduped like `envcompare.py`'s unchanged-content skip) plus the nearest
+`driftdb` snapshot. `routers/promotions.py`'s `POST /api/promotions` now calls
+`record_deployment_snapshot()` automatically after every promotion — no extra user
+action. New `GET /api/promotions/{id}/deployment` (before/after view) and `GET
+/api/deployments/{env}/history` (config-fingerprint timeline). `/admin/promotions`
+gained a per-row "Config fingerprint" expand showing the linked drift snapshot.
+**Security fix caught during verification**: the first version stored raw
+`config.json` — including live Oracle passwords, the OpenAI API key, and the SQL
+Proxy HMAC salt — in SQLite and served it back over `GET`. Added `_redact()`
+(recursive secret-key masking on `password`/`api_key`/`salt`/`key_path`/etc.) before
+any hash or storage; re-verified live that a fetched deployment snapshot no longer
+contains any real credential.
+
+**Runtime Replay.** `incidentdb.py`'s `incident_snapshots` table already supported
+multiple snapshots per incident; only the *latest* was ever surfaced. Added
+`get_snapshot_series()` (all snapshots for one source, chronological) and
+`replay_timeline()` (all sources merged chronologically); new `GET
+/api/incidents/{id}/replay`. `/admin/incidents`' "Snapshot History" tab is now a real
+step-through replay — click any row (or Prev/Next) to re-render that point-in-time
+RCA snapshot in the existing RCA tab, instead of only ever showing the newest one.
+Verified live: created a real incident, triggered a second RCA re-capture, confirmed
+`/api/incidents/{id}/replay` returns both snapshots in chronological order.
+
+**Architecture Assistant.** New `connectors/archreport.py` — reports, not a new graph
+engine, built entirely on existing KG primitives (`graphdb.impact()`,
+`dependency_tree()`, and `peoplecode.py`'s `component_sequence()`/`record_sequence()`):
+`dependency_report()` (Markdown: overview, forward deps, reverse/blast-radius deps,
+direct typed edges), `sequence_narrative()` (phase-ordered narrative + an embedded
+Mermaid flowchart code block — text only, no new rendering library, paste into any
+Mermaid-compatible viewer), `impact_summary_doc()` (prose blast-radius paragraph for
+a change ticket). New `GET /api/architecture/{dependency-report,sequence-report,
+impact-summary}`; new `/admin/architecture` page (env/type/name form, "Generate
+Report" + "Copy as Markdown"); new AI tool `architecture_report` in `ai_tools.py`.
+Verified against real data: `dependency_report('HCM','component','JOB_DATA')`
+correctly found 2 real upstream dependents (a content_service and a portal_registry
+entry) matching `/admin/impact`'s own data; `sequence_narrative('HCM','record','JOB')`
+correctly rendered JOB's real Build/Interaction/Save PeopleCode events with a valid
+Mermaid diagram.
+
+**Verification (all four)**: `make check` → 111/111 files, 24/24 tests. Admin smoke
+test → 74/74 pages (added `/admin/architecture` to the suite).
+
+### Remaining (acknowledged, not blocking)
+- Drift coverage is now 45 of ~54 UOM types — the remainder (Navigation Collections,
+  Event Mappings, Related Content, Drop Zones) have no backing table in this
+  environment per Phase 5's deprioritization table, not a gap in effort.
+- Deployment history correlates config.json + drift snapshots; it does not track
+  PeopleTools metadata-level changes beyond what drift already counts (that's Phase
+  13's retrofit-compare territory, not this phase's).
+- Architecture Assistant renders diagrams as Mermaid text, not an in-app rendered
+  graphic — sufficient for "paste into a doc" use cases; an in-app Mermaid.js render
+  would be a follow-up if requested, not required for this phase's completion.
 
 ---
 

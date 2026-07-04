@@ -191,6 +191,7 @@ DEFAULT_PAGES = [
     ("/admin/drift",      "#driftDays",      False, True,  []),
     ("/admin/promotions", "#fPillar",        False, True,  []),
     ("/admin/impact",     "#riskResult",     True, True,  []),
+    ("/admin/architecture", "#archResult",   False, True,  []),
     ("/admin/assistant",  "#chatMessages",   False, True,  []),
     ("/admin/logs",       "#ingest-btn",     True, True,  []),
     ("/admin/log_errors", "#env-sel",        True, True,  []),

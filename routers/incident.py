@@ -107,6 +107,15 @@ def delete_incident(incident_id: int):
 
 # ── Re-snapshot ───────────────────────────────────────────────────────────────
 
+@router.get("/{incident_id}/replay")
+def get_replay_timeline(incident_id: int):
+    """All snapshots across all sources, chronologically ordered, for step-through replay."""
+    inc = incidentdb.get_incident(incident_id)
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return {"incident_id": incident_id, "timeline": incidentdb.replay_timeline(incident_id)}
+
+
 @router.get("/{incident_id}/snapshot")
 def refresh_snapshot(incident_id: int):
     """Re-run the RCA against the incident window and attach a new snapshot."""

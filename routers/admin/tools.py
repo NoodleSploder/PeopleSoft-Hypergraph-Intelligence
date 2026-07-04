@@ -431,6 +431,102 @@ runRisk();
 </script>""")
 
 
+@router.get("/architecture", response_class=HTMLResponse)
+def admin_architecture():
+    return _shell("Architecture Assistant", "architecture", noscroll=False, content="""\
+<style>
+*{box-sizing:border-box;}
+.ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}
+select,input[type=text]{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px;}
+input[type=text]{width:220px;}
+button{background:#00e5ff;border:none;padding:4px 14px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;}
+button:hover{background:#33eeff;}
+button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;}
+.section-head{font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:#00e5ff;
+              margin:18px 0 8px;border-bottom:1px solid #00e5ff22;padding-bottom:4px;}
+.err-msg{color:#ff6666;font-size:11px;padding:3px 8px;background:#1a0000;border-left:2px solid #ff4444;margin:2px 0;}
+.empty{color:#445;font-style:italic;font-size:12px;padding:10px 0;}
+pre.report{background:#050b12;border:1px solid #00e5ff22;border-radius:3px;padding:14px;font-size:12px;
+           overflow-x:auto;color:#d7faff;white-space:pre-wrap;max-height:70vh;overflow-y:auto;}
+.spinner{display:none;color:#00e5ff;font-size:11px;margin-left:8px;}
+.spinner.on{display:inline;}
+</style>
+<div style="padding:16px;">
+
+<div class="section-head" style="margin-top:0">Generate Report</div>
+<div class="ctrl">
+  <label style="font-size:11px;color:#7faab2">Env</label>
+  <select id="archEnv"><option>HCM</option><option>FSCM</option></select>
+  <label style="font-size:11px;color:#7faab2">Report</label>
+  <select id="archMode" onchange="toggleMode()">
+    <option value="dependency">Dependency Report</option>
+    <option value="sequence">Sequence Narrative</option>
+    <option value="impact">Impact Summary</option>
+  </select>
+  <label style="font-size:11px;color:#7faab2">Type</label>
+  <select id="archType">
+    <option value="component">component</option>
+    <option value="record">record</option>
+    <option value="page">page</option>
+    <option value="application_engine">application_engine</option>
+    <option value="sql_definition">sql_definition</option>
+  </select>
+  <input id="archName" type="text" placeholder="Object name (e.g. JOB_DATA)" onkeydown="if(event.key==='Enter')generate()">
+  <button onclick="generate()">Generate</button>
+  <span class="spinner" id="archSpinner">&#9679;&#9679;&#9679;</span>
+</div>
+
+<div id="archResult"></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function toggleMode(){
+  const mode=$('archMode').value;
+  const typeSel=$('archType');
+  if(mode==='sequence'){
+    typeSel.innerHTML='<option value="component">component</option><option value="record">record</option>';
+  } else {
+    typeSel.innerHTML='<option value="component">component</option><option value="record">record</option>'
+      +'<option value="page">page</option><option value="application_engine">application_engine</option>'
+      +'<option value="sql_definition">sql_definition</option>';
+  }
+}
+
+async function generate(){
+  const env=$('archEnv').value, mode=$('archMode').value, type=$('archType').value;
+  const name=($('archName').value||'').trim();
+  if(!name){ $('archResult').innerHTML='<div class="err-msg">Object name is required.</div>'; return; }
+  $('archSpinner').classList.add('on');
+  $('archResult').innerHTML='';
+  try{
+    let url;
+    if(mode==='dependency') url=`/api/architecture/dependency-report?env=${env}&node_type=${type}&node_name=${encodeURIComponent(name)}`;
+    else if(mode==='sequence') url=`/api/architecture/sequence-report?env=${env}&target_type=${type}&name=${encodeURIComponent(name)}`;
+    else url=`/api/architecture/impact-summary?env=${env}&node_type=${type}&node_name=${encodeURIComponent(name)}`;
+    const r=await fetch(url);
+    const d=await r.json();
+    $('archSpinner').classList.remove('on');
+    if(!r.ok){ $('archResult').innerHTML=`<div class="err-msg">${esc(d.detail||'Not found')}</div>`; return; }
+    $('archResult').innerHTML=`
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="sec" onclick="copyReport()">Copy as Markdown</button>
+      </div>
+      <pre class="report" id="reportText">${esc(d.markdown)}</pre>`;
+  }catch(e){
+    $('archSpinner').classList.remove('on');
+    $('archResult').innerHTML=`<div class="err-msg">${esc(String(e))}</div>`;
+  }
+}
+
+function copyReport(){
+  const text=$('reportText').textContent;
+  navigator.clipboard.writeText(text).catch(()=>{});
+}
+</script>""")
+
+
 _EXAMPLE_PROMPTS = [
     "Where is employee termination implemented?",
     "Which AE programs touch the JOB record?",

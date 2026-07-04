@@ -566,12 +566,23 @@ function renderASH(d){{
   $('tab-ash').innerHTML=`<div style="padding:16px">${{html}}</div>`;
 }}
 
+let REPLAY_SNAPS=[];
+let REPLAY_IDX=-1;
+
 function renderHistory(snaps){{
+  REPLAY_SNAPS=snaps;
   if(!snaps.length){{$('tab-history').innerHTML='<div class="empty">No snapshots yet</div>';return;}}
-  let html='<div style="padding:16px"><table><thead><tr><th>#</th><th>Source</th><th>Captured At</th><th>Size</th></tr></thead><tbody>';
-  snaps.forEach(s=>{{
+  let html=`<div style="padding:16px">
+    <div style="margin-bottom:10px;display:flex;gap:8px;align-items:center">
+      <button class="sec" onclick="stepReplay(-1)">&larr; Prev</button>
+      <button class="sec" onclick="stepReplay(1)">Next &rarr;</button>
+      <span id="replayPos" style="font-size:11px;color:#889"></span>
+    </div>
+    <table><thead><tr><th></th><th>#</th><th>Source</th><th>Captured At</th><th>Size</th></tr></thead><tbody>`;
+  snaps.forEach((s,i)=>{{
     const size=JSON.stringify(s.data||{{}}).length;
-    html+=`<tr>
+    html+=`<tr id="hist-row-${{i}}" style="cursor:pointer" onclick="viewReplaySnap(${{i}})">
+      <td>${{i===snaps.length-1?'<span class="badge-info">latest</span>':''}}</td>
       <td style="font-family:monospace;color:#445">${{s.id}}</td>
       <td><span class="badge-info">${{esc(s.source)}}</span></td>
       <td style="font-family:monospace;font-size:11px;color:#445">${{(s.snapshot_at||'').substring(0,19)}}</td>
@@ -580,6 +591,25 @@ function renderHistory(snaps){{
   }});
   html+='</tbody></table></div>';
   $('tab-history').innerHTML=html;
+}}
+
+function viewReplaySnap(i){{
+  if(i<0||i>=REPLAY_SNAPS.length)return;
+  REPLAY_IDX=i;
+  document.querySelectorAll('[id^=hist-row-]').forEach(r=>r.style.background='');
+  const row=$('hist-row-'+i); if(row)row.style.background='rgba(0,229,255,.10)';
+  $('replayPos').textContent=`Viewing snapshot ${{i+1}} of ${{REPLAY_SNAPS.length}} (${{esc(REPLAY_SNAPS[i].source)}} @ ${{(REPLAY_SNAPS[i].snapshot_at||'').substring(0,19)}})`;
+  const snap=REPLAY_SNAPS[i];
+  if(snap.source==='rca'){{
+    renderRCA(snap.data||{{}});
+    document.querySelector('.tab').click();
+  }}
+}}
+
+function stepReplay(delta){{
+  if(!REPLAY_SNAPS.length)return;
+  const next=REPLAY_IDX<0?0:Math.min(Math.max(REPLAY_IDX+delta,0),REPLAY_SNAPS.length-1);
+  viewReplaySnap(next);
 }}
 
 // ── Load data ────────────────────────────────────────────────────────────────

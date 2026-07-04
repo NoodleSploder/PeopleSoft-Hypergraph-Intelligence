@@ -7,7 +7,7 @@ DV/TST/UAT/PRD DB connections are available.
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from connectors import promotiondb
+from connectors import promotiondb, deploymentdb
 
 router = APIRouter(prefix="/api/promotions", tags=["Promotions"])
 
@@ -30,7 +30,7 @@ def create_promotion(body: PromotionCreate):
         raise HTTPException(status_code=400, detail="pillar, project, from_env, to_env are required")
     if not body.promoted_at:
         raise HTTPException(status_code=400, detail="promoted_at is required")
-    return promotiondb.record_promotion(
+    promotion = promotiondb.record_promotion(
         pillar=body.pillar,
         project=body.project,
         from_env=body.from_env,
@@ -40,6 +40,13 @@ def create_promotion(body: PromotionCreate):
         notes=body.notes,
         ticket_ref=body.ticket_ref,
     )
+    # Attach a config/drift fingerprint to this promotion automatically —
+    # best-effort, never blocks the promotion record itself.
+    try:
+        deploymentdb.record_deployment_snapshot(env=body.to_env, promotion_id=promotion["id"])
+    except Exception:
+        pass
+    return promotion
 
 
 @router.get("")
@@ -85,3 +92,12 @@ def delete_promotion(id: int):
     if not promotiondb.delete_promotion(id):
         raise HTTPException(status_code=404, detail=f"Promotion {id} not found")
     return {"deleted": id}
+
+
+@router.get("/{id}/deployment")
+def get_promotion_deployment(id: int):
+    """Return the config/drift fingerprint captured for this promotion, if any."""
+    result = deploymentdb.get_for_promotion(id)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"No deployment snapshot for promotion {id}")
+    return result

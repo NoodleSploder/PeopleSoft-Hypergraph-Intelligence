@@ -25,6 +25,8 @@ from routers import envcompare
 from routers import drift
 from routers import impact_api
 from routers import promotions
+from routers import deployments
+from routers import architecture
 from routers import assistant
 from routers import tracing
 from routers import record
@@ -131,6 +133,8 @@ app.include_router(envcompare.router)
 app.include_router(drift.router)
 app.include_router(impact_api.router)
 app.include_router(promotions.router)
+app.include_router(deployments.router)
+app.include_router(architecture.router)
 app.include_router(assistant.router)
 app.include_router(tracing.router)
 app.include_router(record.router)

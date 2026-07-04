@@ -170,6 +170,37 @@ def get_snapshots(incident_id: int) -> list:
     return result
 
 
+def get_snapshot_series(incident_id: int, source: str) -> list:
+    """Return all snapshots for a given source, chronological — a per-source timeline."""
+    with _conn() as con:
+        rows = con.execute(
+            """SELECT * FROM incident_snapshots
+               WHERE incident_id=? AND source=?
+               ORDER BY snapshot_at""",
+            (incident_id, source),
+        ).fetchall()
+    result = []
+    for row in rows:
+        d = dict(row)
+        try:
+            d["data"] = json.loads(d["data"])
+        except Exception:
+            pass
+        result.append(d)
+    return result
+
+
+def replay_timeline(incident_id: int) -> list:
+    """
+    Merge every snapshot across all sources into one chronologically-sorted
+    list, for a single "what happened, in order" replay view spanning the
+    incident's investigation. get_snapshots() already returns everything
+    ordered by snapshot_at — this just documents that as the replay contract
+    and keeps the shape stable if snapshot storage ever changes.
+    """
+    return get_snapshots(incident_id)
+
+
 def get_snapshot(incident_id: int, source: str) -> dict | None:
     """Return the most recent snapshot for a given source."""
     with _conn() as con:

@@ -105,6 +105,7 @@ _NAV_GROUPS = [
         ("reports", "Reports",    "/admin/reports"),
         ("tools",   "Tools",      "/admin/tools"),
         ("impact",     "Impact",     "/admin/impact"),
+        ("architecture", "Architecture", "/admin/architecture"),
         ("assistant",  "Assistant",  "/admin/assistant"),
         ("docs",       "Docs",       "/admin/docs"),
     ]),
