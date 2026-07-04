@@ -542,6 +542,86 @@ TOOLS = [
             "required": ["env", "filename"],
         },
     },
+    {
+        "name": "retrofit_worklist",
+        "description": (
+            "For a PeopleSoft upgrade retrofit: find every customized object in an environment "
+            "(via LASTUPDOPRID — the same delivered-vs-custom heuristic used elsewhere in this "
+            "platform) and compare each one against a target environment (e.g. a stood-up copy of "
+            "the new PeopleTools/application release). Returns a worklist with each object marked "
+            "'reconciled' (already matches the target, nothing to do) or 'needs_review' (differs from "
+            "the target, or was deleted/renamed upstream). Use this to answer 'what customizations "
+            "are at risk in this upgrade?' — then use retrofit_guidance on individual needs_review "
+            "objects for the specific instruction."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string", "description": "Current environment with the customizations (e.g. HCM)"},
+                "target_env": {"type": "string", "description": "Target/upgrade environment to compare against"},
+                "object_types": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "Optional subset: page, record, field, component_interface, permission_list, menu, ae_program. Default: all.",
+                },
+            },
+            "required": ["env", "target_env"],
+        },
+    },
+    {
+        "name": "retrofit_guidance",
+        "description": (
+            "Get the SPECIFIC, actionable difference between one customized object and its target-"
+            "environment counterpart — what exactly needs to change, not just 'this is at risk'. For "
+            "pages, also returns field-level layout differences (added/removed/repositioned fields via "
+            "PSPNLFIELD) — the concrete case of upstream page structure shifting under a customization. "
+            "Turn this into a precise instruction for the user: name the object, the exact attribute or "
+            "field, and what it needs to become. After the user makes the change, call retrofit_verify "
+            "to confirm it worked — do not just assume the instruction was followed correctly."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string", "description": "Current environment (e.g. HCM)"},
+                "target_env": {"type": "string", "description": "Target/upgrade environment to compare against"},
+                "object_type": {
+                    "type": "string",
+                    "enum": ["page", "record", "field", "component_interface", "permission_list", "menu", "ae_program"],
+                },
+                "name": {"type": "string", "description": "The object's name (e.g. a page name, record name)"},
+            },
+            "required": ["env", "target_env", "object_type", "name"],
+        },
+    },
+    {
+        "name": "retrofit_verify",
+        "description": (
+            "Re-check one object after the user reports they made the change retrofit_guidance "
+            "described, and get an explicit closure verdict: RESOLVED (now matches the target), "
+            "STILL_DIVERGENT (the described problem persists), or NEW_ISSUE_INTRODUCED (the original "
+            "problem is fixed but the change caused a different divergence). ALWAYS state this verdict "
+            "plainly to the user — never leave them unsure whether they're done. Pass "
+            "previous_diff_columns (the column names from the retrofit_guidance call earlier in this "
+            "conversation) so STILL_DIVERGENT and NEW_ISSUE_INTRODUCED can be told apart; without it, "
+            "both collapse to STILL_DIVERGENT, which is still correct but less specific."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string", "description": "Current environment (e.g. HCM)"},
+                "target_env": {"type": "string", "description": "Target/upgrade environment to compare against"},
+                "object_type": {
+                    "type": "string",
+                    "enum": ["page", "record", "field", "component_interface", "permission_list", "menu", "ae_program"],
+                },
+                "name": {"type": "string", "description": "The object's name"},
+                "previous_diff_columns": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "Column names that differed before the user's change, from the earlier retrofit_guidance call",
+                },
+            },
+            "required": ["env", "target_env", "object_type", "name"],
+        },
+    },
 ]
 
 # Tool name → schema lookup
@@ -1262,6 +1342,23 @@ def _read_trace_file(env: str, filename: str, max_kb: int = 200) -> dict:
     return traceconn.read_trace_file(env, filename, max_kb=max_kb or 200)
 
 
+def _retrofit_worklist(env: str, target_env: str, object_types: list = None) -> dict:
+    from connectors import retrofit
+    return retrofit.retrofit_worklist(env, target_env, object_types=object_types)
+
+
+def _retrofit_guidance(env: str, target_env: str, object_type: str, name: str) -> dict:
+    from connectors import retrofit
+    return retrofit.retrofit_guidance(env, target_env, object_type, name)
+
+
+def _retrofit_verify(env: str, target_env: str, object_type: str, name: str,
+                      previous_diff_columns: list = None) -> dict:
+    from connectors import retrofit
+    return retrofit.retrofit_verify(env, target_env, object_type, name,
+                                     previous_diff_columns=previous_diff_columns)
+
+
 _HANDLERS = {
     "search_objects":     _search_objects,
     "peoplecode_search":  _peoplecode_search,
@@ -1288,4 +1385,7 @@ _HANDLERS = {
     "trace_status":            _trace_status,
     "list_trace_files":        _list_trace_files,
     "read_trace_file":         _read_trace_file,
+    "retrofit_worklist":       _retrofit_worklist,
+    "retrofit_guidance":       _retrofit_guidance,
+    "retrofit_verify":         _retrofit_verify,
 }

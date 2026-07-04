@@ -6901,3 +6901,89 @@ separately if ever warranted.
 
 No code written yet — this is still a planning/reframing pass, same as the
 original Phase 13 write-up.
+
+---
+
+### Phase 13 Built: Upgrade Retrofit — Detection, Guidance, Closure Verification
+
+Built the reframed Phase A + Phase B from the "start building" instruction:
+customization detection, object/page-field-level comparison, and the
+AI-directed directive-then-verify loop — entirely read-only, no automated
+metadata writes, per the user's own reframing of this initiative.
+
+**Researched real infrastructure before writing code**, same discipline as
+every other feature this session. Dispatched a research agent to check
+whether the existing `LASTUPDOPRID not in _DELIVERED_OPRIDS` heuristic
+(already used for PeopleCode) is viable across the object types the plan
+named: pages, records, fields, Application Packages, Component Interfaces,
+permission lists, menus, AE programs. Findings that shaped the design:
+`LASTUPDOPRID` exists on every candidate table except `PSAPPCLASSDEFN`
+(Application Packages — a pure name/path mapping table with no audit
+column; the actual App Package source lives in `PSPCMPROG OBJECTID1=104`,
+already covered by existing PeopleCode detection, so no new path was
+needed there at all). Also confirmed: this lab's HCM/FSCM databases are
+pristine vendor copies — every single row in every table checked has
+`LASTUPDOPRID='PPLSOFT'`, zero exceptions anywhere — consistent with the
+same finding from the SQR/COBOL override-intelligence work much earlier
+this session. No authoritative "delivered OPRID registry" table exists
+either — confirmed the hardcoded constant approach is the only viable
+mechanism, not something to keep searching for.
+
+Reused this codebase's own already-verified table/column mappings rather
+than re-guessing them: `psdb.py`'s `global_search()` specs and
+`ptmetadata.py`'s discovery specs gave real, trustworthy key columns
+(`page`→`PSPNLDEFN.PNLNAME`, `record`→`PSRECDEFN.RECNAME`,
+`component_interface`→`PSBCDEFN.BCNAME`, etc.) instead of me querying
+`all_tab_columns` from scratch and guessing which column was the real key.
+
+`connectors/retrofit.py`: `customization_inventory()` (server-side-filtered
+— real customer tables can be 500K+ rows, so filtering happens in the SQL
+`WHERE` clause, not fetch-all-then-filter in Python), `compare_object_header()`
+(generic single-object structural diff, works uniformly across all 7
+types), `compare_page_fields()` (the concrete "page manipulation" case —
+`PSPNLFIELD`-level diff detecting added/removed/repositioned fields),
+`retrofit_worklist`/`retrofit_guidance`/`retrofit_verify` (the three
+functions the ROADMAP plan sketched).
+
+**A real refinement fell out of actually implementing the plan**:
+`retrofit_verify`'s three verdicts (RESOLVED / STILL_DIVERGENT /
+NEW_ISSUE_INTRODUCED) needed a way to tell "same problem persists" apart
+from "a different problem now exists" — impossible from a single fresh
+compare alone. Added an optional `previous_diff_columns` parameter (the
+diff columns from the earlier `retrofit_guidance` call in the same
+conversation) so the verdict can be genuinely three-way, not just
+binary. Wired the system prompt to pass this through automatically.
+
+**Verification, in three tiers, matching this session's established
+discipline for "real data has nothing to demonstrate against"**:
+1. Real data: `customization_inventory` against live HCM data across all 7
+   types — totals matched the research investigation exactly, 0 customized
+   everywhere (honest, expected). `compare_object_header('HCM', 'FSCM',
+   'record', 'JOB')` found 5 real structural differences (field count,
+   index count, parent record, etc.) — proving the compare mechanism
+   correctly detects real divergence, using the two live environments as a
+   stand-in pair since this lab has no genuine old/new release pair of the
+   same pillar.
+2. Synthetic: no common HCM/FSCM page has real layout differences (both run
+   identical PeopleTools-level pages), so `compare_page_fields`'s
+   moved/added/removed-field detection and all three `retrofit_verify`
+   verdicts were verified with constructed data simulating exactly the
+   scenarios the plan described — a custom field shifting position because
+   delivered fields were inserted before it; a fix that resolves the
+   original problem; a fix that introduces a different one. All confirmed
+   correct, now permanent regression tests (`tests/test_retrofit.py`, 5
+   tests).
+3. Live: a real, unscripted, multi-turn conversation against the OpenAI-
+   backed assistant. First turn asked it to retrofit the `JOB` record from
+   HCM toward an FSCM target — it called `retrofit_guidance` and gave a
+   specific, itemized breakdown of every real differing column (not a vague
+   "this is at risk"). Second turn ("I updated the parent record name,
+   please verify") correctly triggered `retrofit_verify` with the right
+   `previous_diff_columns`, and correctly reported STILL_DIVERGENT with the
+   real remaining diffs — since the simulated "I made the change" was never
+   actually applied to the live database, the tool correctly re-queried and
+   found the same real divergence rather than trusting the user's claim.
+
+Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged — no
+new admin pages); `make check` → 100/100 files, 24/24 tests (19 previous +
+5 new).

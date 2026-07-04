@@ -43,6 +43,10 @@ verification steps, and design tradeoffs — see `DEVELOPMENT_DIARY.md`.
   method (PeopleCode/SQL/SQR/COBOL/IB/data) ending in an explicit code-vs-data
   verdict and a concrete fix recommendation, escalating to live server trace
   analysis when logic and data inspection alone are inconclusive
+- Upgrade Retrofit: universal customization detection + object/page-field-level
+  compare across environments, AI-directed "here's exactly what needs to
+  change" guidance with a closure-verification loop (RESOLVED/STILL_DIVERGENT/
+  NEW_ISSUE_INTRODUCED) — entirely read-only, no automated metadata writes
 - Admin shell smoke test harness (73 pages)
 
 ---
@@ -943,9 +947,8 @@ confirmed 49 real semantic edges (38 `MUTATES_BUFFER`, 8 `VALIDATES_BEFORE_SAVE`
 
 # Phase 13 — Upgrade Automation: Customization Retrofit
 
-**Status: 📋 Theorized — game plan below, nothing built yet. This section is a
-plan to be reviewed and approved before any implementation starts, not a
-description of existing capability.**
+**Status: ✅ Phase A + Phase B built and verified (read-only, directive-then-verify).
+Phase C remains theorized only — see below.**
 
 ## The real problem
 
@@ -1117,14 +1120,108 @@ follow the existing tool-registration and system-prompt patterns from
 Phase 11/12 directly — no new architecture, just new tools plus a new
 system-prompt section describing the two-turn directive-then-verify shape.
 
+## What was built
+
+`connectors/retrofit.py` implements both phases in one module (they turned
+out inseparable in practice — Phase B's guidance/verify tools are thin
+wrappers over Phase A's compare primitives, not a separate layer):
+
+- **`_OBJECT_TABLES`** — 7 object types (page, record, field,
+  component_interface, permission_list, menu, ae_program), each mapped to its
+  real table/key-column pair. These were verified against this codebase's own
+  existing usage (`psdb.py`'s `global_search()` specs, `ptmetadata.py`'s
+  discovery specs) rather than re-guessed — e.g. `page` → `PSPNLDEFN.PNLNAME`,
+  `record` → `PSRECDEFN.RECNAME`. A live-data investigation (via a background
+  research agent, before writing any code) confirmed `LASTUPDOPRID` exists on
+  every one of these tables except `PSAPPCLASSDEFN` (Application Packages —
+  that table is a pure name/path mapping with no audit column; the actual
+  App Package *source* lives in `PSPCMPROG OBJECTID1=104`, already covered by
+  the existing PeopleCode detection, so Application Packages didn't need a
+  new path at all).
+- **`customization_inventory(env, object_types)`** — the universal
+  customization inventory: server-side-filtered (not fetch-all-then-filter —
+  real customer tables can be 500K+ rows) `LASTUPDOPRID NOT IN
+  (delivered set)` query per object type, reusing `peoplecode.py`'s existing
+  `_DELIVERED_OPRIDS` constant directly rather than duplicating it.
+- **`compare_object_header(env_a, env_b, object_type, name)`** — a generic
+  single-object structural compare, working uniformly across all 7 types:
+  fetches the header row from each environment, reports which columns differ
+  (excluding audit-noise columns like `LASTUPDDTTM` itself), and whether the
+  object is missing from one side entirely (a real, important finding —
+  upstream sometimes deletes or renames things).
+- **`compare_page_fields(env_a, env_b, pnlname)`** — the concrete "page
+  manipulation" case from the original ask: a `PSPNLFIELD`-level diff
+  reporting fields added/removed and, critically, fields present in both
+  environments but repositioned (different `FIELDNUM`/`FIELDTOP`/`FIELDLEFT`)
+  — exactly the signal needed to tell a user "your custom field needs to move
+  from position X to Y because delivered fields were inserted before it."
+- **`retrofit_worklist`/`retrofit_guidance`/`retrofit_verify`** — the three
+  functions ROADMAP sketched, plus a refinement during implementation:
+  `retrofit_verify` accepts an optional `previous_diff_columns` (the diff
+  columns from the `retrofit_guidance` call earlier in the conversation) so
+  it can distinguish **STILL_DIVERGENT** (the same problem persists) from
+  **NEW_ISSUE_INTRODUCED** (the original problem is fixed but the change
+  caused a different divergence) — without it, both collapse to
+  STILL_DIVERGENT, which is still correct but less specific. This wasn't in
+  the original sketch; it fell out of actually implementing the three-verdict
+  requirement from the plan.
+
+New AI tools `retrofit_worklist`, `retrofit_guidance`, `retrofit_verify`
+wired into `connectors/ai_tools.py`; new "Upgrade Retrofit" section in
+`routers/assistant.py`'s `_SYSTEM` describing the four-step directive-then-
+verify method.
+
+### Verification
+
+**Real data**: `customization_inventory` run against live HCM data across
+all 7 object types — real totals matching the research investigation exactly
+(17,342 pages, 52,773 records, 90,630 fields, 458 CIs, 1,370 permission
+lists, 637 menus, 2,747 AE programs), 0 customized in every type — an
+honest result: this lab's demo databases are pristine vendor copies with
+zero real customizations anywhere, confirmed before writing any code, not
+a sign anything's broken. `compare_object_header('HCM', 'FSCM', 'record',
+'JOB')` found 5 real structural differences (field count 107 vs. 98, index
+count 14 vs. 5, different parent record, etc.) — proving the mechanism
+correctly detects real divergence when it exists, using the two live
+environments as a stand-in pair since this lab has no genuine "old
+release"/"new release" pair of the same pillar.
+
+**Synthetic verification for the parts real data couldn't exercise** (same
+discipline as the SQR override-intelligence work earlier this session — a
+scratch/synthetic test proving classification logic works, since the real
+environment has nothing to classify): no common HCM/FSCM page has real
+layout differences (they run identical PeopleTools-level pages), so
+`compare_page_fields`'s moved/added/removed-field detection was verified
+with constructed `PSPNLFIELD` rows simulating exactly the scenario from the
+plan — a custom field whose position shifts because 2 delivered fields were
+inserted before it, plus one deleted and two newly-added delivered fields —
+and confirmed all three detections fire correctly. `retrofit_verify`'s three
+verdicts (RESOLVED / STILL_DIVERGENT / NEW_ISSUE_INTRODUCED) were each
+constructed and confirmed correct the same way. Both are now permanent
+regression tests in `tests/test_retrofit.py` (5 tests).
+
+**Live, unscripted, multi-turn test against the real OpenAI-backed
+assistant**: asked it to retrofit the `JOB` record from HCM toward an FSCM
+target — it called `retrofit_guidance` and gave a specific, itemized
+breakdown of every real differing column. A follow-up turn ("I updated the
+parent record name, please verify") correctly triggered `retrofit_verify`
+with the right `previous_diff_columns`, and correctly reported
+**STILL_DIVERGENT** with the real remaining diffs (since the simulated
+"I made the change" was never actually applied to the live database — the
+tool correctly re-queried and found the same real divergence, exactly as it
+should).
+
+Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged — no
+new admin pages, this is connector + AI tool + system-prompt work); `make
+check` → 100/100 files, 24/24 tests (19 previous + 5 new).
+
 ## Recommended starting point
 
-Build Phase A, then Phase B, as one initiative — Phase A alone (a worklist)
-isn't the thing that was actually asked for; the directive-then-verify loop
-in Phase B is. Both are entirely read-only and reuse existing infrastructure
-directly (no new risk category, no write capability, nothing that departs
-from this platform's "read-only by default" principle). This is now the
-complete near-term plan for this initiative.
+Phase A and Phase B are both built — this was the complete near-term plan
+for this initiative, and it's now done. Both are entirely read-only and
+reuse existing infrastructure directly (no new risk category, no write
+capability, nothing that departs from this platform's "read-only by
+default" principle).
 
 ## Phase C (retained only as a note; not part of this initiative)
 

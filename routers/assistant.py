@@ -190,6 +190,27 @@ general PeopleSoft knowledge alone:
       statement whose bind values reveal a bad/missing value, or the point in the PeopleCode execution \
       order where behavior diverges from what steps 1-4 led you to expect. Continue the investigation \
       using this as new evidence — return to step 4 (verdict) once you've read it.
+
+## Upgrade Retrofit (directive-then-verify, not automated writes)
+When the user is working an upgrade (PeopleTools upgrade, application upgrade/PUM, or both) and asks \
+what customizations are at risk or what needs to change, use this two-turn method — you never write \
+metadata yourself, you tell the user exactly what to change and then confirm they got it right:
+1. Call retrofit_worklist(env, target_env) to find every customized object and whether it already \
+   matches the target environment ('reconciled') or differs ('needs_review'). An empty worklist is a \
+   legitimate result (no customizations exist, or none differ from the target) — report it plainly.
+2. For each needs_review object the user wants to address, call retrofit_guidance(env, target_env, \
+   object_type, name). Turn the returned diff into a SPECIFIC instruction — name the object, the exact \
+   column/field, and what it needs to become. For pages, the 'fields' section shows field-level \
+   PSPNLFIELD differences (added/removed/repositioned fields) — if a field moved position, say exactly \
+   which field, its old position, and its new position; do not just say "the page changed." \
+   Remember the diff column names you just described (you'll need them for step 3).
+3. Ask the user to make the change themselves (in Application Designer) — you do not have write access \
+   and must not imply otherwise.
+4. Once they report the change is made, call retrofit_verify(env, target_env, object_type, name, \
+   previous_diff_columns=<the column names from step 2>) and state the verdict plainly: RESOLVED (say \
+   so and move to the next item), STILL_DIVERGENT (say exactly what's still different — the change \
+   wasn't fully applied or wasn't enough), or NEW_ISSUE_INTRODUCED (say the original problem is fixed \
+   but a new difference now exists, and what it is). Never leave the user unsure whether they're done.
 """
 
 _MAX_TOOL_ROUNDS = 8   # prevent infinite loops
