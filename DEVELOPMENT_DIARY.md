@@ -6688,3 +6688,94 @@ now explains the program's real logic correctly.
 Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged —
 system-prompt change plus a connector bugfix, no new admin routes);
 `make check` → 100/100 files, 19/19 tests.
+
+---
+
+### Trace-Assisted Diagnostics (pending commit)
+
+Closed the last gap the user asked for: when the AI can't determine root
+cause through code/logic and data inspection alone, it should instruct the
+user how to enable a real PeopleSoft server trace, then locate and read the
+resulting trace files itself as part of its investigation.
+
+**Investigated the real infrastructure before writing any code**, same
+discipline as every other feature this session. Live SSH into the app
+server confirmed: `psappsrv.cfg`'s `[Trace]` section is real, with
+`TraceSql=0`/`TracePC=0` currently (tracing off by default, as expected —
+nobody's traced anything in this demo environment); no separate `TraceDir`
+is configured, so trace files would land in the same domain `LOGS`
+directory that already holds the real `APPSRV_*.LOG` files I could read;
+both the HCM (`HCMDMO_APP`) and FSCM (`FSCMDMO_APP`) app server domains are
+reachable via the existing `hcm_appserver` SSH host alias (confirmed by
+listing both domains' actual directories).
+
+`connectors/traceconn.py`: `trace_config(env)` reads the live
+`TraceSql`/`TracePC` bitfield values straight from `psappsrv.cfg` — so any
+instructions given are always correct for the environment's *current*
+state, never a stale assumption. `list_trace_files()`/`read_trace_file()`
+reuse the existing `sshclient` connector (`list_files`/`read_bytes`/
+`file_size`) unchanged.
+
+**Deliberately did not write a bespoke trace-file-format parser.**
+PeopleTools SQL/PeopleCode trace text is dense but genuinely human/LLM-
+readable (`Sql:`/`Bind-n:`-style lines, PeopleCode statement lines), and
+there are zero real trace samples in this environment to build or verify a
+parser against (tracing is off by default). Handing the AI raw, truncated
+trace text to read directly is the same pattern already used for source
+code via `peoplecode_search`/`sqr_program`/`cobol_program` — safer than
+shipping an unverified parser against a format I've never seen real output
+from.
+
+New AI tools: `trace_status`, `list_trace_files`, `read_trace_file`. New
+step 6 in `routers/assistant.py`'s Root Cause Investigation Method: after
+steps 1-4 (subsystems → logic → data → verdict) are inconclusive, check
+live trace config, tell the user the exact real file and bitfield values to
+change, wait for them to reproduce the issue, locate and read the resulting
+trace, then loop back to the verdict step with that new evidence as
+evidence, not as a dead end.
+
+**A real mistake caught before committing**: my first draft of the
+recommended `TraceSql` bitfield value was `1032`, which doesn't correspond
+to anything meaningful — I'd mentally added the wrong bits. Rereading the
+config file's own bit-meaning comments (which I'd already fetched live via
+SSH), the correct, useful combination for "see the query and its actual
+bind values" is bit 1 (SQL statements) + bit 2 (SQL statement variables) =
+**3**. Fixed before it ever reached a live test. `TracePC=2048` needed no
+correction — it's the exact value the config file's own comments literally
+mark `"(recommended)"`.
+
+**Verified with two real, unscripted multi-turn conversations** against the
+live OpenAI-backed assistant:
+1. Described a "we've exhausted code and data investigation, help us get
+   deeper visibility" scenario. The assistant called `trace_status`
+   (correctly reporting both trace types currently disabled), then gave the
+   exact real config file path (`/opt/psoft/hcm/ps_cfg_home/appserv/
+   HCMDMO_APP/psappsrv.cfg`) with the corrected bitfield values, correctly
+   explained the "dynamic change, no bounce needed, but affects all
+   sessions on the domain" tradeoff, and asked the user to reproduce the
+   issue before continuing — it didn't just dump instructions and stop.
+2. A follow-up turn ("OK, I enabled tracing and reproduced the issue,
+   please check now"): the assistant called `list_trace_files`, got a real
+   empty result (`count: 0` — honest, since tracing isn't actually enabled
+   in this demo environment, the simulated "I did it" from the test prompt
+   notwithstanding), and correctly told the user this likely means tracing
+   wasn't actually enabled or the issue wasn't reproduced yet, asking them
+   to confirm — rather than fabricating trace content to look useful.
+
+Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged —
+connector + AI tool + system-prompt work, no new admin pages); `make check`
+→ 100/100 files, 19/19 tests. Direct dispatch-level tests of all three new
+tools against real infrastructure (`trace_config` read the real live
+config; `list_trace_files` correctly empty for `*.trace*` and correctly
+populated for a broader `APPSRV_*` pattern, proving the mechanism itself
+works; `read_trace_file` correctly read real log content via SSH, and
+correctly errored on a genuinely missing file rather than silently
+returning something wrong).
+
+Known limitation, documented in ROADMAP.md rather than hidden: no trace has
+ever actually been generated in this environment, so `read_trace_file`'s
+content-reading path is verified against real non-trace files and a
+graceful-missing-file case, not against genuine trace output. Deliberately
+did not enable tracing myself to manufacture a sample — that's a real,
+domain-wide, session-affecting infrastructure change, not something to do
+unrequested just to round out a test.

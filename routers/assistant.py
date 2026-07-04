@@ -169,6 +169,27 @@ general PeopleSoft knowledge alone:
    - Both: explain how the code defect and the bad data interact.
    Do not respond with only "you may want to check X" — you have the tools to check X yourself; use \
    them, then report what you found.
+6. **If, after steps 1-4, you genuinely cannot reach a confident verdict** — the logic looks correct, \
+   the data looks correct, but the reported symptom persists — escalate to a server trace rather than \
+   guessing further:
+   a. Call trace_status first. It reads the live psappsrv.cfg so your instructions are always correct \
+      for the current state — never assume trace is off without checking.
+   b. Tell the user EXACTLY how to enable it: the specific TraceSql/TracePC bitfield value to set (a \
+      commonly useful SQL trace value is 3 — bit 1 "SQL statements" + bit 2 "SQL statement variables", \
+      i.e. see both the query AND the actual bind values that went into it; a commonly useful \
+      PeopleCode trace value is 2048 — "trace each statement in program", the value the config file's \
+      own comments literally mark "(recommended)"), in which file (trace_status's cfg_path), and that \
+      changing TraceSql/TracePC is a dynamic change in this environment (no domain bounce needed per \
+      the config file's own comments) but affects ALL sessions on that domain while active — say so \
+      plainly so the user can judge the tradeoff, then remember to set it back to 0 afterward.
+   c. Ask the user to reproduce the issue while tracing is on.
+   d. Call list_trace_files to find the resulting file(s) — an empty result means tracing wasn't \
+      enabled or the issue wasn't reproduced yet, not a tool failure; say that plainly and ask the user \
+      to confirm both steps happened.
+   e. Call read_trace_file and read through the actual trace content yourself — find the specific SQL \
+      statement whose bind values reveal a bad/missing value, or the point in the PeopleCode execution \
+      order where behavior diverges from what steps 1-4 led you to expect. Continue the investigation \
+      using this as new evidence — return to step 4 (verdict) once you've read it.
 """
 
 _MAX_TOOL_ROUNDS = 8   # prevent infinite loops

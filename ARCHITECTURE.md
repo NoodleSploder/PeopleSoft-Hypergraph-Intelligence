@@ -83,6 +83,21 @@ remain independent, hand-invoked tools. Concretely:
   being referenced in that prompt at all despite being registered. See
   ROADMAP.md's "Universal Root-Cause Diagnostics" section for the concrete,
   verified state of this.
+- **When code and data inspection are both inconclusive, escalate to a live
+  server trace rather than guess.** PeopleSoft's own SQL/PeopleCode trace
+  (`psappsrv.cfg`'s `[Trace]` section — `TraceSql`/`TracePC` bitfields) is a
+  line-by-line record of every statement actually executed for a request —
+  ground truth beyond what static logic/data inspection can reveal, since it
+  captures the actual runtime path, not just what the code and data *should*
+  produce. The assistant must be able to: check the live trace configuration
+  (`trace_status`), tell the user the exact, currently-correct values and file
+  to change, locate the resulting trace file(s) once the user reproduces the
+  issue (`list_trace_files`), and read/replay through the trace content itself
+  as further evidence (`read_trace_file`) — closing the loop back to a
+  verdict, rather than stopping at "here's how to get more data, good luck."
+  An empty trace-file result is a legitimate, common outcome (tracing wasn't
+  enabled yet, or the issue wasn't reproduced) and must be reported plainly,
+  not treated as a tool failure.
 
 ---
 

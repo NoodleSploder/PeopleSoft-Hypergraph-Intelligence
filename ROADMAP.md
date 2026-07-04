@@ -670,19 +670,84 @@ same investigation after the fix — `ae_steps` returned 16 real steps with
 correct SQL previews, and the model explained the program's actual logic
 correctly.
 
+## Trace-Assisted Diagnostics — ✅ Complete
+
+Closes the last gap in the diagnostic method: when code and data inspection
+are both inconclusive, the assistant can now instruct the user how to enable
+a live PeopleSoft server trace, then locate and read the resulting trace
+file(s) itself as further evidence, rather than stopping at "here's how to
+get more data."
+
+- **Confirmed real infrastructure before building anything**, per this
+  session's established discipline: live SSH inspection of
+  `psappsrv.cfg`'s `[Trace]` section confirmed `TraceSql=0`/`TracePC=0`
+  (tracing genuinely off by default, as expected), that no `TraceDir` is
+  configured so trace files land in the same domain `LOGS` directory that
+  already holds `APPSRV_*.LOG` files, and that both the HCM (`HCMDMO_APP`)
+  and FSCM (`FSCMDMO_APP`) app server domains are reachable via the existing
+  `hcm_appserver` SSH host.
+- New `connectors/traceconn.py`: `trace_config(env)` reads the *live*
+  `TraceSql`/`TracePC`/mask values from `psappsrv.cfg` (so instructions are
+  always correct for the current state, never a stale assumption),
+  `list_trace_files(env, pattern)` lists `*.tracesql`/`*.tracepc` files (an
+  empty result is a legitimate, common outcome — tracing not yet enabled or
+  reproduced — not a tool failure), `read_trace_file(env, filename)` reads
+  content via the existing `sshclient` connector.
+- **Deliberately no bespoke trace-file-format parser** — PeopleTools SQL/
+  PeopleCode trace text is dense but genuinely human/LLM-readable
+  (`Sql:`/`Bind-n:` lines, PeopleCode statement lines), and zero real trace
+  samples exist in this environment to build/verify a parser against
+  (`TraceSql=0` by default). Raw truncated text is handed to the AI to read
+  directly — the same pattern already used for source code via
+  `peoplecode_search`/`sqr_program`/`cobol_program` — rather than risking an
+  unverified parser.
+- New AI tools: `trace_status`, `list_trace_files`, `read_trace_file`. New
+  system-prompt step 6 in the Root Cause Investigation Method: after steps
+  1-4 (identify subsystems, inspect logic, check data, reach for a verdict)
+  are inconclusive, check live trace config, give the user exact real
+  instructions (file path + bitfield values), wait for reproduction, locate
+  and read the resulting trace, then return to the verdict step with that
+  new evidence.
+- New `config.json["trace_sources"]` (mirrors the `sqr_sources`/
+  `cobol_sources`/`log_sources` convention): per-env `ssh_host`, `trace_dir`,
+  `cfg_path`.
+
+**Verified with two real, unscripted multi-turn conversations** against the
+live OpenAI-backed assistant: (1) described a "we've exhausted code and data
+investigation" scenario — the assistant called `trace_status`, then gave the
+exact real config file path with correct bitfield values (`TraceSql=3` — bit
+1 "SQL statements" + bit 2 "SQL statement variables", i.e. see the query and
+its actual bind values; `TracePC=2048` — the value the config file's own
+comments literally mark "(recommended)"), and correctly explained the
+dynamic-change/domain-wide tradeoff and to revert afterward. (A first draft
+of this guidance had an arithmetic mistake — `1032` instead of the correct
+`1+2=3` — caught and fixed before commit.) (2) A follow-up turn where the
+user claimed to have reproduced the issue: the assistant called
+`list_trace_files`, got a real empty result (honest — tracing isn't actually
+enabled in this demo environment), and correctly asked the user to confirm
+rather than fabricating trace content.
+
 ## Remaining
 
 - This phase closes the *capability* gap (every subsystem is reachable, the
-  method is systematic, verdicts are explicit). It does not add new
-  subsystem coverage beyond what already existed — if a genuinely new logic
-  type is added to the platform in the future (e.g. a new integration type),
-  it must get an AI tool at the same time it gets a UOM provider, per
-  `ARCHITECTURE.md`'s mandate, or this phase's guarantee quietly erodes.
+  method is systematic, verdicts are explicit, and trace-level evidence is
+  reachable as a last resort). It does not add new subsystem coverage beyond
+  what already existed — if a genuinely new logic type is added to the
+  platform in the future (e.g. a new integration type), it must get an AI
+  tool at the same time it gets a UOM provider, per `ARCHITECTURE.md`'s
+  mandate, or this phase's guarantee quietly erodes.
 - `_MAX_TOOL_ROUNDS = 8` in `routers/assistant.py` caps how many tool calls one
   investigation can chain — adequate for the scenarios tested so far; a
   genuinely deep multi-subsystem investigation (e.g. PeopleCode → SQR →
-  data → IB) could in principle need more rounds. Not raised in this phase
-  since no real investigation has hit the cap; revisit if one does.
+  data → IB → trace) could in principle need more rounds. Not raised in this
+  phase since no real investigation has hit the cap; revisit if one does.
+- No real trace file has ever been generated in this environment (tracing is
+  off by default) — the file-locating/reading mechanics are verified against
+  real SSH infrastructure and real non-trace files in the same directory,
+  but the trace-content-reading step itself has only been verified for
+  graceful-empty, not against a real populated trace file. If this matters,
+  enable tracing once, reproduce a real request, and re-verify
+  `read_trace_file` against genuine trace content.
 
 ---
 

@@ -483,6 +483,65 @@ TOOLS = [
             "required": ["env", "sql"],
         },
     },
+    {
+        "name": "trace_status",
+        "description": (
+            "Check whether PeopleSoft server-side SQL/PeopleCode tracing is currently enabled for an "
+            "environment, and get the exact configuration values needed to enable it. Use this BEFORE "
+            "telling the user how to enable a trace — it reads the live psappsrv.cfg so you always give "
+            "correct, current instructions rather than assuming trace is off. Use this when other "
+            "investigation tools (peoplecode_search, sql_lookup, execute_sql, etc.) have been exhausted "
+            "and you still cannot determine root cause — a server trace is the next level of evidence: "
+            "a line-by-line record of every SQL statement and every PeopleCode statement actually "
+            "executed for a request."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+            },
+            "required": ["env"],
+        },
+    },
+    {
+        "name": "list_trace_files",
+        "description": (
+            "List trace files (*.tracesql, *.tracepc) in an environment's app server LOGS directory. "
+            "Call this after asking the user to enable tracing (via trace_status's instructions) and "
+            "reproduce the issue. An empty result is a normal, honest outcome — it means no trace has "
+            "run yet, not that something is broken; tell the user to confirm they enabled tracing and "
+            "reproduced the issue, then check again."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "pattern": {"type": "string", "description": "Glob pattern, default '*.trace*' (matches both *.tracesql and *.tracepc)"},
+            },
+            "required": ["env"],
+        },
+    },
+    {
+        "name": "read_trace_file",
+        "description": (
+            "Read the content of a trace file found via list_trace_files, and replay through it as part "
+            "of your investigation. Trace files are dense but readable text — SQL trace lines show each "
+            "statement and its bind values; PeopleCode trace lines show each statement executed, in "
+            "order. Read through it looking for: the specific SQL statement whose bind values reveal a "
+            "bad/missing value, an unexpected branch in the PeopleCode execution order, or an error at "
+            "the exact point of failure. Large files are truncated — if truncated and you need more, "
+            "say so rather than guessing at what the rest contains."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "filename": {"type": "string", "description": "Filename or full path from list_trace_files"},
+                "max_kb": {"type": "integer", "description": "Max KB to read (default 200)"},
+            },
+            "required": ["env", "filename"],
+        },
+    },
 ]
 
 # Tool name → schema lookup
@@ -1188,6 +1247,21 @@ def _execute_sql(env: str, sql: str, max_rows: int = 50) -> dict:
     return sqlmask.mask_result(result)
 
 
+def _trace_status(env: str) -> dict:
+    from connectors import traceconn
+    return traceconn.trace_config(env)
+
+
+def _list_trace_files(env: str, pattern: str = "*.trace*") -> dict:
+    from connectors import traceconn
+    return traceconn.list_trace_files(env, pattern=pattern or "*.trace*")
+
+
+def _read_trace_file(env: str, filename: str, max_kb: int = 200) -> dict:
+    from connectors import traceconn
+    return traceconn.read_trace_file(env, filename, max_kb=max_kb or 200)
+
+
 _HANDLERS = {
     "search_objects":     _search_objects,
     "peoplecode_search":  _peoplecode_search,
@@ -1211,4 +1285,7 @@ _HANDLERS = {
     "component_events":        _component_events,
     "peoplecode_sequence":     _peoplecode_sequence,
     "execute_sql":             _execute_sql,
+    "trace_status":            _trace_status,
+    "list_trace_files":        _list_trace_files,
+    "read_trace_file":         _read_trace_file,
 }
