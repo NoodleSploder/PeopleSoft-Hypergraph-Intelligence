@@ -117,6 +117,10 @@ tr:hover td{background:rgba(0,229,255,.04);}
       <button class="sec" style="font-size:9px;padding:2px 6px;" onclick="schemaPrefix('SYSADM.')">SYSADM.</button>
     </div>
     <div id="schemaResults"><span class="empty">Type to search</span></div>
+    <div style="margin-top:10px;">
+      <h2 style="margin:0 0 4px;">Pinned Tables</h2>
+      <div id="pinnedTables"><span class="empty">No pinned tables</span></div>
+    </div>
   </div>
 
   <!-- History -->
@@ -567,6 +571,8 @@ function renderSchemaResults(results, warnings) {
     const link = obj.ps_recname
       ? `<a href="/admin/object/record/${esc(obj.ps_recname)}" style="color:#00e5ff;font-size:9px;" target="_blank">&#8599;</a>`
       : '';
+    const ownerArg = esc(obj.owner).replace(/'/g,"\\'");
+    const nameArg  = esc(obj.object_name).replace(/'/g,"\\'");
     html += `
       <div class="schema-item" onclick="toggleSchemaItem('${id}','${esc(obj.owner)}','${esc(obj.object_name)}')">
         <span>
@@ -575,10 +581,63 @@ function renderSchemaResults(results, warnings) {
           ${obj.description ? `<br><span style="font-size:9px;color:#556;">${esc(obj.description)}</span>` : ''}
         </span>
         ${badge}
+        <div style="margin-top:3px;display:flex;gap:4px;">
+          <button class="sec pin-btn" onclick="event.stopPropagation();loadTableQuery('${ownerArg}','${nameArg}')">Load</button>
+          <button class="sec pin-btn" onclick="event.stopPropagation();toggleTablePin('${ownerArg}','${nameArg}')">${isTablePinned(obj.owner, obj.object_name) ? '&#9733; Unpin' : '&#9734; Pin'}</button>
+        </div>
       </div>
       <div id="${id}" class="schema-cols"></div>`;
   });
   box.innerHTML = html;
+}
+
+// ── Pinned tables (client-side, per-browser) ────────────────────────────
+const PINNED_TABLES_KEY = 'sqlws_pinned_tables';
+
+function getPinnedTables() {
+  try { return JSON.parse(localStorage.getItem(PINNED_TABLES_KEY) || '[]'); }
+  catch(e) { return []; }
+}
+
+function setPinnedTables(list) {
+  localStorage.setItem(PINNED_TABLES_KEY, JSON.stringify(list));
+}
+
+function isTablePinned(owner, objName) {
+  return getPinnedTables().some(t => t.owner === owner && t.object_name === objName);
+}
+
+function loadTableQuery(owner, objName) {
+  $('sqlInput').value = `SELECT * FROM ${owner}.${objName}`;
+  $('sqlInput').focus();
+}
+
+function toggleTablePin(owner, objName) {
+  const list = getPinnedTables();
+  const idx = list.findIndex(t => t.owner === owner && t.object_name === objName);
+  if (idx >= 0) list.splice(idx, 1);
+  else list.push({owner, object_name: objName});
+  setPinnedTables(list);
+  renderPinnedTables();
+  searchSchema();  // re-render search results so the Pin/Unpin label updates
+}
+
+function renderPinnedTables() {
+  const box = $('pinnedTables');
+  const list = getPinnedTables();
+  if (!list.length) { box.innerHTML = '<span class="empty">No pinned tables</span>'; return; }
+  box.innerHTML = list.map(t => {
+    const ownerArg = esc(t.owner).replace(/'/g,"\\'");
+    const nameArg  = esc(t.object_name).replace(/'/g,"\\'");
+    return `
+      <div class="schema-item">
+        <span style="font-family:monospace;">${esc(t.owner)}.${esc(t.object_name)}</span>
+        <div style="margin-top:3px;display:flex;gap:4px;">
+          <button class="sec pin-btn" onclick="loadTableQuery('${ownerArg}','${nameArg}')">Load</button>
+          <button class="sec pin-btn" onclick="toggleTablePin('${ownerArg}','${nameArg}')">&#9733; Unpin</button>
+        </div>
+      </div>`;
+  }).join('');
 }
 
 async function toggleSchemaItem(id, owner, objName) {
@@ -883,6 +942,7 @@ async function deleteHistory(id) {
     $('pageSizeInput').value = cfg.default_page_size || 100;
   }
   loadHistory();
+  renderPinnedTables();
 
   // Auto-detect bind vars when SQL changes (debounced)
   let _bindDetectTimer = null;

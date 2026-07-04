@@ -575,7 +575,7 @@ async function loadDetail(key) {{
     html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
     sibSec.items.forEach(sib => {{
       const chips = sib.chips?.map(ch => `<span style="font-size:9px;color:#996;margin-left:4px">${{esc(ch.label)}}</span>`).join('') || '';
-      html += `<span style="display:inline-block;background:#0a0818;border:1px solid #2a1a4a;border-radius:3px;padding:2px 8px;font-size:11px;font-family:monospace;color:#aa66ff;cursor:pointer" onclick="loadDetail(${{JSON.stringify(key.split('~').slice(0,2).join('~') + '~' + sib.name)}})">${{esc(sib.name)}}${{chips}}</span>`;
+      html += `<span style="display:inline-block;background:#0a0818;border:1px solid #2a1a4a;border-radius:3px;padding:2px 8px;font-size:11px;font-family:monospace;color:#aa66ff;cursor:pointer" data-ref="${{esc(key.split('~').slice(0,2).join('~') + '~' + sib.name)}}" onclick="loadDetail(this.dataset.ref)">${{esc(sib.name)}}${{chips}}</span>`;
     }});
     html += '</div>';
   }}

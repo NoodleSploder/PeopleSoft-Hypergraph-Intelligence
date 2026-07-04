@@ -386,13 +386,18 @@ def normalize_program(row, source=None):
     }
 
 
-def programs(env, q="", limit=100, offset=0):
+def programs(env, q="", limit=100, offset=0, include_source_search=True):
     """Return PeopleCode program metadata from PSPCMPROG with optional search and pagination.
 
     Supports:
       - q: filter by object name (OBJECTVALUE columns) or source text (PSPCMTXT)
       - limit: max 2000 rows per page
       - offset: ROWS ONLY pagination for large result sets
+      - include_source_search: also merge PSPCMTXT full-text-search hits (only
+        relevant for the user-facing search UI). A full LIKE scan of PSPCMTXT's
+        source-text column is expensive (every line of PeopleCode in the
+        environment) — callers that already know the exact reference they want
+        (e.g. program() below) should pass False to skip it entirely.
     Returns: {items, total_hint, offset, limit, has_more, warnings}
     """
     limit = max(1, min(int(limit), 2000))
@@ -449,7 +454,7 @@ def programs(env, q="", limit=100, offset=0):
     items = [normalize_program(row) for row in page_rows]
 
     # Merge source-text search results only on the first page (offset=0) with no q or with q
-    if q and caps["tables"]["pspcmtxt"] and offset == 0:
+    if q and include_source_search and caps["tables"]["pspcmtxt"] and offset == 0:
         text_rows = source_search(env, q, limit)
         seen = {item["reference"] for item in items}
         for item in text_rows["items"]:
@@ -502,7 +507,13 @@ def program(reference, env):
     # Search by the first component (object name); the full dotted reference won't match
     # any single PSPCMPROG column, so we anchor on OV1 then filter for exact reference.
     first_component = reference.split(".")[0]
-    rows = programs(env, first_component, 500)
+    # We're about to filter for an exact reference match below, so the
+    # PSPCMTXT full-source-text-search merge programs() normally does for the
+    # search UI is pure waste here — it can never produce the one row we
+    # want (which is already covered by the PSPCMPROG metadata match) and
+    # costs a multi-second LIKE scan over every line of PeopleCode source
+    # in the environment.
+    rows = programs(env, first_component, 500, include_source_search=False)
     for row in rows["items"]:
         if row["reference"] == reference:
             source = source_for_reference(env, row)
@@ -709,8 +720,13 @@ def extract_dynamic_sql(source):
     return statements
 
 
-def references(reference, env):
-    result = program(reference, env)
+def references(reference, env, preloaded=None):
+    """
+    preloaded: an already-fetched program() result ({"item":..., "warnings":...}) —
+    pass this when the caller already looked the program up, to avoid a second
+    full program() lookup for the same reference.
+    """
+    result = preloaded if preloaded is not None else program(reference, env)
     source = result["item"].get("source")
     return {
         "reference": result["item"]["reference"],
@@ -742,8 +758,11 @@ def references_for_program(env, program_row):
     }
 
 
-def graph(reference, env):
-    result = program(reference, env)
+def graph(reference, env, preloaded=None):
+    """
+    preloaded: an already-fetched program() result — see references() docstring.
+    """
+    result = preloaded if preloaded is not None else program(reference, env)
     item = result["item"]
     ref = item["reference"]
     refs = extract_references(item.get("source"))

@@ -212,7 +212,12 @@ TOOLS = [
             "Returns: Oracle DB connectivity status, active user session count, "
             "recent error spike (log errors in last hour vs last 24h), "
             "IB domain dispatcher status, Integration Broker failed/cancelled transaction counts, "
-            "and process scheduler queue health. "
+            "process scheduler queue health, and — critically — live OS-level checks of the "
+            "App Server tier, Process Scheduler tier, and Web Server (PIA/WebLogic) tier via SSH. "
+            "Oracle being reachable does NOT mean the app/web/process-scheduler machines are up — "
+            "those are separate hosts and this tool checks them independently, reporting DOWN when "
+            "no live Tuxedo/WebLogic processes are found, or UNKNOWN when the environment has no "
+            "monitored host configured for that tier (never silently omitted as if healthy). "
             "This tells you if the environment is UP or DOWN before giving any advice."
         ),
         "input_schema": {
@@ -420,6 +425,30 @@ TOOLS = [
         },
     },
     {
+        "name": "component_detail",
+        "description": (
+            "Get the complete, LIVE set of pages, records, permission lists, and menus for a "
+            "named PeopleSoft component — queried directly from PeopleTools metadata tables "
+            "(PSPNLGRPDEFN/PSPNLFIELD/PSAUTHITEM/etc.), not from the knowledge graph. "
+            "IMPORTANT: prefer this over graph_dependencies/graph_impact when asked what pages "
+            "or records belong to a SPECIFIC named component — the knowledge graph is built with "
+            "a row limit per object type and may not include every component's edges, especially "
+            "for components alphabetically outside the first batch processed. This tool has no "
+            "such limit and always reflects the real, current data for the one component asked "
+            "about. Examples: 'What pages and records are associated with JOB_DATA?', "
+            "'What records does the HR_JOBDATA_ADD_FL component use?', "
+            "'Which permission lists secure JOB_DATA?'"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "component": {"type": "string", "description": "Component name (PNLGRPNAME), e.g. JOB_DATA"},
+            },
+            "required": ["env", "component"],
+        },
+    },
+    {
         "name": "peoplecode_sequence",
         "description": (
             "Return the CANONICAL ORDERED processing sequence for a PeopleSoft component, "
@@ -620,6 +649,36 @@ TOOLS = [
                 },
             },
             "required": ["env", "target_env", "object_type", "name"],
+        },
+    },
+    {
+        "name": "architecture_report",
+        "description": (
+            "Generate a Markdown architecture document for a PeopleSoft object: a dependency "
+            "report (what it depends on / what depends on it, using the knowledge graph), a "
+            "sequence narrative (its processing-sequence phases as a readable doc plus a Mermaid "
+            "flowchart, for component/record objects only), or an impact summary (a short prose "
+            "blast-radius paragraph suitable for pasting into a change ticket). Use this when the "
+            "user wants documentation, a dependency writeup, or a diagram they can paste elsewhere — "
+            "not for interactive exploration (use graph_dependencies/graph_impact for that)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "report_type": {
+                    "type": "string",
+                    "enum": ["dependency", "sequence", "impact"],
+                    "description": "dependency=forward/reverse KG report; sequence=phase-ordered narrative + Mermaid diagram (component/record only); impact=short prose blast-radius summary",
+                },
+                "node_type": {
+                    "type": "string",
+                    "description": "Object type (e.g. component, record, page, application_engine, sql_definition). For report_type=sequence, must be 'component' or 'record'.",
+                },
+                "name": {"type": "string", "description": "The object's name"},
+                "depth": {"type": "integer", "description": "Traversal depth for dependency/impact reports (default 3, max 4)"},
+            },
+            "required": ["env", "report_type", "node_type", "name"],
         },
     },
 ]
@@ -987,6 +1046,80 @@ def _environment_health(env: str) -> dict:
     except Exception as exc:
         check("log_error_rate", "UNKNOWN", str(exc))
 
+    # 7. App Server / Process Scheduler tier — live OS-level Tuxedo domain
+    # check via SSH `ps`, not just Oracle-side signals. Everything above this
+    # point can report "healthy" purely from DB queries even when the actual
+    # app server / process scheduler / web server machines are completely
+    # down, since the Oracle listener is a separate box from the app tier.
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        cfg = _json.loads(_Path("/opt/deathstar-api/config.json").read_text())
+        trace_src = next(
+            (t for t in cfg.get("trace_sources", []) if t.get("env", "").upper() == env),
+            None,
+        )
+        if trace_src:
+            from connectors import appsrvproc
+            ssh_host = trace_src["ssh_host"]
+            # The cfg directory name (e.g. "HCMDMO_APP") is NOT the live Tuxedo
+            # domain name — real domains carry a per-instance numeric suffix
+            # instead (e.g. "HCMDMO_210976"). Both share the pillar prefix
+            # before the underscore ("HCMDMO"/"FSCMDMO"), which is what's
+            # actually stable and matchable against live `ps` output.
+            cfg_dir_name = _Path(trace_src.get("cfg_path", "")).parent.name
+            domain_prefix = cfg_dir_name.split("_")[0]
+            proc_result = appsrvproc.list_processes(ssh_host)
+            if proc_result["warnings"] and not proc_result["processes"]:
+                msg = proc_result["warnings"][0]["message"]
+                check("app_server_tier", "UNKNOWN", f"Could not reach {ssh_host} via SSH: {msg}")
+                check("process_scheduler_tier", "UNKNOWN", f"Could not reach {ssh_host} via SSH: {msg}")
+            else:
+                domain_procs = [p for p in proc_result["processes"] if p["domain_name"].startswith(domain_prefix)]
+                app_procs = [p for p in domain_procs if p["tier"] == "app_server"]
+                prcs_procs = [p for p in domain_procs if p["tier"] == "process_scheduler"]
+                check("app_server_tier",
+                      "UP" if app_procs else "DOWN",
+                      f"{len(app_procs)} live app-server process(es) for domain(s) matching {domain_prefix}* on {ssh_host}"
+                      if app_procs else
+                      f"No live Tuxedo app-server processes found for domain(s) matching {domain_prefix}* on {ssh_host} — app server domain is down")
+                check("process_scheduler_tier",
+                      "UP" if prcs_procs else "DOWN",
+                      f"{len(prcs_procs)} live process-scheduler process(es) for domain(s) matching {domain_prefix}* on {ssh_host}"
+                      if prcs_procs else
+                      f"No live process-scheduler processes found for domain(s) matching {domain_prefix}* on {ssh_host} — process scheduler is down")
+        else:
+            check("app_server_tier", "UNKNOWN",
+                  f"No trace_sources entry configured for {env} — cannot verify live app server/process scheduler status")
+    except Exception as exc:
+        check("app_server_tier", "WARN", str(exc))
+
+    # 8. Web Server / PIA tier — live process check via SSH, only if a web
+    # log source is actually configured for this env. If not configured,
+    # report UNKNOWN rather than silently omitting the tier (an omission
+    # reads as "healthy" to anyone summarizing the checks list).
+    try:
+        web_src = next(
+            (s for s in cfg.get("log_sources", [])
+             if s.get("env", "").upper() == env and str(s.get("type", "")).startswith("pia_")),
+            None,
+        )
+        if web_src:
+            from connectors import sshclient
+            out, err, status = sshclient.run_command(
+                web_src["ssh_host"], "ps -ef | grep -i weblogic | grep -v grep", timeout=15,
+            )
+            if out.strip():
+                check("web_server_tier", "UP", f"WebLogic/PIA process found on {web_src['ssh_host']}")
+            else:
+                check("web_server_tier", "DOWN",
+                      f"No WebLogic/PIA process found on {web_src['ssh_host']} — web server appears to be down")
+        else:
+            check("web_server_tier", "UNKNOWN",
+                  f"No web log source configured for {env} — cannot verify live web server status")
+    except Exception as exc:
+        check("web_server_tier", "WARN", str(exc))
+
     # Overall verdict
     statuses = [c["status"] for c in result["checks"]]
     if "DOWN" in statuses:
@@ -1291,6 +1424,52 @@ def _component_events(env: str, component: str) -> dict:
     return result
 
 
+def _component_detail(env: str, component: str) -> dict:
+    """
+    Live, complete component metadata — pages/records/permission lists/menus —
+    queried directly (uom.component_object), bypassing any knowledge-graph
+    build-limit truncation. See TOOLS entry for why this exists alongside
+    graph_dependencies/graph_impact.
+    """
+    from connectors import uom
+    obj = uom.component_object(env.upper(), component.upper())
+    if not obj or obj.get("status") == "not_found":
+        return {"found": False, "component": component.upper()}
+
+    rel = obj.get("_relationships", {})
+    pages = [
+        {"name": p.get("pnlname"), "market": p.get("market")}
+        for p in rel.get("pages", []) if p.get("pnlname")
+    ]
+    search_records = [
+        {"record": r.get("recname"), "usage": r.get("usage")}
+        for r in rel.get("search_records", []) if r.get("recname")
+    ]
+    page_records = sorted({
+        r.get("recname") for r in rel.get("page_records", []) if (r.get("recname") or "").strip()
+    })
+    permissionlists = sorted({
+        p.get("classid") for p in rel.get("permissionlists", []) if p.get("classid")
+    })
+    menus = sorted({
+        m.get("menuname") for m in rel.get("menus", []) if m.get("menuname")
+    })
+
+    return {
+        "found": True,
+        "component": obj.get("display_name", component.upper()),
+        "description": obj.get("description"),
+        "pages": pages,
+        "page_count": len(pages),
+        "search_records": search_records,
+        "records_used_by_pages": page_records,
+        "record_count": len(page_records),
+        "permission_lists": permissionlists,
+        "menus": menus,
+        "warnings": obj.get("warnings", []),
+    }
+
+
 def _peoplecode_sequence(env: str, target_type: str, name: str) -> dict:
     from connectors import peoplecode
     env = env.upper()
@@ -1359,6 +1538,18 @@ def _retrofit_verify(env: str, target_env: str, object_type: str, name: str,
                                      previous_diff_columns=previous_diff_columns)
 
 
+def _architecture_report(env: str, report_type: str, node_type: str, name: str, depth: int = 3) -> dict:
+    from connectors import archreport
+    env = env.upper()
+    if report_type == "dependency":
+        return archreport.dependency_report(env, node_type, name, depth=depth)
+    if report_type == "sequence":
+        return archreport.sequence_narrative(env, node_type, name)
+    if report_type == "impact":
+        return archreport.impact_summary_doc(env, node_type, name, depth=depth)
+    return {"found": False, "markdown": f"Unknown report_type '{report_type}'"}
+
+
 _HANDLERS = {
     "search_objects":     _search_objects,
     "peoplecode_search":  _peoplecode_search,
@@ -1380,6 +1571,7 @@ _HANDLERS = {
     "sqr_program":             _sqr_program,
     "cobol_program":           _cobol_program,
     "component_events":        _component_events,
+    "component_detail":        _component_detail,
     "peoplecode_sequence":     _peoplecode_sequence,
     "execute_sql":             _execute_sql,
     "trace_status":            _trace_status,
@@ -1388,4 +1580,5 @@ _HANDLERS = {
     "retrofit_worklist":       _retrofit_worklist,
     "retrofit_guidance":       _retrofit_guidance,
     "retrofit_verify":         _retrofit_verify,
+    "architecture_report":     _architecture_report,
 }

@@ -1275,7 +1275,7 @@ function doSearch() {{
       const id = r.ae_applid || '';
       const desc = (r.descr || '').trim();
       const restart = r.ae_disable_restart === 'Y' ? ' <span style="color:#f90;font-size:9px">NO-RESTART</span>' : '';
-      return `<div class="list-item${{_sel===id?' sel':''}}" onclick="loadProg(${{JSON.stringify(id)}})" data-id="${{esc(id)}}">
+      return `<div class="list-item${{_sel===id?' sel':''}}" onclick="loadProg(this.dataset.id)" data-id="${{esc(id)}}">
         <div style="font-family:monospace;font-size:12px;color:#44ddff">${{esc(id)}}${{restart}}</div>
         ${{desc?`<div style="font-size:10px;color:#445;margin-top:1px">${{esc(desc)}}</div>`:''}}
       </div>`;
@@ -1309,7 +1309,7 @@ function renderProg(id, d) {{
   const warns = d.warnings || [];
 
   const warn_html = warns.map(w => {{
-    const msg = typeof w === 'object' ? (w.detail || w.title || JSON.stringify(w)) : String(w);
+    const msg = typeof w === 'object' ? (w.message || w.title || JSON.stringify(w)) : String(w);
     return `<div class="warn-box">${{esc(msg)}}</div>`;
   }}).join('');
 
@@ -1367,7 +1367,7 @@ function renderProg(id, d) {{
         if (ta || ts) {{
           const isSame = !ta || ta.toUpperCase()===id.toUpperCase();
           const lnk = isSame
-            ? `<span class="call-link" style="cursor:pointer" onclick="event.stopPropagation();loadProg(${{JSON.stringify(isSame?id:ta)}})">${{esc(isSame?id:ta)}}.${{esc(ts)}}</span>`
+            ? `<span class="call-link" style="cursor:pointer" data-target="${{esc(isSame?id:ta)}}" onclick="event.stopPropagation();loadProg(this.dataset.target)">${{esc(isSame?id:ta)}}.${{esc(ts)}}</span>`
             : `<a class="call-link" href="/admin/ae?q=${{encodeURIComponent(ta)}}&env=${{ENV}}" onclick="event.stopPropagation()">${{esc(ta)}}.${{esc(ts)}}</a>`;
           bodyParts += `<div style="margin-bottom:6px;color:#556;font-size:11px">→ ${{lnk}}</div>`;
         }}
@@ -1594,7 +1594,7 @@ async function doSearch() {{
   list.innerHTML = rows.map(r => {{
     const name = r.pnlgrpname || '';
     const desc = r.descr || '';
-    return `<div class="list-item" onclick="loadComponent(${{JSON.stringify(name)}})" data-name="${{esc(name)}}">
+    return `<div class="list-item" onclick="loadComponent(this.dataset.name)" data-name="${{esc(name)}}">
       <div style="font-family:monospace;font-size:12px;color:#c8d8e8">${{esc(name)}}</div>
       ${{desc ? `<div style="font-size:11px;color:#556;margin-top:1px">${{esc(desc)}}</div>` : ''}}
     </div>`;
@@ -1683,7 +1683,7 @@ function renderComponent(d, name, panel) {{
       <span class="kv-lbl">Updated By</span><span class="kv-val">${{esc(ov.lastupdoprid||'')}}</span>
     </div>
     <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
-      <a href="/admin/compflow?component=${{encodeURIComponent(name)}}&env=${{ENV}}" style="color:#44aaff;font-size:12px">Event Flow &#x2197;</a>
+      <a href="/admin/compflow?comp=${{encodeURIComponent(name)}}&env=${{ENV}}" style="color:#44aaff;font-size:12px">Event Flow &#x2197;</a>
       <a href="/admin/object/component/${{encodeURIComponent(name)}}?env=${{ENV}}" style="color:#44aaff;font-size:12px">Full Object View &#x2197;</a>
     </div>`;
 
@@ -1956,7 +1956,7 @@ async function doSearch() {{
     const name = r.pnlname || '';
     const desc = r.descr || '';
     const typeLbl = PNLTYPE[r.pnltype] || '';
-    return `<div class="list-item" onclick="loadPage(${{JSON.stringify(name)}})" data-name="${{esc(name)}}">
+    return `<div class="list-item" onclick="loadPage(this.dataset.name)" data-name="${{esc(name)}}">
       <div style="display:flex;align-items:center;gap:6px">
         <span style="font-family:monospace;font-size:12px;color:#c8d8e8">${{esc(name)}}</span>
         ${{typeLbl && typeLbl !== 'Standard' ? `<span style="font-size:9px;color:#556">${{esc(typeLbl)}}</span>` : ''}}

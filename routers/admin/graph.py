@@ -1094,6 +1094,7 @@ def object_explorer_page(object_type="", object_name=""):
     </div>
 
 <script>
+__ESC_JS__
 const ENV = 'HCM';
 const INITIAL_TYPE = __OBJECT_TYPE__;
 const INITIAL_NAME = __OBJECT_NAME__;
@@ -1812,7 +1813,7 @@ function renderRecentList() {
             </div>
             ${desc}
           </div>
-          <button onclick="removeRecent(${JSON.stringify(r.type)},${JSON.stringify(r.name)},event)"
+          <button data-type="${esc(r.type)}" data-name="${esc(r.name)}" onclick="removeRecent(this.dataset.type,this.dataset.name,event)"
                   style="background:transparent;border:none;color:#334;cursor:pointer;font-size:14px;padding:0 2px;line-height:1;flex-shrink:0" title="Remove">×</button>
         </div>`;
     }).join('');
@@ -1958,6 +1959,7 @@ if (INITIAL_TYPE && INITIAL_NAME) {
 """)
     html = (
         html
+        .replace("__ESC_JS__", _ESC_JS)
         .replace("__OBJECT_TYPE__", json.dumps(object_type))
         .replace("__OBJECT_NAME__", json.dumps(object_name))
     )
@@ -2844,7 +2846,14 @@ def admin_graphdb():
 
         button {
             background: #00e5ff;
+            color: #000;
+            font-weight: bold;
+            border: none;
             cursor: pointer;
+        }
+
+        button:hover {
+            background: #33eeff;
         }
 
         select, input {

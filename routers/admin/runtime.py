@@ -3390,7 +3390,7 @@ async function loadPromos(){{
     return;
   }}
   let h='<table><tr><th>Date</th><th>Pillar</th><th>Project</th><th>Path</th>'
-      +'<th>By</th><th>Ticket</th><th>Notes</th><th></th></tr>';
+      +'<th>By</th><th>Ticket</th><th>Notes</th><th>Fingerprint</th><th></th></tr>';
   rows.forEach(r=>{{
     h+=`<tr>
       <td class="mono">${{esc(r.promoted_at)}}</td>
@@ -3404,11 +3404,38 @@ async function loadPromos(){{
       <td>${{esc(r.promoted_by||'—')}}</td>
       <td>${{r.ticket_ref?`<span class="mono">${{esc(r.ticket_ref)}}</span>`:'—'}}</td>
       <td style="max-width:220px;white-space:pre-wrap">${{esc(r.notes||'')}}</td>
+      <td><button onclick="loadFingerprint(${{r.id}}, this)">View</button></td>
       <td><button class="del" onclick="deletePromo(${{r.id}})">&#10005;</button></td>
-    </tr>`;
+    </tr>
+    <tr id="fp-${{r.id}}" style="display:none"><td colspan="9"></td></tr>`;
   }});
   h+='</table>';
   $('promoTable').innerHTML=h;
+}}
+
+async function loadFingerprint(id, btn){{
+  const row=document.getElementById('fp-'+id);
+  if(row.style.display!=='none'){{row.style.display='none';return;}}
+  const cell=row.querySelector('td');
+  cell.innerHTML='<span class="empty">Loading…</span>';
+  row.style.display='';
+  try{{
+    const r=await fetch(`/api/promotions/${{id}}/deployment`);
+    if(!r.ok){{cell.innerHTML='<span class="empty">No config/drift fingerprint captured for this promotion.</span>';return;}}
+    const d=await r.json();
+    let html=`<div class="mono" style="font-size:10px;color:#7faab2">config_hash: ${{esc(d.config_hash)}} `
+      +`(${{d.config_changed?'<span style="color:#00cc66">changed</span>':'unchanged since prior snapshot'}})</div>`;
+    if(d.drift_snapshot){{
+      html+=`<div style="margin-top:6px;font-size:11px;color:#7faab2">Nearest drift snapshot `
+        +`(${{esc(d.drift_snapshot.env1)}} vs ${{esc(d.drift_snapshot.env2)}} @ ${{esc(d.drift_snapshot.snapped_at)}}): `
+        +`${{d.drift_snapshot.counts.length}} object types captured</div>`;
+    }} else {{
+      html+='<div style="margin-top:6px;font-size:11px;color:#556">No drift snapshot on record for this environment.</div>';
+    }}
+    cell.innerHTML=html;
+  }}catch(e){{
+    cell.innerHTML=`<span class="err-msg">${{esc(String(e))}}</span>`;
+  }}
 }}
 
 loadPromos();

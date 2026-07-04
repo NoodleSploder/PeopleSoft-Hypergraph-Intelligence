@@ -25,7 +25,7 @@ _PC_BUILTIN = ("'MessageBox','SQLExec','CreateSQL','Close','Fetch','Insert','Upd
 
 @router.get("/compflow", response_class=HTMLResponse)
 def admin_compflow(request: Request, env: str = "HCM", comp: str = ""):
-    preload = comp.upper()
+    preload = (comp or request.query_params.get("component") or "").upper()
     return _shell("Component Event Flow", "compflow", content=f"""
 <style>
 *{{box-sizing:border-box}}

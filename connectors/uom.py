@@ -415,8 +415,8 @@ def sections_for_field(field):
 def peoplecode_object(env, reference):
     result = peoplecode.program(reference, env)
     item = result["item"]
-    refs = peoplecode.references(item["reference"], env)
-    graph = peoplecode.graph(item["reference"], env)
+    refs = peoplecode.references(item["reference"], env, preloaded=result)
+    graph = peoplecode.graph(item["reference"], env, preloaded=result)
     warnings = result["warnings"] + refs["warnings"]
 
     relationships = {

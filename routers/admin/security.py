@@ -906,7 +906,7 @@ a.obj-link:hover{text-decoration:underline;}
 const $ = id => document.getElementById(id);
 let currentRec = null;
 
-function env() { return $('envSel').value || 'HCM'; }
+function env() { return (document.getElementById('globalEnv') || {}).value || 'HCM'; }
 
 function esc(s) {
   if (s == null) return '';
@@ -1210,7 +1210,7 @@ function renderComponents(items) {
   return `<table><thead><tr>
     <th>Component</th><th>Search Record</th><th>Add Record</th><th>Description</th><th>Market</th>
   </tr></thead><tbody>` + items.map(c => `<tr>
-    <td class="mono"><a class="obj-link" href="/admin/component?name=${esc(c.pnlgrpname)}&env=${ENV}">${esc(c.pnlgrpname)}</a></td>
+    <td class="mono"><a class="obj-link" href="/admin/component?name=${esc(c.pnlgrpname)}&env=${env()}">${esc(c.pnlgrpname)}</a></td>
     <td class="mono">${esc(c.searchrecname || '')}</td>
     <td class="mono">${esc(c.addsrchrecname || '')}</td>
     <td>${esc(c.descr || '')}</td>
@@ -1225,7 +1225,7 @@ function renderPages(items) {
   const unique = items.filter(r => { const k = r.pnlname; if (seen.has(k)) return false; seen.add(k); return true; });
   return `<table><thead><tr><th>Page</th></tr></thead><tbody>` +
     unique.map(p => `<tr><td class="mono">
-      <a class="obj-link" href="/admin/page?name=${esc(p.pnlname)}&env=${ENV}">${esc(p.pnlname)}</a>
+      <a class="obj-link" href="/admin/page?name=${esc(p.pnlname)}&env=${env()}">${esc(p.pnlname)}</a>
     </td></tr>`).join('') + '</tbody></table>';
 }
 
@@ -1494,17 +1494,14 @@ function recRow(rec, onclick) {
 
 // ─── Init ─────────────────────────────────────────────────────────────────
 (async () => {
-  const envs = ['HCM','FSCM'];
-  try {
-    const d = await (await fetch('/api/envcompare/config')).json();
-    if (d.envs) envs.splice(0, envs.length, ...d.envs);
-  } catch(e) {}
-  $('envSel').innerHTML = envs.map(e => `<option value="${e}">${e}</option>`).join('');
-
   // If URL has a record name, load it.
   const path = window.location.pathname;
   const match = path.match(/\\/admin\\/record\\/([^/]+)$/);
   if (match) loadRecord(decodeURIComponent(match[1]));
+
+  window.addEventListener('deathstar:envchange', () => {
+    if (currentRec) loadRecord(currentRec);
+  });
 })();
 </script>""")
 
@@ -1605,7 +1602,7 @@ a.obj-link:hover{text-decoration:underline;}
 </div>
 <script>
 const $ = id => document.getElementById(id);
-function env() { return $('envSel').value || 'HCM'; }
+function env() { return (document.getElementById('globalEnv') || {}).value || 'HCM'; }
 let debTimer = null;
 function debSearch() { clearTimeout(debTimer); debTimer = setTimeout(doSearch, 200); }
 function esc(s) {
@@ -1863,7 +1860,7 @@ function renderPC(d) {
       handlers.forEach(h => {
         html += `<tr style="border-bottom:1px solid #08101a">
           <td style="padding:3px 6px">
-            <a class="obj-link" href="/admin/compflow?component=${encodeURIComponent(h.component)}">${esc(h.component)}</a>
+            <a class="obj-link" href="/admin/compflow?comp=${encodeURIComponent(h.component)}">${esc(h.component)}</a>
           </td>
           <td style="padding:3px 6px">
             <a class="obj-link" href="/admin/record/${esc(h.recname)}">${esc(h.recname)}</a>
@@ -1898,12 +1895,6 @@ function renderPC(d) {
 }
 
 (async () => {
-  try {
-    const cfg = await api('/api/runtime/config').catch(() => ({envs:['HCM','FSCM']}));
-    $('envSel').innerHTML = (cfg.envs||['HCM','FSCM']).map(e => `<option value="${e}">${e}</option>`).join('');
-  } catch(e) {
-    $('envSel').innerHTML = '<option value="HCM">HCM</option>';
-  }
   // Check URL for pre-seeded field
   const params = new URLSearchParams(window.location.search);
   const fParam = params.get('field');
@@ -1914,6 +1905,11 @@ function renderPC(d) {
     if (item) loadField(fParam, item);
     else loadField(fParam, null);
   }
+
+  window.addEventListener('deathstar:envchange', () => {
+    if ($('searchInput').value.trim()) doSearch();
+    if (currentField) loadField(currentField, null);
+  });
 })();
 </script>""")
 
@@ -2008,7 +2004,7 @@ a.obj-link:hover{text-decoration:underline;}
 </div>
 <script>
 const $ = id => document.getElementById(id);
-function env() { return $('envSel').value || 'HCM'; }
+function env() { return (document.getElementById('globalEnv') || {}).value || 'HCM'; }
 let debTimer = null;
 function debSearch() { clearTimeout(debTimer); debTimer = setTimeout(doSearch, 200); }
 function esc(s) { const d = document.createElement('div'); d.textContent = String(s??''); return d.innerHTML; }
@@ -2114,7 +2110,7 @@ function renderOverview(item, warns) {
   ${item.language_cd ? `<div class="kv"><span class="kl">Language</span><span class="kv-val">${esc(item.language_cd)}</span></div>` : ''}
   ${item.currency_cd ? `<div class="kv"><span class="kl">Currency</span><span class="kv-val">${esc(item.currency_cd)}</span></div>` : ''}
   <h2>Security</h2>
-  <div class="kv"><span class="kl">Permission List</span><span class="kv-val">${item.oprclass ? `<a class="obj-link" href="/admin/permissionlist/${esc(item.oprclass)}?env=${ENV}">${esc(item.oprclass)}</a>` : '—'}</span></div>
+  <div class="kv"><span class="kl">Permission List</span><span class="kv-val">${item.oprclass ? `<a class="obj-link" href="/admin/permissionlist/${esc(item.oprclass)}?env=${env()}">${esc(item.oprclass)}</a>` : '—'}</span></div>
   <div class="kv"><span class="kl">Row Security</span><span class="kv-val">${esc(item.rowsecclass||'—')}</span></div>
   <div class="kv"><span class="kl">Process Profile</span><span class="kv-val">${esc(item.prcsprflcls||'—')}</span></div>
   <div class="kv"><span class="kl">Failed Logins</span><span class="kv-val">${esc(item.failedlogins??'—')}</span></div>
@@ -2209,7 +2205,7 @@ function renderActivity(d) {
     const ts    = (it.ts||'').replace('T',' ').substring(0,19);
     const tsOut = (it.ts_out||'').replace('T',' ').substring(0,19);
     const compLink = it.component
-      ? `<a class="obj-link" href="/admin/compflow?component=${encodeURIComponent(it.component)}">${esc(it.component)}</a>`
+      ? `<a class="obj-link" href="/admin/compflow?comp=${encodeURIComponent(it.component)}">${esc(it.component)}</a>`
       : '—';
     const stCol = it.signon_type === 1 ? '#00cc66' : it.signon_type === 0 ? '#445' : '#556';
     const stLbl = it.signon_type === 1 ? 'SSO' : it.signon_type === 0 ? 'Svc' : (it.signon_type ?? '');
@@ -2271,11 +2267,6 @@ function renderProcesses(d) {
 }
 
 (async () => {
-  try {
-    const cfg = await api('/api/runtime/config').catch(()=>({envs:['HCM','FSCM']}));
-    $('envSel').innerHTML = (cfg.envs||['HCM','FSCM']).map(e=>`<option value="${e}">${e}</option>`).join('');
-  } catch(e) { $('envSel').innerHTML='<option value="HCM">HCM</option>'; }
-
   doSearch();
 
   const pathMatch = window.location.pathname.match(/\/admin\/operator\/(.+)$/);
@@ -2286,6 +2277,8 @@ function renderProcesses(d) {
     const el = document.getElementById(`oi_${opParam}`);
     loadOp(opParam, el||null);
   }
+
+  window.addEventListener('deathstar:envchange', doSearch);
 })();
 </script>""")
 
@@ -2385,7 +2378,7 @@ a.obj-link:hover{text-decoration:underline;}
 </div>
 <script>
 const $ = id => document.getElementById(id);
-function env() { return $('envSel').value || 'HCM'; }
+function env() { return (document.getElementById('globalEnv') || {}).value || 'HCM'; }
 let debTimer = null;
 function debSearch() { clearTimeout(debTimer); debTimer = setTimeout(doSearch, 200); }
 function esc(s) {
@@ -2559,7 +2552,7 @@ function renderPermlists(items, warns) {
     return;
   }
   const rows = items.map(r => `<tr>
-    <td class="mono"><a class="obj-link" href="/admin/permissionlist/${esc(r.classid)}?env=${ENV}">${esc(r.classid)}</a></td>
+    <td class="mono"><a class="obj-link" href="/admin/permissionlist/${esc(r.classid)}?env=${env()}">${esc(r.classid)}</a></td>
     <td style="font-size:10px;">${r.dynamic_sw === 'Y' ? '<span style="color:#ffaa00;">Dynamic</span>' : 'Static'}</td>
   </tr>`).join('');
   $('tblPermlists').innerHTML = h + `<table><thead><tr>
@@ -2578,13 +2571,6 @@ function setTab(name) {
 }
 
 (async () => {
-  try {
-    const cfg = await api('/api/runtime/config').catch(() => ({envs:['HCM','FSCM']}));
-    $('envSel').innerHTML = (cfg.envs||['HCM','FSCM']).map(e => `<option value="${e}">${e}</option>`).join('');
-  } catch(e) {
-    $('envSel').innerHTML = '<option value="HCM">HCM</option>';
-  }
-
   // Pre-load all roles in sidebar on start
   doSearch();
 
@@ -2599,6 +2585,8 @@ function setTab(name) {
     const el = document.getElementById(`ri_${roleName}`);
     loadRole(roleName, el || null);
   }
+
+  window.addEventListener('deathstar:envchange', doSearch);
 })();
 </script>""")
 
@@ -2731,7 +2719,7 @@ function renderResults() {
   let html = filtered.map(item => {
     const cfg = TYPE_COLORS[item.object_type_label] || {bg:'#111', border:'#555', color:'#aaa'};
     const isSelected = item.encoded_reference === _selectedRef;
-    return `<div class="result-item${isSelected ? ' selected' : ''}" onclick="loadPC(${JSON.stringify(item.encoded_reference)})">
+    return `<div class="result-item${isSelected ? ' selected' : ''}" data-ref="${esc(item.encoded_reference)}" onclick="loadPC(this.dataset.ref)">
       <div class="result-name">${esc(item.reference || item.objectvalue1)}</div>
       <div class="result-detail">
         <span class="type-badge" style="background:${cfg.bg};border-color:${cfg.border};color:${cfg.color}">${esc(item.object_type_label)}</span>
@@ -3004,7 +2992,7 @@ async function doSearch() {{
   list.innerHTML = rows.map(r => {{
     const id = r.classid || '';
     const desc = r.classdefndesc || '';
-    return `<div class="list-item" onclick="loadPL(${{JSON.stringify(id)}})" data-id="${{esc(id)}}">
+    return `<div class="list-item" onclick="loadPL(this.dataset.id)" data-id="${{esc(id)}}">
       <div style="font-family:monospace;font-size:12px;color:#c8d8e8">${{esc(id)}}</div>
       ${{desc ? `<div style="font-size:11px;color:#556;margin-top:1px">${{esc(desc)}}</div>` : ''}}
     </div>`;

@@ -102,7 +102,12 @@
     /* Expose helpers for pages */
     window.dsGetEnv = function () {
         const sel = document.querySelector('.ds-env-sel');
-        return sel ? sel.value : getStoredEnv();
+        /* sel.value is '' when the select hasn't been populated yet (the env
+           config fetch in initGlobalEnv is async and may not have resolved
+           by the time a page's own DOMContentLoaded handler runs) — fall
+           back to the stored value, then a hardcoded default, rather than
+           ever returning an empty env. */
+        return (sel && sel.value) || getStoredEnv() || 'HCM';
     };
     window.dsSetEnv = setStoredEnv;
     window.dsGetStoredEnv = getStoredEnv;
