@@ -614,20 +614,35 @@ def _who_has_access(env: str, component: str) -> dict:
 
 def _ae_steps(env: str, ae_name: str) -> dict:
     from connectors import ae as ae_conn
-    result = ae_conn.ae_steps(env.upper(), ae_name.upper())
-    # Keep it compact — step key + action type + first 200 chars of SQL
+    env = env.upper()
+    ae_name = ae_name.upper()
+    result = ae_conn.steps(env, ae_name)
+    warnings = result.get("warnings") or []
+
+    # Step-level SQL text is a separate lookup (section/step -> sql_text) —
+    # merge it in so the tool result matches its stated purpose (step key +
+    # action type + first 200 chars of SQL), same shape as before this fix.
+    try:
+        sql_map, sql_warnings = ae_conn.ae_sql_step_text(env, ae_name)
+        warnings.extend(sql_warnings or [])
+    except Exception:
+        sql_map = {}
+
     steps = []
-    for s in (result or []):
+    for s in result.get("items") or []:
         entry = {
             "section": s.get("ae_section"),
             "step":    s.get("ae_step"),
-            "type":    s.get("ae_action") or s.get("action_type"),
+            "type":    s.get("action_type_label"),
+            "descr":   s.get("descr"),
+            "is_active": s.get("is_active"),
         }
-        sql = s.get("sql_text") or s.get("stmt") or ""
-        if sql:
-            entry["sql_preview"] = sql[:200]
+        key = (str(s.get("ae_section") or "").strip(), str(s.get("ae_step") or "").strip())
+        stmts = sql_map.get(key, [])
+        if stmts:
+            entry["sql_preview"] = (stmts[0].get("sql_text") or "")[:200]
         steps.append(entry)
-    return {"ae_name": ae_name.upper(), "steps": steps, "count": len(steps)}
+    return {"ae_name": ae_name, "steps": steps, "count": len(steps), "warnings": warnings}
 
 
 def _sql_lookup(env: str, sqlid: str) -> dict:

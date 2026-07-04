@@ -36,6 +36,56 @@ This architecture allows new PeopleSoft object types, runtime providers, and ana
 
 ---
 
+## Universal Diagnostic Capability
+
+**The AI Assistant must be able to answer any question about anything in the
+system.** When asked to investigate a problem or error, it must be able to
+examine every kind of logic a PeopleSoft implementation is built from —
+PeopleCode, SQL definitions, SQR, COBOL, Integration Broker messaging, and any
+other object type the platform models — **and** the underlying data itself,
+determine whether the root cause is a code defect or a data defect, tell the
+user which it is, and recommend a concrete fix.
+
+This is not a new subsystem to build; it is a design mandate that the platform's
+existing pillars (Metadata Intelligence, Runtime Intelligence, Engineering
+Intelligence) must compose into one coherent diagnostic capability rather than
+remain independent, hand-invoked tools. Concretely:
+
+- **Every logic type must be AI-reachable.** PeopleCode (`peoplecode_search`,
+  `component_events`, `peoplecode_sequence`), SQL definitions (`sql_lookup`),
+  SQR (`sqr_program`), COBOL (`cobol_program`), Integration Broker
+  (`ib_diagnostics`), Application Engine (`ae_steps`), and general object
+  metadata (`search_objects`, `graph_dependencies`/`graph_impact`) are all
+  already exposed as AI tools (`connectors/ai_tools.py`). Any *new* logic type
+  the platform models must get an AI tool at the same time it gets a UOM
+  provider — an object type that's browsable by a human but invisible to the
+  AI assistant defeats this mandate.
+- **The data itself must be AI-reachable, safely.** `execute_sql` (Phase 11
+  SQL Proxy) lets the AI run ad-hoc read-only SELECTs to check the data behind
+  a hypothesis — through the same masking layer as everything else, so it can
+  confirm "row X has a NULL Y" without ever learning who employee X actually
+  is. Without this, "is it code or data" could never be answered — only
+  guessed at from schema shape.
+- **Diagnosis must end in a verdict and a recommendation, not just data.**
+  Retrieving facts across subsystems is necessary but not sufficient — the
+  assistant's job is to synthesize those facts into "this is a **code** issue:
+  `SaveEdit` on `JOB_DATA` computes X incorrectly, fix: ..." or "this is a
+  **data** issue: record `EMP_9a41c2f0` in `PS_JOB` has an out-of-range
+  `DEPTID`, fix: correct the value / re-run the load" — and say so plainly, per
+  the existing "when you know something is wrong, say it plainly" principle
+  already governing the assistant's system prompt.
+- **This is a system-prompt and tool-inventory concern, not a new pipeline.**
+  Unlike Phase 11's SQL Proxy (which needed new code — the masking engine
+  didn't exist), most of what this mandate requires already exists as
+  individual tools; the gap is the assistant's system prompt not yet
+  instructing a systematic cross-subsystem investigation method, and a few
+  newer tools (`cobol_program`, `execute_sql`, `peoplecode_sequence`) not yet
+  being referenced in that prompt at all despite being registered. See
+  ROADMAP.md's "Universal Root-Cause Diagnostics" section for the concrete,
+  verified state of this.
+
+---
+
 ## Engineering Principles
 
 Every subsystem should follow these principles.

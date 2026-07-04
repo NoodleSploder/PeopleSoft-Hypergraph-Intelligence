@@ -572,6 +572,120 @@ headless-Chrome testing rather than assumed correct:
 
 ---
 
+# Phase 12 — Universal Root-Cause Diagnostics
+
+**Status: ✅ Core capability complete — verified end-to-end against a real
+mixed code/data scenario.**
+
+## Why
+
+The user's ask, verbatim: *"The AI Agent should be able to answer ANY question
+about anything in the system. If the AI Agent is asked to investigate any
+problem or error it should be able to examine every piece of logic (PeopleCode,
+SQL, SQR, COBOL, IB Messaging, anything literally) and the data itself and
+determine what the problem is. It should tell the user that info. It should
+also instruct the user how to resolve the issue, whether it is with data or
+code."* See `ARCHITECTURE.md`'s "Universal Diagnostic Capability" section for
+the corresponding design-principle-level statement of this mandate.
+
+## What was already true before this phase
+
+Almost every piece this mandate requires already existed as an individual AI
+tool (`connectors/ai_tools.py`): `peoplecode_search`/`component_events`/
+`peoplecode_sequence` (PeopleCode), `sql_lookup` (SQL definitions),
+`sqr_program` (SQR), `cobol_program` (COBOL), `ib_diagnostics` (Integration
+Broker), `ae_steps` (Application Engine), `search_objects`/`graph_dependencies`/
+`graph_impact` (general object metadata), and — as of Phase 11 —
+`execute_sql` (the data itself, safely, through the masking layer). The gap
+was never tool *coverage*; it was that the assistant's system prompt
+(`routers/assistant.py`'s `_SYSTEM`) had no section instructing a systematic
+cross-subsystem investigation method, and didn't even mention three of the
+newer tools (`cobol_program`, `execute_sql`, `peoplecode_sequence`) despite
+them being fully registered and functional.
+
+## What was built
+
+Added a "Root Cause Investigation Method" section to `_SYSTEM` instructing the
+assistant, when investigating any reported problem or error, to:
+
+1. Identify which subsystem(s) are plausibly implicated (PeopleCode/component
+   event, SQL/AE step, SQR/COBOL batch program, Integration Broker message,
+   or the data itself) rather than defaulting to only one.
+2. Inspect the relevant logic using the matching tool(s) —
+   `peoplecode_search`/`component_events`/`peoplecode_sequence` for PeopleCode,
+   `sql_lookup`/`ae_steps` for SQL/AE, `sqr_program`/`cobol_program` for batch
+   programs, `ib_diagnostics` for integration failures.
+3. Check the data itself with `execute_sql` when a data-side explanation is
+   plausible (bad/missing/out-of-range values, orphaned keys) — not just the
+   schema shape.
+4. Synthesize an explicit **verdict**: code, data, or both/inconclusive —
+   never leave the user with facts and no conclusion.
+5. Give a **concrete recommendation** matched to the verdict: a code fix
+   (which program, which event, what's wrong) or a data fix (which
+   record — by its masked token — and what value is wrong), not a generic
+   "you may want to check X."
+
+Also added `cobol_program` and `execute_sql` tool-usage guidance to the system
+prompt (previously entirely absent despite both tools being registered and
+working) and cross-referenced `peoplecode_sequence` alongside the existing
+`component_events` guidance for ordering-specific questions.
+
+## Verification
+
+Ran two real investigations against the live OpenAI-backed assistant (not
+scripted/mocked conversations):
+
+1. **Mixed PeopleCode + data scenario**: described a plausible symptom
+   ("some employees have incorrect `JOB_DATA` records — missing/invalid
+   department assignments"). The assistant — unprompted, using only its
+   system-prompt guidance — chained `record_usage` → `component_events` →
+   `peoplecode_search` → `execute_sql`, reached an explicit verdict
+   ("likely not a systematic PeopleCode/application logic error," based on
+   a real query confirming zero `PS_JOB` rows have a NULL `DEPTID`), and gave
+   concrete recommendations. It never saw a real EMPLID or name.
+2. **Batch-program scenario**: asked it to investigate the `PRCSYSPURGE`
+   Application Engine program across two conversation turns. First turn
+   chained `ae_steps` → `sqr_program` (search) → `cobol_program` (search) to
+   explain the program's real logic. Second turn (user said "proceed and
+   check the data") chained three `execute_sql` calls against real
+   `PSPRCSRQST`/`PSBATCHAUTH`/`PSSERVERSTAT` data, correctly distinguishing a
+   real finding (0 rows old enough to purge) from its own wrong column-name
+   guesses (honestly flagged as likely-wrong-schema rather than silently
+   fabricating a plausible-sounding answer).
+
+**Bug found via the AI's own real tool_log, not manual testing**: the second
+scenario's first `ae_steps` call came back with `"error": "module
+'connectors.ae' has no attribute 'ae_steps'"` — `connectors/ai_tools.py`'s
+`_ae_steps` handler called a function name (`ae_conn.ae_steps`) that has
+never existed; the real function is `ae_conn.steps()`, with a completely
+different return shape (`{"items": [...], "warnings": [...]}` keyed by
+`ae_section`/`ae_step`/`action_type_label`, not `ae_action`/`action_type`).
+This means the `ae_steps` AI tool had silently returned an error on every
+invocation since it was first added — never caught before because nothing
+had exercised it against a real investigation until this session's testing.
+Fixed to call the real `steps()` function and merge in step-level SQL text
+via the separate `ae_sql_step_text()` lookup (matching the tool's original
+stated purpose: step key + action type + first 200 chars of SQL). Re-ran the
+same investigation after the fix — `ae_steps` returned 16 real steps with
+correct SQL previews, and the model explained the program's actual logic
+correctly.
+
+## Remaining
+
+- This phase closes the *capability* gap (every subsystem is reachable, the
+  method is systematic, verdicts are explicit). It does not add new
+  subsystem coverage beyond what already existed — if a genuinely new logic
+  type is added to the platform in the future (e.g. a new integration type),
+  it must get an AI tool at the same time it gets a UOM provider, per
+  `ARCHITECTURE.md`'s mandate, or this phase's guarantee quietly erodes.
+- `_MAX_TOOL_ROUNDS = 8` in `routers/assistant.py` caps how many tool calls one
+  investigation can chain — adequate for the scenarios tested so far; a
+  genuinely deep multi-subsystem investigation (e.g. PeopleCode → SQR →
+  data → IB) could in principle need more rounds. Not raised in this phase
+  since no real investigation has hit the cap; revisit if one does.
+
+---
+
 # Processing Sequence Intelligence
 
 **Status: v1 + Record extension complete** (Component and Record contexts — see

@@ -6601,3 +6601,90 @@ not just that the Python compiled):
 Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged —
 API additions plus a UI enhancement to an existing page, no new admin
 route); `make check` → 100/100 files, 19/19 tests.
+
+---
+
+### Universal Root-Cause Diagnostics (pending commit)
+
+The user's ask, verbatim: the AI Agent should be able to answer any question
+about anything in the system, investigate any problem across every kind of
+logic (PeopleCode, SQL, SQR, COBOL, IB Messaging, "anything literally") and
+the data itself, determine the root cause, and instruct the user how to fix
+it — whether the fix is code or data. Asked to reflect this in ARCHITECTURE
+and ROADMAP first, then build it.
+
+Investigated what already existed before writing anything: almost every
+piece this mandate needs was already a registered AI tool
+(`peoplecode_search`/`component_events`/`peoplecode_sequence` for
+PeopleCode, `sql_lookup`/`ae_steps` for SQL/AE, `sqr_program`/`cobol_program`
+for batch programs, `ib_diagnostics` for integration, and — from this
+session's earlier SQL Proxy work — `execute_sql` for the data itself). The
+actual gap was that `routers/assistant.py`'s system prompt (`_SYSTEM`) had
+no section instructing a systematic cross-subsystem investigation method,
+and didn't mention three of the newer tools (`cobol_program`, `execute_sql`,
+`peoplecode_sequence`) at all despite them being fully functional.
+
+Added the design mandate to `ARCHITECTURE.md` ("Universal Diagnostic
+Capability" — a new section right after the Vision) stating this as a
+standing requirement: every logic type must be AI-reachable, the data must
+be safely reachable too, and diagnosis must end in an explicit verdict plus
+a concrete recommendation, not just retrieved facts. Added `ROADMAP.md`'s
+"Phase 12 — Universal Root-Cause Diagnostics" documenting what already
+existed vs. what was actually built.
+
+Built: a "Root Cause Investigation Method" section in `_SYSTEM` — a
+five-step method (identify implicated subsystems → inspect the actual logic
+in each → check the data when data is plausible → reach an explicit
+code/data/both verdict → give a concrete recommendation matched to that
+verdict) — plus the missing `cobol_program`/`execute_sql` tool guidance.
+
+**Verified with two real, unscripted investigations against the live
+OpenAI-backed assistant**, not mocked conversations:
+
+1. Described a plausible mixed-cause symptom ("some employees have
+   incorrect `JOB_DATA` records, missing/invalid department assignments").
+   The assistant chained `record_usage` → `component_events` →
+   `peoplecode_search` → `execute_sql` on its own, reached an explicit
+   verdict ("likely not a systematic PeopleCode error" — based on a real
+   query confirming zero `PS_JOB` rows have a NULL `DEPTID`, not a guess),
+   and gave concrete next-step recommendations. Never saw a real EMPLID.
+2. Asked it to investigate the `PRCSYSPURGE` Application Engine program
+   across two conversation turns (a genuine multi-turn test, not a single
+   prompt). First turn: correctly explained the program's real logic after
+   chaining `ae_steps` (which errored — see below), `sqr_program`, and
+   `cobol_program` searches, and appropriately *asked* before proceeding to
+   a data check rather than assuming permission. Second turn ("proceed and
+   check the data"): chained three `execute_sql` calls against real
+   `PSPRCSRQST`/`PSBATCHAUTH`/`PSSERVERSTAT` data, correctly distinguished a
+   real finding (0 rows old enough to purge — a genuine data-side
+   observation) from its own incorrect column-name guesses (honestly
+   flagged as a likely schema mismatch rather than silently fabricating a
+   plausible-sounding wrong answer). This "know what you don't know"
+   behavior is exactly what the diagnostic mandate needs and isn't
+   something I could have unit-tested for — only a real multi-turn
+   conversation surfaces it.
+
+**Bug found via the AI's own real tool_log, not manual testing** — this is
+worth calling out as a case where "test with a real end-to-end scenario"
+caught something a narrower test never would have: the first `ae_steps`
+call in scenario 2 came back `"error": "module 'connectors.ae' has no
+attribute 'ae_steps'"`. `connectors/ai_tools.py`'s `_ae_steps` handler called
+`ae_conn.ae_steps(...)` — a function that has never existed in
+`connectors/ae.py`. The real function is `steps(env, ae_applid,
+ae_section=None)`, returning a completely different shape (`{"items": [...],
+"warnings": [...]}`, fields named `ae_section`/`ae_step`/
+`action_type_label`, not `ae_action`/`action_type`). This means the
+`ae_steps` AI tool has silently returned an error on every single
+invocation since it was first added, months of session history ago — never
+caught because nothing had exercised it against a real investigation until
+now. Fixed by calling the real `steps()` function and merging in step-level
+SQL text via the separate `ae_sql_step_text()` lookup, preserving the tool's
+original stated shape (step key + action type + first-200-chars SQL
+preview). Verified directly (`ae_steps` dispatch call against
+`PRCSYSPURGE` → 16 real steps with correct SQL previews, zero errors), then
+re-ran the exact failing conversation end-to-end and confirmed the model
+now explains the program's real logic correctly.
+
+Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged —
+system-prompt change plus a connector bugfix, no new admin routes);
+`make check` → 100/100 files, 19/19 tests.
