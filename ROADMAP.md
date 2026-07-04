@@ -36,6 +36,13 @@ verification steps, and design tradeoffs — see `DEVELOPMENT_DIARY.md`.
   comparison with normalized diff mode, analytics, override intelligence)
 - Plugin SDK v1 + v2 (object/graph/runtime providers, health checks, config-driven
   sources, admin pages) — no open candidates
+- SQL Proxy: AI-safe deterministic data masking, ad-hoc `execute_sql` tool, human
+  token-reveal endpoint/UI — the AI queries live data but only ever sees masked
+  tokens, never real PII
+- Universal Root-Cause Diagnostics: systematic cross-subsystem investigation
+  method (PeopleCode/SQL/SQR/COBOL/IB/data) ending in an explicit code-vs-data
+  verdict and a concrete fix recommendation, escalating to live server trace
+  analysis when logic and data inspection alone are inconclusive
 - Admin shell smoke test harness (73 pages)
 
 ---
@@ -453,7 +460,7 @@ with zero console errors in a real headless Chrome session.
 
 # Phase 11 — SQL Proxy: AI-Safe Data Access
 
-**Status: 🔶 Core loop complete (steps 1-3) — step 4 (workflow integration) open.**
+**Status: ✅ v1 complete (steps 1-4).**
 
 ## Why
 
@@ -498,7 +505,7 @@ This phase reuses that validation/execution/audit path as-is and adds only a
 masking layer between "query executed" and "AI sees the result" — the piece
 `SQL_PROXY.md` calls "Deterministic Data Masking."
 
-## What's built (steps 1-3)
+## What's built (steps 1-3; step 4 below)
 
 - **Step 1 — Deterministic masking engine** (`connectors/sqlmask.py`): a
   configurable sensitive-column catalog (`config.json["sql_proxy"]`, seeded from
@@ -555,20 +562,33 @@ headless-Chrome testing rather than assumed correct:
    throwing `Cannot read properties of null`. Fixed by copying `m[0]` into a
    local `const` before advancing the loop.
 
-## Remaining (step 4 + explicitly out of scope)
+## Step 4 — Workflow integration — ✅ Complete (built as part of Phase 12)
 
-- Integration with the actual error-investigation workflow: today `execute_sql`
-  is a general-purpose tool the AI can reach for; the next step is teaching the
-  assistant's system prompt / tool descriptions to reach for it specifically
-  when triaging an error (`log_errors`/`ae_steps`/`process_scheduler_health` →
-  hypothesis → `execute_sql` to confirm), rather than relying on the model to
-  make that connection unprompted.
+The remaining piece of this phase — teaching the assistant to reach for
+`execute_sql` specifically when triaging an error, rather than relying on the
+model to make that connection unprompted — turned out to be exactly what
+Phase 12's "Root Cause Investigation Method" delivers: its step 3
+(`routers/assistant.py`'s `_SYSTEM`) explicitly instructs "check the data
+itself when a data-side explanation is plausible, using `execute_sql`" as
+part of a systematic identify-subsystems → inspect-logic → check-data →
+verdict method, not a bolt-on afterthought.
+
+This isn't a re-statement of intent — it's already verified live, twice, in
+Phase 12's own testing: the `JOB_DATA`/`DEPTID` investigation chained
+`record_usage` → `component_events` → `peoplecode_search` → `execute_sql`
+unprompted, and the `PRCSYSPURGE` investigation chained `ae_steps` →
+`sqr_program`/`cobol_program` → (on the next turn) three `execute_sql` calls
+— in both cases the model reached for `execute_sql` on its own once logic
+inspection alone wasn't conclusive, which is precisely what step 4 asked
+for. See Phase 12's "Verification" section for the full transcripts.
+
+## Explicitly out of scope (unchanged from original plan, not required for v1)
+
 - Free-text field masking (`COMMENTS`/`DESCRLONG`/`MESSAGE_TEXT` — named-entity
   masking is materially harder than column-based tokenization), numeric range-
   bucketing/date-shifting, Dynamic Policy Engine/YAML policies, AI Trust Levels
   (Observer/Analyst/Engineer/Administrator), Oracle Data Safe integration — all
-  explicitly listed as "Future Enhancements" in `SQL_PROXY.md` itself, not
-  required for v1.
+  explicitly listed as "Future Enhancements" in `SQL_PROXY.md` itself.
 
 ---
 

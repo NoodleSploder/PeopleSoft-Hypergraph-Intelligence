@@ -6779,3 +6779,27 @@ graceful-missing-file case, not against genuine trace output. Deliberately
 did not enable tracing myself to manufacture a sample — that's a real,
 domain-wide, session-affecting infrastructure change, not something to do
 unrequested just to round out a test.
+
+---
+
+### Phase 11 Closeout: Step 4 Was Already Done (docs-only)
+
+Asked to "finish Phase 11 — SQL Proxy," which ROADMAP.md still tracked as
+"steps 1-3 complete, step 4 (workflow integration) open." Checked before
+building anything new: step 4 asked for exactly what Phase 12's "Root Cause
+Investigation Method" already delivers — teaching the assistant to reach
+for `execute_sql` specifically when triaging an error, rather than relying
+on the model to make that connection unprompted. That's precisely
+`_SYSTEM`'s step 3 ("check the data itself when a data-side explanation is
+plausible, using `execute_sql`"), and it was already verified live, twice,
+during Phase 12's own testing — the `JOB_DATA`/`DEPTID` investigation and
+the `PRCSYSPURGE` investigation both showed the model reaching for
+`execute_sql` on its own mid-investigation, unprompted.
+
+No new code needed — updated `ROADMAP.md` to mark Phase 11 `✅ v1 complete
+(steps 1-4)`, replaced the old "step 4 open" bullet with a cross-reference
+to Phase 12's already-verified transcripts, and added SQL Proxy + Universal
+Root-Cause Diagnostics to the top-level "Platform Status" summary list
+(previously missing despite both being fully built). `make check` re-run as
+a sanity check (100/100 files, 19/19 tests) even though this was a docs-only
+change — nothing executable was touched.
