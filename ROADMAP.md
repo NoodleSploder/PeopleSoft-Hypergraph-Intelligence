@@ -242,15 +242,16 @@ retention. Session-chain correlation joins `PSACCESSLOG` → `web_entries` → `
 
 # Phase 9 — Platform Extensibility
 
-**Status: ✅ v1 + custom health checks complete.**
+**Status: ✅ v1 + v2 complete — no remaining candidates.**
 
 Every extension surface (object providers, KG builders, runtime providers, admin
-dashboards, health checks) was previously a hardcoded literal list/dict/if-chain only
-core code could append to. `connectors/plugins.py` adds one appendable registry per
-surface; `connectors/pluginloader.py` discovers and loads `plugins/*.py` at startup with
-per-plugin isolation (a broken plugin logs a warning and is skipped — verified the rest
-of the platform keeps working). `plugins/example_hello.py` is a worked example
-exercising all five extension points. Full SDK documentation in `PLUGINS.md`.
+dashboards, health checks, config-driven ingest sources) was previously a hardcoded
+literal list/dict/if-chain only core code could append to. `connectors/plugins.py`
+adds one appendable registry per surface; `connectors/pluginloader.py` discovers and
+loads `plugins/*.py` at startup with per-plugin isolation (a broken plugin logs a
+warning and is skipped — verified the rest of the platform keeps working).
+`plugins/example_hello.py` is a worked example exercising all six extension points.
+Full SDK documentation in `PLUGINS.md`.
 
 **Custom health checks**: `register_health_check(name, check_fn, label)` — distinct
 from a runtime provider (raw status data for a human to read) in that a health check
@@ -265,10 +266,20 @@ than an always-`ok` stub — verified live via curl (`{"status": "warn", "messag
 widget(s) degraded: CHARLIE"}`) and in a real headless Chrome session (card renders
 correctly, zero console errors).
 
-### Remaining (v2 candidates, not built)
-- A dedicated "config-driven source" registration API for plugins that want to
-  replicate the SQR/COBOL ingest pattern (object + graph provider registries are
-  already sufficient building blocks; just not formalized into their own API)
+**Config-driven source API**: `register_source_type(name, config_key, ingest_fn,
+status_fn)` replicates the SQR/COBOL ingest pattern (a `config.json` array of source
+entries + an SSH-fetch-and-index pipeline) without a plugin needing to hand-roll its
+own background-thread/lock/status-tracking boilerplate — the SDK runs `ingest_fn()`
+in a background thread and tracks running/last-result generically. New
+`routers/plugin_sources.py`: `GET /api/plugins/sources` (list registered types), `GET
+/api/plugins/sources/{name}/entries?env=` (this type's config.json entries), `POST
+/api/plugins/sources/{name}/ingest` (trigger background reindex), `GET
+/api/plugins/sources/{name}/status`. `example_hello.py`'s worked example
+(`hello_widgets` source type) increments a real counter each ingest rather than
+returning a static stub — verified live via curl: `source_count: 0` correctly since
+`hello_sources` isn't in `config.json` (honest, not an error), two separate `POST
+.../ingest` calls correctly ran in background threads and `ingest_count` incremented
+1 → 2 across them, and a request to an unregistered source type correctly 404s.
 
 ---
 

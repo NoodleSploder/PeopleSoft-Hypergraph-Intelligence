@@ -41,6 +41,7 @@ from routers.admin import compflow as admin_compflow
 from routers.admin import rca as admin_rca
 from routers.admin import incidents as admin_incidents
 from routers import incident as incident_api
+from routers import plugin_sources
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -145,3 +146,4 @@ app.include_router(admin_compflow.router)
 app.include_router(admin_rca.router)
 app.include_router(admin_incidents.router)
 app.include_router(incident_api.router)
+app.include_router(plugin_sources.router)

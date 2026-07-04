@@ -6470,3 +6470,57 @@ edges).
 Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged —
 pure KG data addition, no admin UI or new routes); `make check` → 100/100
 files, 11/11 tests.
+
+---
+
+### Plugin SDK v2: Config-Driven Source API (pending commit)
+
+Closed the last v2 candidate from Phase 9 Platform Extensibility — a sixth
+appendable registry letting a plugin replicate the SQR/COBOL ingest pattern
+(a `config.json` array of source entries + an SSH-fetch-and-index pipeline)
+without hand-rolling its own background-thread/lock/status-tracking
+boilerplate, the way `routers/sqr.py`/`routers/cobol.py` currently do
+per-module.
+
+- `connectors/plugins.py`: `register_source_type(name, config_key,
+  ingest_fn, status_fn=None, label="")` / `trigger_source_ingest(name)` (SDK
+  runs `ingest_fn()` in a background thread, tracks `running`/
+  `last_result` generically — same threading pattern as the existing SQR/
+  COBOL ingest triggers, just generalized) / `get_source_type_status(name)`
+  (falls back to the SDK's generic tracking if the plugin doesn't supply
+  its own `status_fn`) / `get_source_types()`.
+- New `routers/plugin_sources.py`: `GET /api/plugins/sources` (list),
+  `GET /api/plugins/sources/{name}/entries?env=` (this type's config.json
+  entries), `POST /api/plugins/sources/{name}/ingest` (trigger), `GET
+  /api/plugins/sources/{name}/status`. Registered in `main.py`.
+- `plugins/example_hello.py`'s worked example (`hello_widgets` source type,
+  `config_key="hello_sources"`) deliberately increments a real module-level
+  counter (`_ingest_count`) each time `ingest_fn()` runs, rather than
+  returning a static stub — so the example actually demonstrates state
+  changing across calls, not just a fixed response.
+- `PLUGINS.md` updated from "five" to "six" extension points, with the
+  config-driven-source section documented; removed the stale "Not yet
+  covered (v2 candidates)" section since both items it listed (health
+  checks, config-driven sources) are now built.
+
+Verification:
+- `curl /api/plugins/sources` → `{"name": "hello_widgets", ...,
+  "source_count": 0, "running": false}` — correctly 0 since
+  `hello_sources` isn't in `config.json` (an honest result, same as any
+  other real-but-unpopulated case in this codebase, not an error).
+- `curl -X POST /api/plugins/sources/hello_widgets/ingest` → `{"status":
+  "started"}`, then `curl .../status` → `{"ingest_count": 1, ...}`.
+  Triggered a second time → `{"ingest_count": 2, ...}` — confirms the
+  background-thread execution and state tracking actually work across
+  repeated calls, not just once.
+- `curl -X POST /api/plugins/sources/nonexistent/ingest` → 404, confirming
+  the registry lookup correctly rejects unregistered names.
+- `plugins.status()` introspection confirms `source_types:
+  ['hello_widgets']` registered alongside the other five registries.
+
+Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged —
+API-only feature, no new admin pages); `make check` → 100/100 files, 11/11
+tests.
+
+This closes out Phase 9 Platform Extensibility entirely — no v1 or v2
+candidates remain open.

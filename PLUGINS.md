@@ -6,8 +6,8 @@ automatically at server startup.
 
 A plugin is any module under `plugins/` exposing a `register(sdk)` function.
 `sdk` is `connectors/plugins.py` — call its `register_*` functions to plug
-into one or more of five extension points. See `plugins/example_hello.py`
-for a complete, minimal, working example that exercises all five; the
+into one or more of six extension points. See `plugins/example_hello.py`
+for a complete, minimal, working example that exercises all six; the
 snippets below are extracted from it.
 
 ## Loading
@@ -23,7 +23,7 @@ snippets below are extracted from it.
 - Nothing is hot-reloaded — changes require an app restart, same as every
   other config-driven source in this codebase (`sqr_sources`, `cobol_sources`).
 
-## The five extension points
+## The six extension points
 
 ### 1. Object provider — new object type in Object/Graph Explorer
 
@@ -103,7 +103,40 @@ for a human to read; a health check returns a judgment (`ok`/`warn`/`error`)
 a dashboard can roll up or alert on. Use a runtime provider for "here's what's
 happening," a health check for "is this OK."
 
-### 5. Admin page + nav entry
+### 5. Source type — config-driven ingest, the SQR/COBOL pattern
+
+```python
+def _widget_ingest():
+    # real plugins: SSH-fetch source, parse it, write to your own SQLite store
+    return {"widgets_indexed": len(_WIDGETS)}
+
+def _widget_source_status():
+    return {"ingest_count": _ingest_count, "last_ingest_ts": _last_ingest_ts}
+
+sdk.register_source_type(
+    "hello_widgets", "hello_sources", _widget_ingest,
+    status_fn=_widget_source_status, label="Hello Widgets Source",
+)
+```
+
+Replicates the SQR/COBOL ingest pattern (a `config.json` array of `{env, key,
+source_type, ...}` entries + an SSH-fetch-and-index pipeline) without a
+plugin needing to hand-roll its own background-thread/lock/status-tracking
+boilerplate — the SDK runs `ingest_fn()` in a background thread and tracks
+whether it's running for you. `config_key` ("hello_sources" above) is the
+top-level `config.json` key holding this source type's list of source
+entries; a plugin with nothing real to ingest yet can simply leave that key
+out of `config.json` — `GET /api/plugins/sources/{name}/entries` correctly
+returns an empty list rather than erroring.
+
+Reachable at `GET /api/plugins/sources` (list registered source types),
+`GET /api/plugins/sources/{name}/entries?env=` (this type's config.json
+entries), `POST /api/plugins/sources/{name}/ingest` (trigger a background
+reindex), and `GET /api/plugins/sources/{name}/status` (last ingest result,
+or your own `status_fn()` if you supply one instead of relying on the SDK's
+generic tracking).
+
+### 6. Admin page + nav entry
 
 ```python
 _router = APIRouter()
@@ -134,15 +167,3 @@ highlights correctly on your page.
 - Don't assume your plugin loads before or after another plugin — load order
   is directory-scan order (`sorted()`), not declared dependency order. If two
   plugins need to coordinate, that's a v2 problem this SDK doesn't solve yet.
-
-## Not yet covered (v2 candidates)
-
-- **Custom health checks** — hook into `connectors/alerts.py`'s
-  `evaluate_alerts()`. Not built; the runtime-provider mechanism above is a
-  reasonable stand-in for now (surface a status dict, alert on it yourself).
-- **Config-driven data sources** (a plugin bundling its own `config.json`
-  source list + SSH ingest + SQLite store, like the SQR/COBOL pipelines) —
-  the object-provider and graph-provider registries are sufficient building
-  blocks for this today; a plugin can just do it manually inside its own
-  module the way `sqringest.py`/`cobolingest.py` do, there's no dedicated
-  "source registration" registry yet.

@@ -1,12 +1,13 @@
 """
 Plugin SDK registries (Phase 9 — Platform Extensibility).
 
-Five appendable registries that let a plugin extend the platform without
+Six appendable registries that let a plugin extend the platform without
 editing core files:
   - object providers  (new UOM object types, e.g. /admin/object/{type}/{name})
   - graph providers    (new Knowledge Graph node/edge builders)
   - runtime providers   (new /admin/runtime status sources)
   - health checks       (new operational health checks, e.g. /admin/runtime)
+  - source types        (config-driven ingest sources, the SQR/COBOL pattern)
   - nav entries         (new admin dashboard pages in the nav bar)
 
 Plugins call `register_*()` at import time (see connectors/pluginloader.py).
@@ -15,6 +16,8 @@ can be imported early and by anything without cycles.
 """
 
 import logging
+import threading
+import time
 
 logger = logging.getLogger("deathstar.plugins")
 
@@ -22,6 +25,7 @@ _OBJECT_PROVIDERS: dict[str, dict] = {}
 _GRAPH_PROVIDERS: list[tuple[str, callable]] = []
 _RUNTIME_PROVIDERS: dict[str, dict] = {}
 _HEALTH_CHECKS: dict[str, dict] = {}
+_SOURCE_TYPES: dict[str, dict] = {}
 _NAV_ENTRIES: list[tuple[str, tuple]] = []
 _ROUTERS: list = []
 _LOADED_PLUGINS: list[str] = []
@@ -59,6 +63,73 @@ def register_health_check(name: str, check_fn, label: str = ""):
     (not polled) by GET /api/runtime/health-checks; surfaced on
     /admin/runtime alongside the existing Plugin Providers card."""
     _HEALTH_CHECKS[name] = {"check_fn": check_fn, "label": label or name}
+
+
+def register_source_type(name: str, config_key: str, ingest_fn, status_fn=None, label: str = ""):
+    """Register a config-driven ingest source, replicating the SQR/COBOL
+    pattern (a config.json array of {env, key, source_type, ...} entries +
+    an SSH-fetch-and-index pipeline) without a plugin needing to hand-roll
+    its own background-thread/lock/status-tracking boilerplate.
+
+    config_key: top-level config.json key holding this source type's list
+        of source entries (e.g. "sqr_sources" is the built-in precedent).
+    ingest_fn(): callable, triggers a full reindex; run in a background
+        thread by the SDK (same threading/locking pattern already used by
+        routers/sqr.py and routers/cobol.py's own ingest triggers), so the
+        plugin only needs to write the ingest logic itself.
+    status_fn(): optional callable returning current index stats. If
+        omitted, GET /api/plugins/sources/{name}/status falls back to the
+        SDK's own generically-tracked last-ingest-result.
+    """
+    _SOURCE_TYPES[name] = {
+        "config_key": config_key, "ingest_fn": ingest_fn, "status_fn": status_fn,
+        "label": label or name, "running": False, "last_result": None,
+    }
+
+
+def trigger_source_ingest(name: str) -> dict:
+    """Start a registered source type's ingest_fn in a background thread
+    (skips if already running). Returns {"status": "started"|"already_running"}."""
+    entry = _SOURCE_TYPES.get(name)
+    if not entry:
+        return {"status": "not_found"}
+    if entry["running"]:
+        return {"status": "already_running"}
+    entry["running"] = True
+
+    def _run():
+        try:
+            result = entry["ingest_fn"]()
+            entry["last_result"] = {
+                "status": "ok", "result": result,
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+        except Exception as exc:
+            entry["last_result"] = {
+                "status": "error", "error": str(exc),
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+        finally:
+            entry["running"] = False
+
+    threading.Thread(target=_run, daemon=True, name=f"plugin-source-ingest-{name}").start()
+    return {"status": "started"}
+
+
+def get_source_type_status(name: str) -> dict:
+    entry = _SOURCE_TYPES.get(name)
+    if not entry:
+        return {"error": f"No source type registered as '{name}'"}
+    if entry["status_fn"]:
+        try:
+            return entry["status_fn"]()
+        except Exception as exc:
+            return {"error": str(exc)}
+    return {"running": entry["running"], "last_result": entry["last_result"]}
+
+
+def get_source_types() -> dict[str, dict]:
+    return dict(_SOURCE_TYPES)
 
 
 def register_nav_entry(group_label: str, key: str, label: str, href: str):
@@ -107,6 +178,7 @@ def status() -> dict:
         "graph_providers": [name for name, _ in _GRAPH_PROVIDERS],
         "runtime_providers": sorted(_RUNTIME_PROVIDERS.keys()),
         "health_checks": sorted(_HEALTH_CHECKS.keys()),
+        "source_types": sorted(_SOURCE_TYPES.keys()),
         "nav_entries": [entry[1][0] for entry in _NAV_ENTRIES],
         "routers": len(_ROUTERS),
     }

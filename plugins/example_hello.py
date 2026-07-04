@@ -10,8 +10,11 @@ Registers:
   - a graph provider     (adds hello_widget nodes/edges to the Knowledge Graph)
   - a runtime provider   (static status, visible on /admin/runtime)
   - a health check       (widgets-degraded check, visible on /admin/runtime)
+  - a source type        (config-driven ingest, GET/POST /api/plugins/sources/hello_widgets)
   - a nav entry + admin page (/admin/plugin/hello, under a "Plugins" nav group)
 """
+
+import time
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
@@ -21,6 +24,9 @@ _WIDGETS = {
     "BRAVO": {"status": "OK", "record": "PERSONAL_DATA"},
     "CHARLIE": {"status": "DEGRADED", "record": "JOB"},
 }
+
+_ingest_count = 0
+_last_ingest_ts = None
 
 
 # ── object provider ──────────────────────────────────────────────────────────
@@ -93,6 +99,27 @@ def _widget_health_check(env):
     }
 
 
+# ── source type ───────────────────────────────────────────────────────────────
+# Mirrors the SQR/COBOL config-driven ingest pattern: a config.json array
+# (here "hello_sources", deliberately absent from config.json — an empty
+# list is the honest, correct result for a demo source with nothing real to
+# ingest, same as any other real-but-unpopulated case elsewhere in this
+# codebase) + an ingest_fn the SDK runs in a background thread for you.
+
+def _widget_ingest():
+    """Deliberately trivial 'reindex' — real plugins would SSH-fetch source,
+    parse it, and write to their own SQLite store here, same shape as
+    connectors/sqringest.py's index_all()."""
+    global _ingest_count, _last_ingest_ts
+    _ingest_count += 1
+    _last_ingest_ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    return {"widgets_indexed": len(_WIDGETS), "run": _ingest_count}
+
+
+def _widget_source_status():
+    return {"ingest_count": _ingest_count, "last_ingest_ts": _last_ingest_ts}
+
+
 # ── admin page ────────────────────────────────────────────────────────────────
 
 _router = APIRouter()
@@ -109,8 +136,8 @@ def _admin_hello_page():
     content = f"""
     <p style="color:#7faab2;font-size:12px">
       Example plugin (plugins/example_hello.py) — proves out the Plugin SDK's
-      four extension points: object provider, graph provider, runtime
-      provider, and this admin page itself.
+      six extension points: object provider, graph provider, runtime
+      provider, health check, source type, and this admin page itself.
     </p>
     <table><thead><tr><th>Widget</th><th>Status</th><th>Record</th><th>&nbsp;</th></tr></thead>
     <tbody>{rows}</tbody></table>
@@ -135,5 +162,9 @@ def register(sdk):
     sdk.register_graph_provider("hello_widgets", _widget_graph_loader)
     sdk.register_runtime_provider("hello", _widget_runtime_status, label="Hello Widgets")
     sdk.register_health_check("hello_widgets", _widget_health_check, label="Hello Widgets Health")
+    sdk.register_source_type(
+        "hello_widgets", "hello_sources", _widget_ingest,
+        status_fn=_widget_source_status, label="Hello Widgets Source",
+    )
     sdk.register_nav_entry("Plugins", "plugin_hello", "Hello Plugin", "/admin/plugin/hello")
     sdk.register_router(_router)
