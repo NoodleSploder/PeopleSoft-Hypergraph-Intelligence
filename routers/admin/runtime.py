@@ -3081,9 +3081,9 @@ tr:hover td{background:rgba(0,229,255,.04);}
 <div style="padding:16px;">
 <div class="ctrl">
   <label style="font-size:11px;color:#7faab2">ENV1</label>
-  <select id="driftEnv1"><option>HCM</option><option>FSCM</option></select>
+  <select id="driftEnv1"></select>
   <label style="font-size:11px;color:#7faab2">ENV2</label>
-  <select id="driftEnv2"><option>FSCM</option><option>HCM</option></select>
+  <select id="driftEnv2"></select>
   <label style="font-size:11px;color:#7faab2">Days</label>
   <select id="driftDays">
     <option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option>
@@ -3210,7 +3210,15 @@ function renderSummary(latest,history){
   }
 }
 
-loadDrift();
+(async () => {
+  const cfg = await apiGet('/api/runtime/config');
+  const envs = cfg.envs || ['HCM','FSCM'];
+  const opts = envs.map(e => `<option>${e}</option>`).join('');
+  $('driftEnv1').innerHTML = opts;
+  $('driftEnv2').innerHTML = opts;
+  if (envs.length > 1) $('driftEnv2').value = envs[1];
+  loadDrift();
+})();
 </script>""")
 
 
