@@ -1150,9 +1150,6 @@ function setStatus(message) {
 }
 
 function objectUrl(type, name) {
-    if (type === 'operator')          return `/admin/operator/${encodeURIComponent(name)}`;
-    if (type === 'role')              return `/admin/role/${encodeURIComponent(name)}`;
-    if (type === 'record')            return `/admin/record/${encodeURIComponent(name)}`;
     if (type === 'service_operation') return `/admin/object/service_operation/${encodeURIComponent(name)}`;
     if (type === 'node')              return `/admin/object/node/${encodeURIComponent(name)}`;
     if (type === 'queue')             return `/admin/object/queue/${encodeURIComponent(name)}`;
@@ -1368,7 +1365,11 @@ function renderRows(target, rows) {
         if (row.level !== undefined && row.level !== null) {
             div.style.marginLeft = `${Math.min(Number(row.level) || 0, 4) * 18}px`;
         }
-        if (url) div.onclick = () => window.location.href = url;
+        if (url) div.onclick = () => {
+            const m = url.match(/^\/admin\/object\/([^/]+)\/(.+)$/);
+            if (m) navigateObject(decodeURIComponent(m[1]), decodeURIComponent(m[2]));
+            else window.location.href = url;
+        };
 
         const hdr = document.createElement('div');
         hdr.className = 'row-header';
@@ -1622,14 +1623,18 @@ function renderObject(object) {
     ovKeys.forEach(k => ovData[k] = object.overview[k]);
     renderKeyValues(document.getElementById('overview'), ovData);
 
-    // Action links
+    // Action links — skip 'self'/'admin' (both just point back at this same
+    // page) and open any link that navigates away from Object Explorer
+    // (e.g. 'graph') in a new tab so it doesn't yank the user out.
     const actEl = document.getElementById('actions');
     actEl.innerHTML = '';
-    const linkKeys = Object.keys(object._links || {}).filter(k => k !== 'self');
+    const linkKeys = Object.keys(object._links || {}).filter(k => k !== 'self' && k !== 'admin');
     linkKeys.forEach(name => {
         const a = document.createElement('a');
-        a.href = object._links[name];
+        const href = object._links[name];
+        a.href = href;
         a.textContent = name;
+        if (!href.startsWith('/admin/object/')) a.target = '_blank';
         actEl.appendChild(a);
     });
     actEl.style.display = linkKeys.length ? '' : 'none';
@@ -1828,12 +1833,11 @@ function renderRecentList() {
     if (!list.length) { el.className = 'muted'; el.textContent = 'No objects viewed yet.'; return; }
     el.className = '';
     el.innerHTML = list.map((r, i) => {
-        const url = objectUrl(r.type, r.name);
         const ago = r.ts ? relativeTime(r.ts) : '';
         const desc = r.description && r.description !== r.name && r.description !== r.title
             ? `<span style="display:block;color:#667;font-size:10px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px">${r.description}</span>`
             : '';
-        return `<div class="result" style="padding:6px 8px;margin:3px 0;display:flex;justify-content:space-between;align-items:flex-start;" onclick="window.location.href='${url}'">
+        return `<div class="result" style="padding:6px 8px;margin:3px 0;display:flex;justify-content:space-between;align-items:flex-start;" onclick="navigateObject('${esc(r.type)}','${esc(r.name)}')">
           <div style="overflow:hidden;flex:1">
             <div style="display:flex;align-items:center;gap:6px">
               ${typeChipHtml(r.type)}
@@ -1849,6 +1853,16 @@ function renderRecentList() {
 }
 
 function clearRecent() { saveRecent([]); renderRecentList(); }
+
+// Navigate to an object while staying inside the Object Explorer SPA.
+// A hard `window.location.href` to /admin/object/{type}/{name} would hit
+// the server-side route, which redirects several types (component, page,
+// permissionlist, application_engine, sqr_program, cobol_program) to their
+// own dedicated explorer pages — kicking the user out of Object Explorer.
+// Loading in-place via the API + pushState avoids that redirect entirely.
+function navigateObject(type, name) {
+    loadObject(type, name, {updateUrl: true});
+}
 
 async function loadObject(type, name, options = {}) {
     if (!type || !name) return;
@@ -1898,11 +1912,10 @@ async function globalSearch() {
 
     const valid = rows.filter(r => !r.error && r.name);
     valid.forEach(row => {
-        const url = (row._links && row._links.admin) ? row._links.admin : objectUrl(row.type, row.name);
         const chipHtml = typeChipHtml(row.type);
         const div = document.createElement('div');
         div.className = 'result';
-        div.onclick = () => window.location.href = url;
+        div.onclick = () => navigateObject(row.type, row.name);
         div.innerHTML = `<span class="title">${chipHtml}<span style="font-family:monospace;">${row.name}</span></span>`
             + (row.description ? `<span class="detail">${row.description}</span>` : '');
         results.appendChild(div);

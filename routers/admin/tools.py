@@ -465,8 +465,6 @@ pre.report{background:#050b12;border:1px solid #00e5ff22;border-radius:3px;paddi
 
 <div class="section-head" style="margin-top:0">Generate Report</div>
 <div class="ctrl">
-  <label style="font-size:11px;color:#7faab2">Env</label>
-  <select id="archEnv"></select>
   <label style="font-size:11px;color:#7faab2">Report</label>
   <select id="archMode" onchange="toggleMode()">
     <option value="dependency">Dependency Report</option>
@@ -505,7 +503,8 @@ function toggleMode(){
 }
 
 async function generate(){
-  const env=$('archEnv').value, mode=$('archMode').value, type=$('archType').value;
+  const env=window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO');
+  const mode=$('archMode').value, type=$('archType').value;
   const name=($('archName').value||'').trim();
   if(!name){ $('archResult').innerHTML='<div class="err-msg">Object name is required.</div>'; return; }
   $('archSpinner').classList.add('on');
@@ -535,11 +534,9 @@ function copyReport(){
   navigator.clipboard.writeText(text).catch(()=>{});
 }
 
-(async function initEnvs(){
-  const cfg = await fetch('/api/runtime/config').then(r=>r.json()).catch(()=>({envs:['HCM','FSCM']}));
-  const envs = cfg.envs && cfg.envs.length ? cfg.envs : ['HCM','FSCM'];
-  $('archEnv').innerHTML = envs.map(e=>`<option>${esc(e)}</option>`).join('');
-})();
+window.addEventListener('deathstar:envchange', () => {
+  if (($('archName').value||'').trim()) generate();
+});
 </script>""")
 
 
