@@ -48,7 +48,7 @@ _NAV_GROUPS = [
         ("permissionlist", "Perm Lists",      "/admin/permissionlist"),
     ]),
     ("Objects", [
-        ("objects",        "Object Search",   "/admin/objects"),
+        ("objects",        "Object Explorer", "/admin/object"),
         ("component",      "Components",      "/admin/component"),
         ("page",           "Pages",           "/admin/page"),
         ("ci",             "CIs",             "/admin/ci"),

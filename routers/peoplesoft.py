@@ -1173,7 +1173,7 @@ def peoplesoft_portal_registry_security(portal_objname: str, env: str = "HCM"):
         "access_paths": access_paths,
         "_links": {
             "object": f"/admin/object/portal_registry/{portal_objname.upper()}",
-            "graph": f"/api/peoplesoft/graph/portal_registry/{portal_objname.upper()}?env={env}",
+            "graph": f"/admin/graph?type=portal_registry&name={portal_objname.upper()}&env={env}",
         },
     }
 
@@ -1293,7 +1293,7 @@ def peoplesoft_operator_security(oprid: str, env: str = "HCM"):
         "components": components,
         "warnings": warnings,
         "_links": {
-            "graph": f"/api/peoplesoft/graph/operator/{oprid.upper()}?env={env}",
+            "graph": f"/admin/graph?type=operator&name={oprid.upper()}&env={env}",
         },
     }
 
@@ -1365,7 +1365,7 @@ def peoplesoft_component_access(component: str, env: str = "HCM"):
         "access": access,
         "warnings": warnings,
         "_links": {
-            "graph": f"/api/peoplesoft/graph/component/{component.upper()}?env={env}",
+            "graph": f"/admin/graph?type=component&name={component.upper()}&env={env}",
         },
     }
 
@@ -1417,7 +1417,7 @@ def peoplesoft_security_explain(oprid: str, component: str, env: str = "HCM"):
     result["_links"] = {
         "operator": f"/admin/object/operator/{result['oprid']}",
         "component": f"/admin/object/component/{result['component']}",
-        "graph": f"/api/peoplesoft/graph/operator/{result['oprid']}?env={env}",
+        "graph": f"/admin/graph?type=operator&name={result['oprid']}&env={env}",
     }
     return result
 

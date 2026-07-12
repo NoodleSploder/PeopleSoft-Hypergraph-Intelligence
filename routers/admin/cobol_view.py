@@ -700,9 +700,9 @@ a{{color:#00e5ff;text-decoration:none}}a:hover{{text-decoration:underline}}
 
 <div class="cmp-toolbar">
   <a href="/admin/cobol" style="color:#7faab2;font-size:12px;text-decoration:none">&larr; COBOL Explorer</a>
-  <select class="cmp-sel" id="envA"><option>HCM</option><option>FSCM</option></select>
+  <select class="cmp-sel" id="envA"></select>
   <span style="color:#445;font-size:12px">vs</span>
-  <select class="cmp-sel" id="envB"><option>FSCM</option><option>HCM</option></select>
+  <select class="cmp-sel" id="envB"></select>
   <select class="cmp-sel" id="diffMode" title="Exact = raw byte comparison. Normalized = ignore comment lines and whitespace-only differences.">
     <option value="exact">Exact match</option>
     <option value="normalized">Ignore whitespace/comments</option>
@@ -807,7 +807,17 @@ async function load(){{
   $('tabBar').style.display='flex';
 }}
 
-document.addEventListener('DOMContentLoaded',()=>load());
+async function initEnvs(){{
+  const cfg = await fetch('/api/cobol/sources').then(r=>r.json()).catch(()=>({{envs:['HCM','FSCM']}}));
+  const envs = cfg.envs && cfg.envs.length ? cfg.envs : ['HCM','FSCM'];
+  const opts = envs.map(e=>`<option>${{esc(e)}}</option>`).join('');
+  $('envA').innerHTML = opts;
+  $('envB').innerHTML = opts;
+  if (envs.length > 1) $('envB').value = envs[1];
+  load();
+}}
+
+document.addEventListener('DOMContentLoaded',()=>initEnvs());
 window.onEnvChange=()=>{{}};
 </script>
 """

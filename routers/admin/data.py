@@ -1000,7 +1000,7 @@ button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 
 async function api(path) {
   const res = await fetch(path);
@@ -1132,7 +1132,7 @@ a{color:#00ccee;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function chip(cls, label) { return `<span class="chip ${esc(cls)}">${esc(label)}</span>`; }

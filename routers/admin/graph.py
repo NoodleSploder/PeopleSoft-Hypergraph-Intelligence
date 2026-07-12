@@ -178,6 +178,7 @@ def admin_graph():
                 <option value="routing">IB Routing</option>
                 <option value="sql_definition">SQL Definition</option>
                 <option value="query">PS Query</option>
+                <option value="connected_query">Connected Query</option>
                 <option value="tree">Tree</option>
                 <option value="ci">Component Interface</option>
                 <option value="application_package">App Package</option>
@@ -326,7 +327,7 @@ def admin_graph():
     </div>
 
 <script>
-const ENV = 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 
 async function api(path) {
     const res = await fetch(path);
@@ -443,6 +444,19 @@ document.getElementById('objectName').addEventListener('keydown', event => {
         loadGraph();
     }
 });
+
+// ── Deep-link from Object Explorer: /admin/graph?type=X&name=Y ─────────
+(function () {
+    const params = new URLSearchParams(window.location.search);
+    const type = params.get('type');
+    const name = params.get('name');
+    if (type && name) {
+        document.getElementById('objectType').value = type;
+        document.getElementById('objectName').value = name;
+        showTab('visual');
+        loadGraph();
+    }
+})();
 
 // ── Knowledge Graph Force Visualization ─────────────────
 const KG_COLORS = {
@@ -1051,6 +1065,7 @@ def object_explorer_page(object_type="", object_name=""):
                 <option value="routing">IB Routing</option>
                 <option value="sql_definition">SQL Definition</option>
                 <option value="query">PS Query</option>
+                <option value="connected_query">Connected Query</option>
                 <option value="tree">Tree</option>
                 <option value="ci">Component Interface</option>
                 <option value="application_package">App Package</option>
@@ -1109,7 +1124,7 @@ def object_explorer_page(object_type="", object_name=""):
 
 <script>
 __ESC_JS__
-const ENV = 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 const INITIAL_TYPE = __OBJECT_TYPE__;
 const INITIAL_NAME = __OBJECT_NAME__;
 
@@ -2244,7 +2259,7 @@ def admin_portal():
     </div>
 
 <script>
-const ENV = 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 let currentPortal = '';
 let treeMode = false;
 let currentTreePortal = '';
@@ -2722,7 +2737,7 @@ def admin_metadata():
     </div>
 
 <script>
-const ENV = 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 
 async function api(path, options = {}) {
     const res = await fetch(path, options);
@@ -3024,7 +3039,7 @@ def admin_graphdb():
     </div>
 
 <script>
-const ENV = 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 
 async function api(path, options = {}) {
     const res = await fetch(path, options);

@@ -50,7 +50,7 @@ button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 
 async function api(path) {
   const res = await fetch(path);
@@ -156,7 +156,7 @@ button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 
 async function api(path) {
   const res = await fetch(path);
@@ -263,7 +263,7 @@ button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 const MENU_TYPE = {'0':'Standard','1':'Pop-up'};
 async function api(path) { const r=await fetch(path); return r.ok?r.json():null; }
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
@@ -371,7 +371,7 @@ a{color:#00e5ff;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 const STATUS_LABELS = {'A':['chip-ok','Active'], 'I':['chip-muted','Inactive']};
 
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
@@ -483,11 +483,12 @@ doSearch();
 
 
 @router.get("/appclass", response_class=HTMLResponse)
-def admin_appclass(request: Request, env: str = "HCM"):
-    nav = _nav_html("appclass", env)
+def admin_appclass(request: Request):
+    nav = _nav_html("appclass", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Application Classes</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
@@ -507,13 +508,13 @@ def admin_appclass(request: Request, env: str = "HCM"):
 </div>
 <script>
 {_ESC_JS}
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let selected = null;
 
 async function doSearch() {{
   const q = document.getElementById('q').value.trim();
   const pkg = document.getElementById('pkg').value.trim();
-  const url = `/api/peoplesoft/app-classes?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&pkg=${{encodeURIComponent(pkg)}}&limit=200`;
+  const url = `/api/peoplesoft/app-classes?env=${{encodeURIComponent(ENVVAL())}}&q=${{encodeURIComponent(q)}}&pkg=${{encodeURIComponent(pkg)}}&limit=200`;
   const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
   const list = document.getElementById('list');
   if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
@@ -536,7 +537,7 @@ async function loadDetail(key) {{
   document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.dataset?.key === key));
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading…</div>';
-  const url = `/api/peoplesoft/object/app_class/${{encodeURIComponent(key)}}?env=${{encodeURIComponent(ENV)}}`;
+  const url = `/api/peoplesoft/object/app_class/${{encodeURIComponent(key)}}?env=${{encodeURIComponent(ENVVAL())}}`;
   const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
   if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
 
@@ -592,11 +593,12 @@ doSearch();
 
 
 @router.get("/contsvc", response_class=HTMLResponse)
-def admin_contsvc(request: Request, env: str = "HCM"):
-    nav = _nav_html("contsvc", env)
+def admin_contsvc(request: Request):
+    nav = _nav_html("contsvc", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Content Services</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
@@ -616,7 +618,7 @@ def admin_contsvc(request: Request, env: str = "HCM"):
 </div>
 <script>
 {_ESC_JS}
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let selected = null;
 
 const URL_TYPE_COLOR = {{
@@ -629,7 +631,7 @@ const URL_TYPE_LABEL = {{
 async function doSearch() {{
   const q = document.getElementById('q').value.trim();
   const owner = document.getElementById('owner').value.trim();
-  const url = `/api/peoplesoft/content-services?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&owner=${{encodeURIComponent(owner)}}&limit=200`;
+  const url = `/api/peoplesoft/content-services?env=${{encodeURIComponent(ENVVAL())}}&q=${{encodeURIComponent(q)}}&owner=${{encodeURIComponent(owner)}}&limit=200`;
   const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
   const list = document.getElementById('list');
   if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
@@ -661,7 +663,7 @@ async function loadDetail(sid) {{
   document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(sid)));
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading…</div>';
-  const url = `/api/peoplesoft/object/content_service/${{encodeURIComponent(sid)}}?env=${{encodeURIComponent(ENV)}}`;
+  const url = `/api/peoplesoft/object/content_service/${{encodeURIComponent(sid)}}?env=${{encodeURIComponent(ENVVAL())}}`;
   const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
   if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
 
@@ -723,11 +725,12 @@ doSearch();
 
 
 @router.get("/adsdef", response_class=HTMLResponse)
-def admin_adsdef(request: Request, env: str = "HCM"):
-    nav = _nav_html("adsdef", env)
+def admin_adsdef(request: Request):
+    nav = _nav_html("adsdef", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>ADS Definitions</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
@@ -747,13 +750,13 @@ def admin_adsdef(request: Request, env: str = "HCM"):
 </div>
 <script>
 {_ESC_JS}
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let selected = null;
 
 async function doSearch() {{
   const q = document.getElementById('q').value.trim();
   const own = document.getElementById('own').value.trim();
-  const url = `/api/peoplesoft/ads-definitions?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&owner=${{encodeURIComponent(own)}}&limit=200`;
+  const url = `/api/peoplesoft/ads-definitions?env=${{encodeURIComponent(ENVVAL())}}&q=${{encodeURIComponent(q)}}&owner=${{encodeURIComponent(own)}}&limit=200`;
   const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
   const list = document.getElementById('list');
   if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
@@ -779,7 +782,7 @@ async function loadDetail(name) {{
   document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading…</div>';
-  const url = `/api/peoplesoft/object/ads_definition/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const url = `/api/peoplesoft/object/ads_definition/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENVVAL())}}`;
   const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
   if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
 
@@ -832,11 +835,12 @@ doSearch();
 
 
 @router.get("/urldef", response_class=HTMLResponse)
-def admin_urldef(request: Request, env: str = "HCM"):
-    nav = _nav_html("urldef", env)
+def admin_urldef(request: Request):
+    nav = _nav_html("urldef", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>URL Definitions</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
@@ -854,7 +858,7 @@ def admin_urldef(request: Request, env: str = "HCM"):
 </div>
 <script>
 {_ESC_JS}
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let selected = null;
 
 function urlType(url) {{
@@ -874,7 +878,7 @@ const TYPE_COLOR = {{
 
 async function doSearch() {{
   const q = document.getElementById('q').value.trim();
-  const url = `/api/peoplesoft/url-definitions?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&limit=200`;
+  const url = `/api/peoplesoft/url-definitions?env=${{encodeURIComponent(ENVVAL())}}&q=${{encodeURIComponent(q)}}&limit=200`;
   const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
   const list = document.getElementById('list');
   if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
@@ -901,7 +905,7 @@ async function loadDetail(name) {{
   document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading…</div>';
-  const url = `/api/peoplesoft/object/url_definition/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const url = `/api/peoplesoft/object/url_definition/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENVVAL())}}`;
   const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
   if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
 
@@ -935,11 +939,12 @@ doSearch();
 
 
 @router.get("/cbskill", response_class=HTMLResponse)
-def admin_cbskill(request: Request, env: str = "HCM"):
-    nav = _nav_html("cbskill", env)
+def admin_cbskill(request: Request):
+    nav = _nav_html("cbskill", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Chatbot Skills</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
@@ -957,12 +962,12 @@ def admin_cbskill(request: Request, env: str = "HCM"):
 </div>
 <script>
 {_ESC_JS}
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let selected = null;
 
 async function doSearch() {{
   const q = document.getElementById('q').value.trim();
-  const url = `/api/peoplesoft/chatbot-skills?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&limit=200`;
+  const url = `/api/peoplesoft/chatbot-skills?env=${{encodeURIComponent(ENVVAL())}}&q=${{encodeURIComponent(q)}}&limit=200`;
   const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
   const list = document.getElementById('list');
   if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
@@ -988,7 +993,7 @@ async function loadDetail(name) {{
   document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading…</div>';
-  const url = `/api/peoplesoft/object/chatbot_skill/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const url = `/api/peoplesoft/object/chatbot_skill/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENVVAL())}}`;
   const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
   if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
 
@@ -1043,11 +1048,12 @@ doSearch();
 
 
 @router.get("/objects", response_class=HTMLResponse)
-def admin_objects(request: Request, env: str = "HCM"):
-    nav = _nav_html("objects", env)
+def admin_objects(request: Request):
+    nav = _nav_html("objects", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Object Explorer</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 <style>
 *{{box-sizing:border-box}}
@@ -1088,7 +1094,7 @@ input.main-q:focus{{outline:none;border-color:#00e5ff}}
 </div>
 <script>
 {_ESC_JS}
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let _rows = [], _type = '', _timer = null;
 
 const TC = {{
@@ -1117,7 +1123,7 @@ async function doSearch() {{
     return;
   }}
   document.getElementById('status').textContent = 'Searching…';
-  _rows = await fetch(`/api/peoplesoft/search?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&limit=300`).then(r=>r.json()).catch(()=>[]);
+  _rows = await fetch(`/api/peoplesoft/search?env=${{encodeURIComponent(ENVVAL())}}&q=${{encodeURIComponent(q)}}&limit=300`).then(r=>r.json()).catch(()=>[]);
   _type = '';
   render();
   document.getElementById('status').textContent = `${{_rows.length}} result${{_rows.length===1?'':'s'}}`;
@@ -1182,5 +1188,8 @@ function render() {{
   const q = new URLSearchParams(location.search).get('q');
   if (q) {{ document.getElementById('q').value=q; doSearch(); }}
 }})();
+window.addEventListener('deathstar:envchange', () => {{
+  if (document.getElementById('q').value.trim()) doSearch();
+}});
 </script>
 </body></html>""")

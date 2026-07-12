@@ -3484,6 +3484,10 @@ button:hover{background:#33eeff}
 
 <div class="card">
   <button onclick="loadTopo()">Refresh</button>
+  <label style="font-size:11px;color:#7faab2;margin-left:10px">Environment</label>
+  <select id="envSel" style="background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px" onchange="loadTopo()">
+    <option value="">All</option>
+  </select>
   <span id="statusMsg">Loading topology&hellip;</span>
 </div>
 
@@ -3512,41 +3516,53 @@ function kindColor(k){ return KIND_COLORS[k]||'#6c7086'; }
 const STATUS_COLOR = { ONLINE:'#a6e3a1', OFFLINE:'#f38ba8', UNKNOWN:'#f9e2af' };
 function statusColor(s){ return STATUS_COLOR[s]||'#6c7086'; }
 
-// ── fixed layout ───────────────────────────────────────────────────────────
-// Column x positions (pixels in viewBox 1100×520)
+// ── dynamic layout ─────────────────────────────────────────────────────────
+// Column x positions (pixels in viewBox width scales with lane count)
 const COL = { browser:60, nginx:200, web:360, app:520, middle:680, data:900 };
-const ROW = { hcm_top:100, hcm_bot:220, shared_top:130, shared_bot:290, fscm_top:330, fscm_bot:450 };
-
-const NODE_POS = {
-  browser:   [COL.browser, 300],
-  nginx:     [COL.nginx,   300],
-  hcm_web:   [COL.web,     ROW.hcm_top],
-  hcm_app:   [COL.app,     ROW.hcm_top],
-  hcm_prcs:  [COL.middle,  ROW.hcm_top],
-  hcm_ib:    [COL.middle,  ROW.hcm_bot],
-  fscm_web:  [COL.web,     ROW.fscm_top],
-  fscm_app:  [COL.app,     ROW.fscm_top],
-  fscm_prcs: [COL.middle,  ROW.fscm_top + 120],
-  fscm_ib:   [COL.middle,  ROW.fscm_bot],
-  oracle:    [COL.data,    220],
-  opensearch:[COL.data,    380],
-};
+const LANE_H = 150, LANE_TOP = 70;
 const NODE_W = 110, NODE_H = 40, NODE_R = 6;
 
 // ── state ──────────────────────────────────────────────────────────────────
-let _nodes = [], _links = [], _posMap = {};
+let _nodes = [], _links = [], _envs = [], _posMap = {}, _laneMap = {};
+
+function computeLayout(nodes) {
+  // Assign each distinct lane a row band, top to bottom.
+  const laneOrder = [...new Set(nodes.map(n => n.lane).filter(Boolean))].sort();
+  const laneRow = {};
+  laneOrder.forEach((lane, i) => { laneRow[lane] = LANE_TOP + i * LANE_H; });
+
+  const pos = {};
+  nodes.forEach(n => {
+    if (!n.lane) return; // shared nodes positioned separately below
+    const top = laneRow[n.lane];
+    const col = n.kind === 'weblogic' ? COL.web : n.kind === 'appserver' ? COL.app : COL.middle;
+    const row = n.kind === 'ib' ? top + 80 : top;
+    pos[n.id] = [col, row];
+  });
+
+  const laneCount = Math.max(laneOrder.length, 1);
+  const midY = LANE_TOP + (laneCount * LANE_H) / 2 - NODE_H / 2;
+  pos.browser = [COL.browser, midY];
+  pos.nginx   = [COL.nginx, midY];
+  pos.oracle  = [COL.data, midY - 60];
+  pos.opensearch = [COL.data, midY + 100];
+
+  return { pos, laneOrder, laneRow, height: LANE_TOP + laneCount * LANE_H + 40 };
+}
 
 function drawTopo() {
   const svg = document.getElementById('topoSvg');
   const ns = 'http://www.w3.org/2000/svg';
   svg.innerHTML = '';
 
-  // Build position index
+  const layout = computeLayout(_nodes);
   _posMap = {};
+  _laneMap = layout.laneRow;
   _nodes.forEach(n => {
-    const p = NODE_POS[n.id];
+    const p = layout.pos[n.id];
     if (p) _posMap[n.id] = {x: p[0], y: p[1]};
   });
+  svg.setAttribute('viewBox', `0 0 1100 ${layout.height}`);
 
   // ── Draw links ───────────────────────────────────────────────────────────
   for (const lk of _links) {
@@ -3657,11 +3673,8 @@ function drawTopo() {
   }
 
   // ── Group labels ─────────────────────────────────────────────────────────
-  for (const [label, x, y, color] of [
-    ['HCM', 335, 30, '#89b4fa'],
-    ['FSCM', 335, 310, '#89dceb'],
-    ['SHARED', 850, 160, '#f9e2af'],
-  ]) {
+  const laneLabels = layout.laneOrder.map((lane, i) => [lane, 335, layout.laneRow[lane] - 20, '#89b4fa']);
+  for (const [label, x, y, color] of [...laneLabels, ['SHARED', 850, 30, '#f9e2af']]) {
     const t = document.createElementNS(ns, 'text');
     t.setAttribute('x', x); t.setAttribute('y', y);
     t.setAttribute('fill', color);
@@ -3709,9 +3722,16 @@ async function loadTopo() {
   const msg = document.getElementById('statusMsg');
   msg.textContent = 'Loading\u2026';
   try {
-    const d = await fetch('/api/topology').then(r => r.json());
+    const envSel = document.getElementById('envSel');
+    const envParam = envSel.value ? `?env=${encodeURIComponent(envSel.value)}` : '';
+    const d = await fetch('/api/topology' + envParam).then(r => r.json());
     _nodes = d.nodes || [];
     _links = d.links || [];
+    if (d.envs && d.envs.length && !_envs.length) {
+      _envs = d.envs;
+      envSel.innerHTML = '<option value="">All</option>' +
+        _envs.map(e => `<option value="${ESC(e)}">${ESC(e)}</option>`).join('');
+    }
     drawTopo();
     const online = _nodes.filter(n => n.status === 'ONLINE').length;
     const offline = _nodes.filter(n => n.status === 'OFFLINE').length;

@@ -62,7 +62,7 @@ a{color:#00e5ff;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 const SEV_CHIP = {'0':['chip-info','Message'],'1':['chip-warn','Warning'],'2':['chip-error','Error'],'3':['chip-crit','Cancel']};
 
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
@@ -141,10 +141,11 @@ doSearch();
 
 
 @router.get("/prcsdefn")
-def admin_prcsdefn(request: Request, env: str = "HCM"):
-    nav = _nav_html("prcsdefn", env)
+def admin_prcsdefn(request: Request):
+    nav = _nav_html("prcsdefn", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Process Definitions</title>
+<html><head><meta charset="utf-8">
+<script src="/static/app.js?v=2"></script><title>Process Definitions</title>
 {_NAV_CSS}
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
@@ -198,7 +199,7 @@ h2{{color:#aa66ff;font-size:12px;font-weight:700;letter-spacing:.08em;text-trans
   <div class="detail" id="detail"><div class="muted">Select a process definition.</div></div>
 </div>
 <script>
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let _all = [], _sel = -1;
 
 async function api(url) {{
@@ -219,7 +220,7 @@ function typeChip(t) {{
 async function doSearch() {{
   const q = document.getElementById('qInput').value;
   const prcstype = document.getElementById('typeFilter').value;
-  const data = await api(`/api/peoplesoft/process-definitions?env=${{ENV}}&q=${{encodeURIComponent(q)}}&prcstype=${{encodeURIComponent(prcstype)}}&limit=500`);
+  const data = await api(`/api/peoplesoft/process-definitions?env=${{ENVVAL()}}&q=${{encodeURIComponent(q)}}&prcstype=${{encodeURIComponent(prcstype)}}&limit=500`);
   _all = (data?.items || []);
   const list = document.getElementById('list');
   list.innerHTML = _all.map((it, i) => `
@@ -238,7 +239,7 @@ async function selectItem(idx, key) {{
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/prcs_defn/${{key}}?env=${{ENV}}`);
+  const d = await api(`/api/peoplesoft/object/prcs_defn/${{key}}?env=${{ENVVAL()}}`);
   if (!d) {{ detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }}
 
   const uom = d._uom || {{}};
@@ -291,7 +292,7 @@ async function selectItem(idx, key) {{
     const aeId = (uom.prcsname||'').trim();
     if (aeId) {{
       html += `<div style="margin-top:14px;padding-top:10px;border-top:1px solid #1a2a3a">
-        <a href="/admin/ae?q=${{encodeURIComponent(aeId)}}&env=${{ENV}}" style="color:#22cc88;font-size:12px">Open in AE Explorer &#x2197;</a>
+        <a href="/admin/ae?q=${{encodeURIComponent(aeId)}}&env=${{ENVVAL()}}" style="color:#22cc88;font-size:12px">Open in AE Explorer &#x2197;</a>
       </div>`;
     }}
   }}
@@ -305,10 +306,11 @@ doSearch();
 
 
 @router.get("/filelayout")
-def admin_filelayout(request: Request, env: str = "HCM"):
-    nav = _nav_html("filelayout", env)
+def admin_filelayout(request: Request):
+    nav = _nav_html("filelayout", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>File Layouts</title>
+<html><head><meta charset="utf-8">
+<script src="/static/app.js?v=2"></script><title>File Layouts</title>
 {_NAV_CSS}
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
@@ -353,7 +355,7 @@ h2{{color:#44aaff;font-size:12px;font-weight:700;letter-spacing:.08em;text-trans
   <div class="detail" id="detail"><div class="muted">Select a file layout.</div></div>
 </div>
 <script>
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let _all = [];
 
 async function api(url) {{
@@ -374,7 +376,7 @@ function fieldTypeLabel(t) {{
 
 async function doSearch() {{
   const q = document.getElementById('qInput').value;
-  const data = await api(`/api/peoplesoft/file-layouts?env=${{ENV}}&q=${{encodeURIComponent(q)}}&limit=500`);
+  const data = await api(`/api/peoplesoft/file-layouts?env=${{ENVVAL()}}&q=${{encodeURIComponent(q)}}&limit=500`);
   _all = (data?.items || []);
   const list = document.getElementById('list');
   list.innerHTML = _all.map((it, i) => `
@@ -392,7 +394,7 @@ async function selectItem(idx, name) {{
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/file_layout/${{name}}?env=${{ENV}}`);
+  const d = await api(`/api/peoplesoft/object/file_layout/${{name}}?env=${{ENVVAL()}}`);
   if (!d) {{ detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }}
 
   const uom = d._uom || {{}};
@@ -460,10 +462,11 @@ doSearch();
 
 
 @router.get("/xlat")
-def admin_xlat(request: Request, env: str = "HCM"):
-    nav = _nav_html("xlat", env)
+def admin_xlat(request: Request):
+    nav = _nav_html("xlat", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Translate Values</title>
+<html><head><meta charset="utf-8">
+<script src="/static/app.js?v=2"></script><title>Translate Values</title>
 {_NAV_CSS}
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
@@ -504,7 +507,7 @@ h2{{color:#ddcc00;font-size:12px;font-weight:700;letter-spacing:.08em;text-trans
   <div class="detail" id="detail"><div class="muted">Select a field to see its translate values.</div></div>
 </div>
 <script>
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let _all = [];
 
 async function api(url) {{
@@ -515,7 +518,7 @@ function chip(cls, label) {{ return `<span class="chip ${{cls}}">${{esc(label)}}
 
 async function doSearch() {{
   const q = document.getElementById('qInput').value;
-  const data = await api(`/api/peoplesoft/translate-fields?env=${{ENV}}&q=${{encodeURIComponent(q)}}&limit=500`);
+  const data = await api(`/api/peoplesoft/translate-fields?env=${{ENVVAL()}}&q=${{encodeURIComponent(q)}}&limit=500`);
   _all = (data?.items || []);
   const list = document.getElementById('list');
   list.innerHTML = _all.map((it, i) => `
@@ -532,7 +535,7 @@ async function selectItem(idx, name) {{
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/xlat_field/${{name}}?env=${{ENV}}`);
+  const d = await api(`/api/peoplesoft/object/xlat_field/${{name}}?env=${{ENVVAL()}}`);
   if (!d) {{ detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }}
 
   const uom = d._uom || {{}};
@@ -581,10 +584,11 @@ doSearch();
 
 
 @router.get("/project")
-def admin_project(request: Request, env: str = "HCM"):
-    nav = _nav_html("project", env)
+def admin_project(request: Request):
+    nav = _nav_html("project", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>App Designer Projects</title>
+<html><head><meta charset="utf-8">
+<script src="/static/app.js?v=2"></script><title>App Designer Projects</title>
 {_NAV_CSS}
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
@@ -628,7 +632,7 @@ h2{{color:#55ee55;font-size:12px;font-weight:700;letter-spacing:.08em;text-trans
   <div class="detail" id="detail"><div class="muted">Select a project.</div></div>
 </div>
 <script>
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let _all = [];
 
 async function api(url) {{
@@ -644,7 +648,7 @@ function fmtDate(d) {{
 
 async function doSearch() {{
   const q = document.getElementById('qInput').value;
-  const data = await api(`/api/peoplesoft/projects?env=${{ENV}}&q=${{encodeURIComponent(q)}}&limit=500`);
+  const data = await api(`/api/peoplesoft/projects?env=${{ENVVAL()}}&q=${{encodeURIComponent(q)}}&limit=500`);
   _all = (data?.items || []);
   const list = document.getElementById('list');
   list.innerHTML = _all.map((it, i) => `
@@ -662,7 +666,7 @@ async function selectItem(idx, name) {{
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/project/${{name}}?env=${{ENV}}`);
+  const d = await api(`/api/peoplesoft/object/project/${{name}}?env=${{ENVVAL()}}`);
   if (!d) {{ detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }}
 
   const uom = d._uom || {{}};
@@ -727,11 +731,12 @@ doSearch();
 
 
 @router.get("/ptftest", response_class=HTMLResponse)
-def admin_ptftest(request: Request, env: str = "HCM"):
-    nav = _nav_html("ptftest", env)
+def admin_ptftest(request: Request):
+    nav = _nav_html("ptftest", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>PTF Tests</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
@@ -756,7 +761,7 @@ def admin_ptftest(request: Request, env: str = "HCM"):
 </div>
 <script>
 {_ESC_JS}
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let selected = null;
 
 const TYPE_COLOR = {{S:'#ee8800', H:'#44aaff', L:'#aa66ff'}};
@@ -765,7 +770,7 @@ const TYPE_LABEL = {{S:'Script', H:'Shell', L:'Library'}};
 async function doSearch() {{
   const q = document.getElementById('q').value.trim();
   const tp = document.getElementById('tp').value;
-  const url = `/api/peoplesoft/ptf-tests?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&ptf_type=${{encodeURIComponent(tp)}}&limit=200`;
+  const url = `/api/peoplesoft/ptf-tests?env=${{encodeURIComponent(ENVVAL())}}&q=${{encodeURIComponent(q)}}&ptf_type=${{encodeURIComponent(tp)}}&limit=200`;
   const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
   const list = document.getElementById('list');
   if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
@@ -795,7 +800,7 @@ async function loadDetail(name) {{
   document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading…</div>';
-  const url = `/api/peoplesoft/object/ptf_test/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const url = `/api/peoplesoft/object/ptf_test/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENVVAL())}}`;
   const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
   if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
 
@@ -854,11 +859,12 @@ doSearch();
 
 
 @router.get("/archobj", response_class=HTMLResponse)
-def admin_archobj(request: Request, env: str = "HCM"):
-    nav = _nav_html("archobj", env)
+def admin_archobj(request: Request):
+    nav = _nav_html("archobj", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Archive Objects</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
@@ -876,12 +882,12 @@ def admin_archobj(request: Request, env: str = "HCM"):
 </div>
 <script>
 {_ESC_JS}
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let selected = null;
 
 async function doSearch() {{
   const q = document.getElementById('q').value.trim();
-  const url = `/api/peoplesoft/archive-objects?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&limit=200`;
+  const url = `/api/peoplesoft/archive-objects?env=${{encodeURIComponent(ENVVAL())}}&q=${{encodeURIComponent(q)}}&limit=200`;
   const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
   const list = document.getElementById('list');
   if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
@@ -905,7 +911,7 @@ async function loadDetail(name) {{
   document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading…</div>';
-  const url = `/api/peoplesoft/object/archive_object/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const url = `/api/peoplesoft/object/archive_object/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENVVAL())}}`;
   const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
   if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
 
@@ -1191,11 +1197,12 @@ doSearch();
 
 
 @router.get("/ae", response_class=HTMLResponse)
-def admin_ae(request: Request, env: str = "HCM"):
-    nav = _nav_html("ae", env)
+def admin_ae(request: Request):
+    nav = _nav_html("ae", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>AE Programs</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 <style>
 *{{box-sizing:border-box}}
@@ -1246,7 +1253,7 @@ table.plain tr:hover td{{background:#0a1520}}
 </div>
 <script>
 {_ESC_JS}
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let _sel = null;
 
 const ACT_COLOR = {{
@@ -1267,7 +1274,7 @@ function doSearch() {{
     const q = document.getElementById('q').value.trim();
     if (q.length < 2) {{ document.getElementById('list').innerHTML = '<div class="muted">Type 2+ chars to search.</div>'; return; }}
     document.getElementById('list').innerHTML = '<div class="muted">Searching…</div>';
-    const data = await fetch(`/api/peoplesoft/ae?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&limit=200`)
+    const data = await fetch(`/api/peoplesoft/ae?env=${{encodeURIComponent(ENVVAL())}}&q=${{encodeURIComponent(q)}}&limit=200`)
       .then(r=>r.json()).catch(()=>({{items:[]}}));
     const items = data.items || [];
     if (!items.length) {{ document.getElementById('list').innerHTML = '<div class="muted">No programs found.</div>'; return; }}
@@ -1288,7 +1295,7 @@ async function loadProg(id) {{
   document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('sel', el.dataset.id === id));
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading…</div>';
-  const data = await fetch(`/api/peoplesoft/ae/${{encodeURIComponent(id)}}?env=${{encodeURIComponent(ENV)}}`)
+  const data = await fetch(`/api/peoplesoft/ae/${{encodeURIComponent(id)}}?env=${{encodeURIComponent(ENVVAL())}}`)
     .then(r=>r.json()).catch(e=>({{error:String(e)}}));
   if (data.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(data.error)}}</div>`; return; }}
   detail.innerHTML = renderProg(id, data);
@@ -1368,7 +1375,7 @@ function renderProg(id, d) {{
           const isSame = !ta || ta.toUpperCase()===id.toUpperCase();
           const lnk = isSame
             ? `<span class="call-link" style="cursor:pointer" data-target="${{esc(isSame?id:ta)}}" onclick="event.stopPropagation();loadProg(this.dataset.target)">${{esc(isSame?id:ta)}}.${{esc(ts)}}</span>`
-            : `<a class="call-link" href="/admin/ae?q=${{encodeURIComponent(ta)}}&env=${{ENV}}" onclick="event.stopPropagation()">${{esc(ta)}}.${{esc(ts)}}</a>`;
+            : `<a class="call-link" href="/admin/ae?q=${{encodeURIComponent(ta)}}&env=${{ENVVAL()}}" onclick="event.stopPropagation()">${{esc(ta)}}.${{esc(ts)}}</a>`;
           bodyParts += `<div style="margin-bottom:6px;color:#556;font-size:11px">→ ${{lnk}}</div>`;
         }}
       }}
@@ -1406,7 +1413,7 @@ ${{hasBody?`<div class="step-body">${{bodyParts}}</div>`:''}}
     ? `<table class="plain"><thead><tr><th>Record</th><th>Default</th></tr></thead><tbody>` +
       stateRecs.map(r => {{
         const rn = (r.recname||r.ae_state_recname||'').trim();
-        return `<tr><td><a href="/admin/record/${{encodeURIComponent(rn)}}?env=${{ENV}}" style="color:#44ddff">${{esc(rn)}}</a></td>
+        return `<tr><td><a href="/admin/record/${{encodeURIComponent(rn)}}?env=${{ENVVAL()}}" style="color:#44ddff">${{esc(rn)}}</a></td>
           <td>${{r.is_default?'<span style="color:#22cc66">✓</span>':''}}</td></tr>`;
       }}).join('') + '</tbody></table>'
     : '<div class="muted">No state records defined.</div>';
@@ -1485,11 +1492,12 @@ function setTab(name, el) {{
 
 
 @router.get("/component", response_class=HTMLResponse)
-def admin_component(request: Request, env: str = "HCM"):
-    nav = _nav_html("component", env)
+def admin_component(request: Request):
+    nav = _nav_html("component", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Component Explorer</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 <style>
 *{{box-sizing:border-box}}
@@ -1551,7 +1559,7 @@ body{{margin:0;background:#050b12;color:#c8d8e8;font-family:Arial,sans-serif}}
 </div>
 <script>
 {_ESC_JS}
-const ENV = "{env}";
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO');
 
 async function api(url) {{
   try {{
@@ -1887,11 +1895,12 @@ function setTab(name, el) {{
 
 
 @router.get("/page", response_class=HTMLResponse)
-def admin_page(request: Request, env: str = "HCM"):
-    nav = _nav_html("page", env)
+def admin_page(request: Request):
+    nav = _nav_html("page", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Page Explorer</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 <style>
 *{{box-sizing:border-box}}
@@ -1943,7 +1952,7 @@ body{{margin:0;background:#050b12;color:#c8d8e8;font-family:Arial,sans-serif}}
 </div>
 <script>
 {_ESC_JS}
-const ENV = "{env}";
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO');
 
 async function api(url) {{
   try {{ const r = await fetch(url); if (!r.ok) return null; return await r.json(); }} catch(e) {{ return null; }}
@@ -2182,11 +2191,12 @@ function setTab(name, el, pageName) {{
 
 
 @router.get("/whatchanged", response_class=HTMLResponse)
-def admin_whatchanged(request: Request, env: str = "HCM"):
-    nav = _nav_html("whatchanged", env)
+def admin_whatchanged(request: Request):
+    nav = _nav_html("whatchanged", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>What Changed</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 <style>
 *{{box-sizing:border-box}}
@@ -2240,15 +2250,17 @@ tr:hover td{{background:rgba(0,229,255,.03)}}
   <span id="status"></span>
   <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
     <span style="font-size:11px;color:#446">Env:</span>
-    <span style="font-size:12px;color:#00e5ff;font-weight:bold">{env}</span>
+    <span id="envLbl" style="font-size:12px;color:#00e5ff;font-weight:bold"></span>
   </div>
 </div>
 <div class="content" id="content">
-  <div class="muted" style="text-align:center;margin-top:40px">Select a time range and click Search to see what changed in {env}.</div>
+  <div class="muted" style="text-align:center;margin-top:40px">Select a time range and click Search to see what changed in this environment.</div>
 </div>
 <script>
 {_ESC_JS}
-const ENV = "{env}";
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO');
+document.getElementById('envLbl').textContent = ENV;
+window.addEventListener('deathstar:envchange', e => {{ document.getElementById('envLbl').textContent = e.detail.env; }});
 
 // Object type config — sql aliases must be N/D/DT/OP (Oracle uppercases them)
 const TS = `TO_TIMESTAMP(:since, 'YYYY-MM-DD HH24:MI:SS')`;

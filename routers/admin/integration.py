@@ -930,10 +930,11 @@ function reload() {
 
 
 @router.get("/ibmessage")
-def admin_ibmessage(request: Request, env: str = "HCM"):
-    nav = _nav_html("ibmessage", env)
+def admin_ibmessage(request: Request):
+    nav = _nav_html("ibmessage", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>IB Messages</title>
+<html><head><meta charset="utf-8">
+<script src="/static/app.js?v=2"></script><title>IB Messages</title>
 {_NAV_CSS}
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
@@ -976,7 +977,7 @@ h2{{color:#cc44ff;font-size:12px;font-weight:700;letter-spacing:.08em;text-trans
   <div class="detail" id="detail"><div class="muted">Select an IB message definition.</div></div>
 </div>
 <script>
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let _all = [];
 
 async function api(url) {{
@@ -991,7 +992,7 @@ function statusChip(s) {{
 
 async function doSearch() {{
   const q = document.getElementById('qInput').value;
-  const data = await api(`/api/peoplesoft/ib-messages?env=${{ENV}}&q=${{encodeURIComponent(q)}}&limit=500`);
+  const data = await api(`/api/peoplesoft/ib-messages?env=${{ENVVAL()}}&q=${{encodeURIComponent(q)}}&limit=500`);
   _all = (data?.items || []);
   const list = document.getElementById('list');
   list.innerHTML = _all.map((it, i) => `
@@ -1009,7 +1010,7 @@ async function selectItem(idx, name) {{
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/message/${{name}}?env=${{ENV}}`);
+  const d = await api(`/api/peoplesoft/object/message/${{name}}?env=${{ENVVAL()}}`);
   if (!d) {{ detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }}
 
   const uom = d._uom || {{}};
@@ -1074,11 +1075,12 @@ doSearch();
 
 
 @router.get("/ibapp", response_class=HTMLResponse)
-def admin_ibapp(request: Request, env: str = "HCM"):
-    nav = _nav_html("ibapp", env)
+def admin_ibapp(request: Request):
+    nav = _nav_html("ibapp", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>IB Application Services</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
@@ -1096,12 +1098,12 @@ def admin_ibapp(request: Request, env: str = "HCM"):
 </div>
 <script>
 {_ESC_JS}
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let selected = null;
 
 async function doSearch() {{
   const q = document.getElementById('q').value.trim();
-  const url = `/api/peoplesoft/ib-applications?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&limit=100`;
+  const url = `/api/peoplesoft/ib-applications?env=${{encodeURIComponent(ENVVAL())}}&q=${{encodeURIComponent(q)}}&limit=100`;
   const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
   const list = document.getElementById('list');
   if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
@@ -1128,7 +1130,7 @@ async function loadDetail(name) {{
   document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading…</div>';
-  const url = `/api/peoplesoft/object/ib_application/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const url = `/api/peoplesoft/object/ib_application/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENVVAL())}}`;
   const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
   if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
 
@@ -1197,11 +1199,12 @@ doSearch();
 
 
 @router.get("/ibsvcgrp", response_class=HTMLResponse)
-def admin_ibsvcgrp(request: Request, env: str = "HCM"):
-    nav = _nav_html("ibsvcgrp", env)
+def admin_ibsvcgrp(request: Request):
+    nav = _nav_html("ibsvcgrp", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>IB Service Groups</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
@@ -1219,12 +1222,12 @@ def admin_ibsvcgrp(request: Request, env: str = "HCM"):
 </div>
 <script>
 {_ESC_JS}
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let selected = null;
 
 async function doSearch() {{
   const q = document.getElementById('q').value.trim();
-  const url = `/api/peoplesoft/ib-service-groups?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&limit=200`;
+  const url = `/api/peoplesoft/ib-service-groups?env=${{encodeURIComponent(ENVVAL())}}&q=${{encodeURIComponent(q)}}&limit=200`;
   const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
   const list = document.getElementById('list');
   if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
@@ -1248,7 +1251,7 @@ async function loadDetail(name) {{
   document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading…</div>';
-  const url = `/api/peoplesoft/object/ib_service_group/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const url = `/api/peoplesoft/object/ib_service_group/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENVVAL())}}`;
   const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
   if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
 
@@ -1297,11 +1300,12 @@ doSearch();
 
 
 @router.get("/ibrtng", response_class=HTMLResponse)
-def admin_ibrtng(request: Request, env: str = "HCM"):
-    nav = _nav_html("ibrtng", env)
+def admin_ibrtng(request: Request):
+    nav = _nav_html("ibrtng", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>IB Routings</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
@@ -1332,7 +1336,7 @@ def admin_ibrtng(request: Request, env: str = "HCM"):
 </div>
 <script>
 {_ESC_JS}
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let selected = null;
 
 const TYPE_COLOR = {{S:'#44aaff', A:'#ffaa44', R:'#44ff88', X:'#778'}};
@@ -1342,7 +1346,7 @@ async function doSearch() {{
   const q = document.getElementById('q').value.trim();
   const rt = document.getElementById('rt').value;
   const st = document.getElementById('st').value;
-  const url = `/api/peoplesoft/ib-routings?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&rtng_type=${{encodeURIComponent(rt)}}&status=${{encodeURIComponent(st)}}&limit=300`;
+  const url = `/api/peoplesoft/ib-routings?env=${{encodeURIComponent(ENVVAL())}}&q=${{encodeURIComponent(q)}}&rtng_type=${{encodeURIComponent(rt)}}&status=${{encodeURIComponent(st)}}&limit=300`;
   const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
   const list = document.getElementById('list');
   if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
@@ -1372,7 +1376,7 @@ async function loadDetail(name) {{
   document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading…</div>';
-  const url = `/api/peoplesoft/object/ib_routing/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const url = `/api/peoplesoft/object/ib_routing/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENVVAL())}}`;
   const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
   if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
 

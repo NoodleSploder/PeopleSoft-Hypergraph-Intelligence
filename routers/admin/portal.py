@@ -58,7 +58,7 @@ a{color:#ddcc00;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function statusChip(s) {
@@ -178,7 +178,7 @@ a{color:#9944ff;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 const SVC_LABELS = {U:'URL',C:'Component',S:'Script',A:'App Class',P:'PS Page',I:'iScript',R:'Related Action'};
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -302,7 +302,7 @@ a{color:#00bb66;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 const LINE_TYPE_CHIP = {
   C: ['chip-info',  'Content Ref'],
   F: ['chip-muted', 'Folder'],
@@ -449,7 +449,7 @@ a{color:#cc44aa;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 let _mode = 'reports';
 
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
@@ -645,7 +645,7 @@ pre{background:#030d14;border:1px solid #1e3040;padding:12px;font-family:monospa
   </div>
 </div>
 <script>
-const ENV=localStorage.getItem('dsEnv')||'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 const PC_KW=['If','Then','Else','End-If','For','End-For','While','End-While','Repeat','Until','Return','Break','Continue','Local','Global','Component','Function','End-Function','Method','End-Method','class','Extends','Implements','import','Array','String','Integer','Number','Date','DateTime','Boolean','Object','Any','Exception','Try','Catch','End-Try','Throw','CreateObject','GetLevel0','GetRecord','GetField','GetPage','GetGrid','GetRow','GetComponent','Step','DoWhile','DoUntil'];
 const PC_BUILTIN=['MessageBox','SQLExec','CreateSQL','Close','Fetch','Insert','Update','Delete','IsNull','None','Null','True','False','All','And','Or','Not','As','Of','Property','Get','Set','Value','Name','Type','CreateRecord','CreateMessage','CreateRowset','CreateArray','GetRowset','GetMessage','%This','%Super','%CurrentTimeIn','%Date','%DateTime','%Time','%EmployeeId','%OperatorId','%MenuName','%Component','%Page','%Action','%Mode','%Panel','%PanelGroup','%UpdateStats','%SelectAll','%Insert','%Update','%Delete','%SelectByKey','%SelectByKeyEffdt','%DateAdd','%DateTimeAdd','%DateTimeDiff','%DateDiff','%Substring','%NumToChar','%CharToNum','%DateOut','%TimeOut','%Round','%Truncate','%Abs','%Sign','%Mod','%Upper','%Lower','%Rtrim','%Ltrim','%Replace','%Len','%Value','%like','%contains','%starts'];
 
@@ -764,7 +764,7 @@ a{color:#2299ee;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function typeChip(s) {
@@ -911,7 +911,7 @@ a{color:#7744ee;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -1048,7 +1048,7 @@ a{color:#ee8800;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -1177,7 +1177,7 @@ a{color:#22cc66;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function chip(cls, label) { return `<span class="chip ${esc(cls)}">${esc(label)}</span>`; }
@@ -1261,11 +1261,12 @@ doSearch();
 </script>""")
 
 @router.get("/stylesheet", response_class=HTMLResponse)
-def admin_stylesheet(request: Request, env: str = "HCM"):
-    nav = _nav_html("stylesheet", env)
+def admin_stylesheet(request: Request):
+    nav = _nav_html("stylesheet", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Style Sheets</title>
 <meta charset="utf-8">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
@@ -1290,7 +1291,7 @@ def admin_stylesheet(request: Request, env: str = "HCM"):
 </div>
 <script>
 {_ESC_JS}
-const ENV = {repr(env)};
+function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let selected = null;
 
 const TYPE_LABEL = {{0:'Classic', 1:'Fluid Theme', 2:'Component Style'}};
@@ -1299,7 +1300,7 @@ const TYPE_COLOR = {{0:'#aa88ff', 1:'#ffcc44', 2:'#44aaff'}};
 async function doSearch() {{
   const q = document.getElementById('q').value.trim();
   const tp = document.getElementById('tp').value;
-  const url = `/api/peoplesoft/style-sheets?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&ss_type=${{encodeURIComponent(tp)}}&limit=200`;
+  const url = `/api/peoplesoft/style-sheets?env=${{encodeURIComponent(ENVVAL())}}&q=${{encodeURIComponent(q)}}&ss_type=${{encodeURIComponent(tp)}}&limit=200`;
   const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
   const list = document.getElementById('list');
   if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
@@ -1327,7 +1328,7 @@ async function loadDetail(name) {{
   document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('selected', el.innerText.trim().startsWith(name)));
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading…</div>';
-  const url = `/api/peoplesoft/object/style_sheet/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENV)}}`;
+  const url = `/api/peoplesoft/object/style_sheet/${{encodeURIComponent(name)}}?env=${{encodeURIComponent(ENVVAL())}}`;
   const payload = await fetch(url).then(r=>r.json()).catch(e=>{{return {{error:String(e)}}}});
   if (payload.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(payload.error)}}</div>`; return; }}
 

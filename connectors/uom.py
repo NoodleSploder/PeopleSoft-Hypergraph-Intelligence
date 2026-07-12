@@ -14,7 +14,7 @@ def api_url(object_type, name):
 
 
 def graph_url(object_type, name):
-    return f"/api/peoplesoft/graph/{object_type.lower()}/{name.upper()}"
+    return f"/admin/graph?type={object_type.lower()}&name={name.upper()}"
 
 
 def canonical_base(env, object_type, name, **extra):
@@ -5637,7 +5637,10 @@ def connected_query_object(env, conqrsname):
         "status_label": defn.get("pt_report_status_label", ""),
         "owner": str(defn.get("objectownerid") or "").strip() or None,
         "_raw": data,
-        "_links": {"admin": object_url("connected_query", conqrsname.upper())},
+        "_links": {
+            "admin": object_url("connected_query", conqrsname.upper()),
+            "graph": graph_url("connected_query", conqrsname.upper()),
+        },
         "_relationships": relationships,
         "_graph": graph,
         "warnings": data.get("warnings", []),

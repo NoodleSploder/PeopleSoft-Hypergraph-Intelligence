@@ -177,7 +177,7 @@ button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;paddi
   </div>
 </div>
 <script>
-const ENV=localStorage.getItem('dsEnv')||'HCM';
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
 let _key=null,_allRows=[],_cols=[];
 async function api(p){const r=await fetch(p);return r.ok?r.json():null;}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -263,9 +263,9 @@ tr:hover td{background:rgba(0,229,255,.04);}
 <div class="section-head" style="margin-top:0">Environment Risk Assessment</div>
 <div class="ctrl">
   <label style="font-size:11px;color:#7faab2">Env 1</label>
-  <select id="riskEnv1"><option>HCM</option><option>FSCM</option></select>
+  <select id="riskEnv1"></select>
   <label style="font-size:11px;color:#7faab2">Env 2</label>
-  <select id="riskEnv2"><option value="FSCM">FSCM</option><option>HCM</option></select>
+  <select id="riskEnv2"></select>
   <button onclick="runRisk()">Assess Risk</button>
   <span class="spinner" id="riskSpinner">&#9679;&#9679;&#9679;</span>
 </div>
@@ -275,7 +275,7 @@ tr:hover td{background:rgba(0,229,255,.04);}
 <div class="section-head">Project Impact Analysis (KG-based)</div>
 <div class="ctrl">
   <label style="font-size:11px;color:#7faab2">Env</label>
-  <select id="impEnv"><option>HCM</option><option>FSCM</option></select>
+  <select id="impEnv"></select>
   <input id="impProject" type="text" placeholder="Project name (e.g. GPIT_HR92_OBJECTS)" onkeydown="if(event.key==='Enter')runImpact()">
   <button onclick="runImpact()">Analyze Impact</button>
   <span class="spinner" id="impSpinner">&#9679;&#9679;&#9679;</span>
@@ -427,7 +427,17 @@ function renderImpact(d){
 }
 
 // Auto-load risk on page open
-runRisk();
+async function initEnvs(){
+  const cfg = await fetch('/api/runtime/config').then(r=>r.json()).catch(()=>({envs:['HCM','FSCM']}));
+  const envs = cfg.envs && cfg.envs.length ? cfg.envs : ['HCM','FSCM'];
+  const opts = envs.map(e=>`<option>${esc(e)}</option>`).join('');
+  $('riskEnv1').innerHTML = opts;
+  $('riskEnv2').innerHTML = opts;
+  if (envs.length > 1) $('riskEnv2').value = envs[1];
+  $('impEnv').innerHTML = opts;
+  runRisk();
+}
+initEnvs();
 </script>""")
 
 
@@ -456,7 +466,7 @@ pre.report{background:#050b12;border:1px solid #00e5ff22;border-radius:3px;paddi
 <div class="section-head" style="margin-top:0">Generate Report</div>
 <div class="ctrl">
   <label style="font-size:11px;color:#7faab2">Env</label>
-  <select id="archEnv"><option>HCM</option><option>FSCM</option></select>
+  <select id="archEnv"></select>
   <label style="font-size:11px;color:#7faab2">Report</label>
   <select id="archMode" onchange="toggleMode()">
     <option value="dependency">Dependency Report</option>
@@ -524,6 +534,12 @@ function copyReport(){
   const text=$('reportText').textContent;
   navigator.clipboard.writeText(text).catch(()=>{});
 }
+
+(async function initEnvs(){
+  const cfg = await fetch('/api/runtime/config').then(r=>r.json()).catch(()=>({envs:['HCM','FSCM']}));
+  const envs = cfg.envs && cfg.envs.length ? cfg.envs : ['HCM','FSCM'];
+  $('archEnv').innerHTML = envs.map(e=>`<option>${esc(e)}</option>`).join('');
+})();
 </script>""")
 
 
