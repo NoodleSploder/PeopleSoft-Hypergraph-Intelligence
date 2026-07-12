@@ -1,12 +1,12 @@
 from fastapi import APIRouter
 
-from connectors import ptmetadata
+from connectors import ptmetadata, psdb
 
 router = APIRouter(prefix="/api/metadata", tags=["PeopleTools Metadata"])
 
 
 @router.get("/version")
-def metadata_version(env: str = "HCM"):
+def metadata_version(env: str = psdb.default_env()):
     """Return detected PeopleTools version with version-specific adapter context.
 
     Includes declared new tables, column aliases, and live probe results for
@@ -35,17 +35,17 @@ def metadata_version(env: str = "HCM"):
 
 
 @router.get("/capabilities")
-def metadata_capabilities(env: str = "HCM"):
+def metadata_capabilities(env: str = psdb.default_env()):
     return ptmetadata.capabilities(env)
 
 
 @router.get("/tables")
-def metadata_tables(env: str = "HCM"):
+def metadata_tables(env: str = psdb.default_env()):
     return ptmetadata.accessible_objects(env, "TABLE")
 
 
 @router.get("/views")
-def metadata_views(env: str = "HCM"):
+def metadata_views(env: str = psdb.default_env()):
     return ptmetadata.accessible_objects(env, "VIEW")
 
 
@@ -65,22 +65,22 @@ def metadata_object_types():
 
 
 @router.get("/discovery")
-def metadata_discovery(env: str = "HCM"):
+def metadata_discovery(env: str = psdb.default_env()):
     return ptmetadata.discovery(env)
 
 
 @router.get("/products")
-def metadata_products(env: str = "HCM"):
+def metadata_products(env: str = psdb.default_env()):
     return ptmetadata.installed_products(env)
 
 
 @router.get("/resolve/{object_type}/{name}")
-def metadata_resolve(object_type: str, name: str, env: str = "HCM"):
+def metadata_resolve(object_type: str, name: str, env: str = psdb.default_env()):
     return ptmetadata.resolve_object(env, object_type, name)
 
 
 @router.get("/capabilities/table/{table_name}")
-def metadata_has_table(table_name: str, env: str = "HCM"):
+def metadata_has_table(table_name: str, env: str = psdb.default_env()):
     return {
         "table": table_name.upper(),
         "available": ptmetadata.has_table(env, table_name),
@@ -88,7 +88,7 @@ def metadata_has_table(table_name: str, env: str = "HCM"):
 
 
 @router.get("/capabilities/table/{table_name}/column/{column_name}")
-def metadata_has_column(table_name: str, column_name: str, env: str = "HCM"):
+def metadata_has_column(table_name: str, column_name: str, env: str = psdb.default_env()):
     return {
         "table": table_name.upper(),
         "column": column_name.upper(),
@@ -97,7 +97,7 @@ def metadata_has_column(table_name: str, column_name: str, env: str = "HCM"):
 
 
 @router.get("/capabilities/view/{view_name}")
-def metadata_has_view(view_name: str, env: str = "HCM"):
+def metadata_has_view(view_name: str, env: str = psdb.default_env()):
     return {
         "view": view_name.upper(),
         "available": ptmetadata.has_view(env, view_name),

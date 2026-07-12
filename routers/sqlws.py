@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 
-from connectors import sqlws
+from connectors import sqlws, psdb
 
 router = APIRouter(prefix="/api/sqlws", tags=["SQL Workspace"])
 
@@ -26,7 +26,7 @@ class ValidateRequest(BaseModel):
 
 
 class ExecuteRequest(BaseModel):
-    env: str = "HCM"
+    env: str = psdb.default_env()
     sql: str
     binds: dict = {}
     page: int = 1
@@ -36,13 +36,13 @@ class ExecuteRequest(BaseModel):
 
 
 class ExplainRequest(BaseModel):
-    env: str = "HCM"
+    env: str = psdb.default_env()
     sql: str
     binds: dict = {}
 
 
 class ExportRequest(BaseModel):
-    env: str = "HCM"
+    env: str = psdb.default_env()
     sql: str
     binds: dict = {}
     page_size: int = sqlws.MAX_PAGE_SIZE
@@ -186,7 +186,7 @@ def delete_history(query_id: str):
 
 @router.get("/schema/search")
 def schema_search(
-    env: str = Query("HCM"),
+    env: str = Query(psdb.default_env()),
     q:   str = Query(..., min_length=1),
     limit: int = Query(50),
 ):
@@ -198,7 +198,7 @@ def schema_search(
 def schema_columns(
     owner: str,
     object_name: str,
-    env: str = Query("HCM"),
+    env: str = Query(psdb.default_env()),
 ):
     """Return column metadata for a table or view."""
     return sqlws.schema_columns(env_name=env, owner=owner, object_name=object_name)

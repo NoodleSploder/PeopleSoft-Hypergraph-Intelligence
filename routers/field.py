@@ -18,7 +18,7 @@ def _safe(fn, *args, empty=None, **kwargs):
 
 
 @router.get("/search")
-def field_search(env: str = Query("HCM"), q: str = Query(""), limit: int = Query(100)):
+def field_search(env: str = Query(psdb.default_env()), q: str = Query(""), limit: int = Query(100)):
     """Search distinct field names with usage count."""
     rows, err = _safe(psdb.search_fields_distinct, env, q, limit, empty=[])
     for r in (rows or []):
@@ -28,7 +28,7 @@ def field_search(env: str = Query("HCM"), q: str = Query(""), limit: int = Query
 
 
 @router.get("/{fieldname}/records")
-def field_records(fieldname: str, env: str = Query("HCM")):
+def field_records(fieldname: str, env: str = Query(psdb.default_env())):
     """Return all records that contain this field."""
     rows, err = _safe(psdb.field_record_summary, env, fieldname, empty=[])
     return {"items": rows or [], "field": fieldname,
@@ -36,7 +36,7 @@ def field_records(fieldname: str, env: str = Query("HCM")):
 
 
 @router.get("/{fieldname}/definition")
-def field_definition(fieldname: str, env: str = Query("HCM"), record: str = Query("")):
+def field_definition(fieldname: str, env: str = Query(psdb.default_env()), record: str = Query("")):
     """Return field definition. record is optional; if given uses RECORD.FIELD context."""
     ref = f"{record}.{fieldname}" if record else fieldname
     result, err = _safe(psdb.field_definition, env, ref, empty={})
@@ -44,7 +44,7 @@ def field_definition(fieldname: str, env: str = Query("HCM"), record: str = Quer
 
 
 @router.get("/{fieldname}/peoplecode")
-def field_peoplecode(fieldname: str, env: str = Query("HCM")):
+def field_peoplecode(fieldname: str, env: str = Query(psdb.default_env())):
     """Return all PeopleCode programs that fire on this field across all records/components."""
     result, err = _safe(psdb.field_cross_record_peoplecode, env, fieldname, empty={})
     if err:

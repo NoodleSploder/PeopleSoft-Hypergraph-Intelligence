@@ -1,5 +1,6 @@
 import json
 from fastapi import Request
+from connectors import psdb
 from fastapi.responses import HTMLResponse
 from ._core import router, _shell, _nav_html, _NAV_CSS, _ESC_JS
 
@@ -281,10 +282,7 @@ def admin_graph():
             <p class="muted" style="margin:0 0 12px">Compare the current live graph against the most recent snapshot to detect what was added, removed, or changed.</p>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                 <label style="font-size:12px;color:#aac">Environment:</label>
-                <select id="driftEnv" style="background:#0b1b24;color:#d7faff;border:1px solid #00e5ff;padding:7px;font-size:12px">
-                    <option value="HCM">HCM</option>
-                    <option value="FSCM">FSCM</option>
-                </select>
+                <select id="driftEnv" style="background:#0b1b24;color:#d7faff;border:1px solid #00e5ff;padding:7px;font-size:12px"></select>
                 <label style="font-size:12px;color:#aac">Filter type:</label>
                 <input id="driftTypes" type="text" placeholder="record,component,... (blank=all)"
                     style="background:#0b1b24;color:#d7faff;border:1px solid #00e5ff;padding:7px;font-size:12px;width:220px">
@@ -444,6 +442,12 @@ document.getElementById('objectName').addEventListener('keydown', event => {
         loadGraph();
     }
 });
+
+(async function initDriftEnv() {
+    const cfg = await api('/api/runtime/config').catch(() => ({envs: ['HCM', 'FSCM']}));
+    const envs = cfg.envs && cfg.envs.length ? cfg.envs : ['HCM', 'FSCM'];
+    document.getElementById('driftEnv').innerHTML = envs.map(e => `<option value="${e}">${e}</option>`).join('');
+})();
 
 // ── Deep-link from Object Explorer: /admin/graph?type=X&name=Y ─────────
 (function () {
@@ -2014,7 +2018,7 @@ def admin_object_search():
 
 
 @router.get("/object/{object_type}/{object_name}", response_class=HTMLResponse)
-def admin_object(object_type: str, object_name: str, env: str = "HCM"):
+def admin_object(object_type: str, object_name: str, env: str = psdb.default_env()):
     from fastapi.responses import RedirectResponse
     if object_type == "sqr_program":
         filename = object_name.lower()

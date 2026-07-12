@@ -5,7 +5,7 @@ All endpoints are read-only and grant-aware.
 
 from fastapi import APIRouter, Query
 from connectors import envcompare, graphdb
-from connectors.psdb import load_envs
+from connectors.psdb import load_envs, default_env, default_env2
 
 router = APIRouter(prefix="/api/envcompare", tags=["Environment Comparison"])
 
@@ -19,8 +19,8 @@ def envcompare_config():
 
 @router.get("/summary")
 def envcompare_summary(
-    env1: str = Query("HCM"),
-    env2: str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
 ):
     """Catalog-count summary across key object types for both environments."""
     return envcompare.summary(env1, env2)
@@ -28,8 +28,8 @@ def envcompare_summary(
 
 @router.get("/records")
 def compare_records(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query(""),
     limit: int = Query(500),
 ):
@@ -39,8 +39,8 @@ def compare_records(
 
 @router.get("/fields")
 def compare_fields(
-    env1:   str = Query("HCM"),
-    env2:   str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     record: str = Query(..., description="Record name to compare field-by-field"),
 ):
     """Diff PSRECFIELD for a specific record across two environments."""
@@ -49,8 +49,8 @@ def compare_fields(
 
 @router.get("/components")
 def compare_components(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query(""),
     limit: int = Query(500),
 ):
@@ -60,8 +60,8 @@ def compare_components(
 
 @router.get("/permissions")
 def compare_permissions(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query(""),
     limit: int = Query(500),
 ):
@@ -71,8 +71,8 @@ def compare_permissions(
 
 @router.get("/ae")
 def compare_ae(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query(""),
     limit: int = Query(500),
 ):
@@ -82,8 +82,8 @@ def compare_ae(
 
 @router.get("/roles")
 def compare_roles(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query(""),
     limit: int = Query(500),
 ):
@@ -93,8 +93,8 @@ def compare_roles(
 
 @router.get("/peoplecode")
 def compare_peoplecode(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query("", description="Filter by parent object name (OBJECTVALUE1 or OBJECTVALUE2)"),
     limit: int = Query(500),
 ):
@@ -104,8 +104,8 @@ def compare_peoplecode(
 
 @router.get("/sql_definitions")
 def compare_sql_definitions(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query(""),
     limit: int = Query(500),
 ):
@@ -115,8 +115,8 @@ def compare_sql_definitions(
 
 @router.get("/portals")
 def compare_portals(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query(""),
     limit: int = Query(500),
 ):
@@ -126,8 +126,8 @@ def compare_portals(
 
 @router.get("/portal-object")
 def compare_portal_object(
-    env1:   str = Query("HCM"),
-    env2:   str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     name:   str = Query(..., description="PORTAL_OBJNAME to compare"),
 ):
     """Deep diff of a specific Portal Registry object across two environments."""
@@ -136,8 +136,8 @@ def compare_portal_object(
 
 @router.get("/peoplecode-source")
 def compare_peoplecode_source(
-    env1: str = Query("HCM"),
-    env2: str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     ref:  str = Query(..., description="Encoded PeopleCode reference (e.g. JOB.EMPLID.FieldEdit.0)"),
 ):
     """Unified diff of PeopleCode source for a specific program across two environments."""
@@ -146,8 +146,8 @@ def compare_peoplecode_source(
 
 @router.get("/queries")
 def compare_queries(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query(""),
     limit: int = Query(500),
 ):
@@ -157,8 +157,8 @@ def compare_queries(
 
 @router.get("/menus")
 def compare_menus(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query(""),
     limit: int = Query(500),
 ):
@@ -168,8 +168,8 @@ def compare_menus(
 
 @router.get("/trees")
 def compare_trees(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query(""),
     limit: int = Query(500),
 ):
@@ -179,8 +179,8 @@ def compare_trees(
 
 @router.get("/process_definitions")
 def compare_process_definitions(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query(""),
     limit: int = Query(500),
 ):
@@ -190,8 +190,8 @@ def compare_process_definitions(
 
 @router.get("/ib_routings")
 def compare_ib_routings(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query(""),
     limit: int = Query(500),
 ):
@@ -201,8 +201,8 @@ def compare_ib_routings(
 
 @router.get("/ib_messages")
 def compare_ib_messages(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query(""),
     limit: int = Query(500),
 ):
@@ -212,8 +212,8 @@ def compare_ib_messages(
 
 @router.get("/ci")
 def compare_ci(
-    env1:  str = Query("HCM"),
-    env2:  str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     q:     str = Query(""),
     limit: int = Query(500),
 ):
@@ -223,8 +223,8 @@ def compare_ci(
 
 @router.get("/ae-body")
 def compare_ae_body(
-    env1:      str = Query("HCM"),
-    env2:      str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     ae_applid: str = Query(..., description="AE program name to diff step-by-step"),
 ):
     """Step-level diff of an AE program (sections, steps, SQL text) across two environments."""
@@ -233,8 +233,8 @@ def compare_ae_body(
 
 @router.get("/graph")
 def compare_graph(
-    env1: str = Query("HCM"),
-    env2: str = Query("FSCM"),
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
     node_types: str = Query("", description="Optional comma-separated graph node type filter"),
     limit: int = Query(200),
 ):

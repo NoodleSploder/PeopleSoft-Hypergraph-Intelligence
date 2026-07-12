@@ -19,7 +19,7 @@ def _safe(fn, *args, empty=None, **kwargs):
 
 
 @router.get("/search")
-def record_search(env: str = Query("HCM"), q: str = Query("")):
+def record_search(env: str = Query(psdb.default_env()), q: str = Query("")):
     """Search PSRECDEFN by record name or description."""
     rows, err = _safe(psdb.search_records, env, q, empty=[])
     for r in (rows or []):
@@ -29,7 +29,7 @@ def record_search(env: str = Query("HCM"), q: str = Query("")):
 
 
 @router.get("/{recname}")
-def record_detail(recname: str, env: str = Query("HCM")):
+def record_detail(recname: str, env: str = Query(psdb.default_env())):
     """Return PSRECDEFN detail for a single record."""
     rec, err = _safe(psdb.record_detail, env, recname)
     if rec:
@@ -39,28 +39,28 @@ def record_detail(recname: str, env: str = Query("HCM")):
 
 
 @router.get("/{recname}/fields")
-def record_fields(recname: str, env: str = Query("HCM")):
+def record_fields(recname: str, env: str = Query(psdb.default_env())):
     """Return PSRECFIELD rows for a record."""
     rows, err = _safe(psdb.record_fields, env, recname, empty=[])
     return {"items": rows or [], "warnings": [{"message": err, "severity": "warning"}] if err else []}
 
 
 @router.get("/{recname}/keys")
-def record_keys(recname: str, env: str = Query("HCM")):
+def record_keys(recname: str, env: str = Query(psdb.default_env())):
     """Return key field definitions for a record."""
     rows, err = _safe(psdb.record_keys, env, recname, empty=[])
     return {"items": rows or [], "warnings": [{"message": err, "severity": "warning"}] if err else []}
 
 
 @router.get("/{recname}/indexes")
-def record_indexes(recname: str, env: str = Query("HCM")):
+def record_indexes(recname: str, env: str = Query(psdb.default_env())):
     """Return index definitions for a record."""
     rows, err = _safe(psdb.record_indexes, env, recname, empty=[])
     return {"items": rows or [], "warnings": [{"message": err, "severity": "warning"}] if err else []}
 
 
 @router.get("/{recname}/ddl")
-def record_ddl(recname: str, env: str = Query("HCM")):
+def record_ddl(recname: str, env: str = Query(psdb.default_env())):
     """Return CREATE TABLE DDL for a record."""
     result, err = _safe(psdb.record_ddl, env, recname, empty={})
     if err:
@@ -69,7 +69,7 @@ def record_ddl(recname: str, env: str = Query("HCM")):
 
 
 @router.get("/{recname}/count")
-def record_count(recname: str, env: str = Query("HCM")):
+def record_count(recname: str, env: str = Query(psdb.default_env())):
     """Return row count for the underlying Oracle table."""
     result, err = _safe(psdb.record_count, env, recname, empty={})
     if err:
@@ -78,7 +78,7 @@ def record_count(recname: str, env: str = Query("HCM")):
 
 
 @router.get("/{recname}/sample")
-def record_sample(recname: str, env: str = Query("HCM"), limit: int = Query(20)):
+def record_sample(recname: str, env: str = Query(psdb.default_env()), limit: int = Query(20)):
     """Return sample rows from the underlying Oracle table."""
     result, err = _safe(psdb.record_sample, env, recname, limit=limit, empty={})
     if err:
@@ -87,7 +87,7 @@ def record_sample(recname: str, env: str = Query("HCM"), limit: int = Query(20))
 
 
 @router.get("/{recname}/children")
-def record_children(recname: str, env: str = Query("HCM")):
+def record_children(recname: str, env: str = Query(psdb.default_env())):
     """Return child records (PSRECDEFN where PARENTRECNAME = this record)."""
     rows, err = _safe(psdb.record_children, env, recname, empty=[])
     for r in (rows or []):
@@ -97,21 +97,21 @@ def record_children(recname: str, env: str = Query("HCM")):
 
 
 @router.get("/{recname}/components")
-def record_components(recname: str, env: str = Query("HCM")):
+def record_components(recname: str, env: str = Query(psdb.default_env())):
     """Return components that use this record as search or add search record."""
     rows, err = _safe(psdb.record_components, env, recname, empty=[])
     return {"items": rows or [], "warnings": [{"message": err, "severity": "warning"}] if err else []}
 
 
 @router.get("/{recname}/pages")
-def record_pages(recname: str, env: str = Query("HCM")):
+def record_pages(recname: str, env: str = Query(psdb.default_env())):
     """Return pages where fields from this record appear."""
     rows, err = _safe(psdb.record_pages, env, recname, empty=[])
     return {"items": rows or [], "warnings": [{"message": err, "severity": "warning"}] if err else []}
 
 
 @router.get("/{recname}/related")
-def record_related(recname: str, env: str = Query("HCM")):
+def record_related(recname: str, env: str = Query(psdb.default_env())):
     """Return parent record, language variant, audit record, and related views."""
     result, err = _safe(psdb.record_related, env, recname, empty={})
     if err:
@@ -121,14 +121,14 @@ def record_related(recname: str, env: str = Query("HCM")):
 
 
 @router.get("/{recname}/storage")
-def record_storage(recname: str, env: str = Query("HCM")):
+def record_storage(recname: str, env: str = Query(psdb.default_env())):
     """Return Oracle storage statistics from ALL_TABLES."""
     item, err = _safe(psdb.record_storage, env, recname)
     return {"item": item, "warnings": [{"message": err, "severity": "warning"}] if err else []}
 
 
 @router.get("/{recname}/peoplecode")
-def record_peoplecode(recname: str, env: str = Query("HCM")):
+def record_peoplecode(recname: str, env: str = Query(psdb.default_env())):
     """Return all record-level PeopleCode programs (PSPCMPROG OBJECTID1=2).
     These fire at the record/field definition level, independent of component.
     """

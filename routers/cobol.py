@@ -20,6 +20,7 @@ import time
 
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
+from connectors import psdb
 
 router = APIRouter(prefix="/api/cobol", tags=["COBOL"])
 
@@ -30,7 +31,7 @@ _ingest_running = False
 
 def _run_ingest():
     global _last_ingest, _ingest_running
-    from connectors import cobolingest, cobol_db
+    from connectors import cobolingest, cobol_db, psdb
     cobol_db.init_db()
     try:
         results = cobolingest.index_all()
@@ -117,7 +118,7 @@ def cobol_program(filename: str):
 
 
 @router.get("/program/{filename}/runs")
-def cobol_program_runs(filename: str, env: str = Query("HCM"), days: int = Query(90, ge=1, le=3650),
+def cobol_program_runs(filename: str, env: str = Query(psdb.default_env()), days: int = Query(90, ge=1, le=3650),
                         limit: int = Query(20, ge=1, le=200)):
     """Runtime correlation: recent Process Scheduler runs (PSPRCSRQST) for this
     COBOL program. PRCSNAME is derived from the filename's base name (no
@@ -222,7 +223,7 @@ def cobol_deps(filename: str, max_depth: int = Query(6, ge=1, le=10)):
 
 
 @router.get("/envcompare")
-def cobol_envcompare(env_a: str = Query("HCM"), env_b: str = Query("FSCM"),
+def cobol_envcompare(env_a: str = Query(psdb.default_env()), env_b: str = Query(psdb.default_env2()),
                       diff_mode: str = Query("exact", enum=["exact", "normalized"])):
     """Return side-by-side comparison of COBOL programs/copybooks across two environments."""
     import json

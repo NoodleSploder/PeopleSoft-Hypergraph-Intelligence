@@ -2886,7 +2886,7 @@ function highlightPeopleCode(source) {
   const cfg = await api('/api/peoplesoft/summary').catch(() => null);
   if (cfg?.environments) {
     document.getElementById('envSel').innerHTML = cfg.environments
-      .map(e => `<option value="${e}">${e}</option>`).join('');
+      .map(e => `<option value="${e.environment}">${e.environment}</option>`).join('');
   }
 
   // URL param: /admin/peoplecode/REFERENCE
@@ -3210,11 +3210,7 @@ def admin_secaudit():
 
 <div class="sa-env-bar">
   <span style="font-size:12px;color:#7faab2">Environment:</span>
-  <select id="env" class="sa-env-sel" onchange="loadAll()">
-    <option value="HCM">HCM</option>
-    <option value="FSCM">FSCM</option>
-    <option value="CS">CS</option>
-  </select>
+  <select id="env" class="sa-env-sel" onchange="loadAll()"></select>
   <button class="sa-btn" onclick="loadAll()">Refresh</button>
   <span id="status" class="sa-spinner" style="margin-left:8px"></span>
 </div>
@@ -3420,7 +3416,12 @@ async function loadAll() {
   }
 }
 
-loadAll();
+(async function initEnv(){
+  const cfg = await fetch('/api/runtime/config').then(r=>r.json()).catch(()=>({envs:['HCM','FSCM']}));
+  const envs = cfg.envs && cfg.envs.length ? cfg.envs : ['HCM','FSCM'];
+  document.getElementById('env').innerHTML = envs.map(e=>`<option value="${e}">${e}</option>`).join('');
+  loadAll();
+})();
 </script>""")
 
 

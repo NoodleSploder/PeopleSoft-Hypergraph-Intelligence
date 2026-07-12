@@ -12,6 +12,28 @@ def load_envs():
     return data["peoplesoft"]["environments"]
 
 
+def default_env() -> str:
+    """First configured PeopleSoft environment name.
+
+    Used as the fallback for API endpoints/tool params that don't require
+    the caller to specify an environment. Never hardcode an environment
+    name (e.g. "HCM") as a default — environment names are config-driven
+    and change (e.g. HCM was renamed to HRDMO); a literal default silently
+    goes stale and every endpoint using it as an omitted-param fallback
+    breaks. Source the fallback from config.json via this function instead.
+    """
+    envs = load_envs()
+    return envs[0]["name"] if envs else "HCM"
+
+
+def default_env2() -> str:
+    """Second configured environment — fallback for endpoints that compare
+    two environments (env1/env2, env_a/env_b) when the caller only supplies
+    one or neither."""
+    envs = load_envs()
+    return envs[1]["name"] if len(envs) > 1 else default_env()
+
+
 def dsn(env):
     return f'{env["host"]}:{env["port"]}/{env["service"]}'
 
@@ -35,7 +57,8 @@ def query_env(env, sql, params=None):
     conn = oracledb.connect(
         user=env["user"],
         password=env["password"],
-        dsn=dsn(env)
+        dsn=dsn(env),
+        tcp_connect_timeout=8,
     )
     cur = conn.cursor()
     cur.execute(sql, params or {})

@@ -6,7 +6,7 @@ All endpoints are read-only and grant-aware.
 import json
 from pathlib import Path
 from fastapi import APIRouter, Query
-from connectors import tracing
+from connectors import tracing, psdb
 from connectors.execution import ps_env_names, oracle_db_names
 
 router = APIRouter(prefix="/api/tracing", tags=["Transaction Tracing"])
@@ -25,7 +25,7 @@ def tracing_config():
 
 @router.get("/operators")
 def search_operators(
-    env: str = Query("HCM"),
+    env: str = Query(psdb.default_env()),
     q:   str = Query(""),
 ):
     """Search PSOPRDEFN for matching OPRIDs (autocomplete support)."""
@@ -34,7 +34,7 @@ def search_operators(
 
 @router.get("/active")
 def active_operators(
-    env:   str = Query("HCM"),
+    env: str = Query(psdb.default_env()),
     limit: int = Query(30),
 ):
     """Return operators with login activity in the last 24 hours."""
@@ -43,7 +43,7 @@ def active_operators(
 
 @router.get("/trace")
 def trace_operator(
-    env:   str = Query("HCM"),
+    env: str = Query(psdb.default_env()),
     db:    str = Query(None, description="Oracle DB name for session correlation (optional)"),
     oprid: str = Query(..., description="PeopleSoft operator ID to trace"),
     hours: int = Query(24, description="How far back to look (hours)"),
@@ -57,7 +57,7 @@ def trace_operator(
 
 @router.get("/sessions")
 def operator_sessions(
-    env:   str = Query("HCM"),
+    env: str = Query(psdb.default_env()),
     oprid: str = Query(...),
     hours: int = Query(24),
 ):
@@ -67,7 +67,7 @@ def operator_sessions(
 
 @router.get("/processes")
 def operator_processes(
-    env:   str = Query("HCM"),
+    env: str = Query(psdb.default_env()),
     oprid: str = Query(...),
     hours: int = Query(24),
 ):

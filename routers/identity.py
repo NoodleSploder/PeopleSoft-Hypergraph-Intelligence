@@ -57,7 +57,7 @@ def audit(action: str, target: str, detail: dict):
 
 
 @router.get("/compare/{oprid}")
-def compare_identity(oprid: str, env: str = "HCM"):
+def compare_identity(oprid: str, env: str = psdb.default_env()):
     oprid = oprid.upper()
 
     ps_user = psdb.oprid(oprid, env)
@@ -88,7 +88,7 @@ def compare_identity(oprid: str, env: str = "HCM"):
 
 
 @router.post("/sync/{oprid}")
-def sync_identity(oprid: str, env: str = "HCM"):
+def sync_identity(oprid: str, env: str = psdb.default_env()):
     comparison = compare_identity(oprid, env)
     oprid = comparison["oprid"]
 
@@ -143,7 +143,7 @@ def sync_identity(oprid: str, env: str = "HCM"):
 
 
 @router.post("/provision/{oprid}")
-def provision_identity(oprid: str, req: ProvisionRequest, env: str = "HCM"):
+def provision_identity(oprid: str, req: ProvisionRequest, env: str = psdb.default_env()):
     comparison = compare_identity(oprid, env)
     oprid = comparison["oprid"]
 
@@ -181,7 +181,7 @@ def _gen_password(length: int = 16) -> str:
 
 
 @router.post("/bulk-provision")
-def bulk_provision(req: BulkProvisionRequest, env: str = "HCM"):
+def bulk_provision(req: BulkProvisionRequest, env: str = psdb.default_env()):
     """Provision multiple PeopleSoft operators into Authelia in one call.
 
     Returns a result per OPRID: provisioned, skipped (already exists), or error.
@@ -258,7 +258,7 @@ def list_provision_requests(status: str = ""):
 
 
 @router.post("/requests")
-def create_provision_request(req: ProvisionRequestCreate, env: str = "HCM"):
+def create_provision_request(req: ProvisionRequestCreate, env: str = psdb.default_env()):
     oprid = req.oprid.strip().upper()
 
     ps_user = psdb.oprid(oprid, env)
@@ -294,7 +294,7 @@ def create_provision_request(req: ProvisionRequestCreate, env: str = "HCM"):
 
 
 @router.post("/requests/{req_id}/approve")
-def approve_provision_request(req_id: str, env: str = "HCM"):
+def approve_provision_request(req_id: str, env: str = psdb.default_env()):
     data = _load_requests()
     if req_id not in data:
         raise HTTPException(status_code=404, detail="Request not found")
@@ -365,7 +365,7 @@ def cancel_provision_request(req_id: str):
 
 
 @router.get("/status")
-def identity_status(env: str = "HCM"):
+def identity_status(env: str = psdb.default_env()):
     data = authelia_admin.load_db()
     results = []
 
@@ -404,7 +404,7 @@ def identity_status(env: str = "HCM"):
 
 
 @router.post("/sync-all")
-def sync_all_identities(env: str = "HCM"):
+def sync_all_identities(env: str = psdb.default_env()):
     data = authelia_admin.load_db()
     results = []
 

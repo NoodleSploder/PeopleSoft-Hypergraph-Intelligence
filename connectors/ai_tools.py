@@ -10,6 +10,14 @@ import json
 from connectors import ptmetadata, peoplecode, graphdb, psdb
 from connectors import envcompare, impact
 
+def _env_names() -> list[str]:
+    try:
+        return [e["name"] for e in psdb.load_envs()]
+    except Exception:
+        return ["HCM", "FSCM"]
+
+_ENV_NAMES = _env_names()
+
 # ── Tool definitions (Anthropic format; converted to OpenAI by provider layer) ──
 
 TOOLS = [
@@ -24,11 +32,11 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":   {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":   {"type": "string", "description": "Optional: scope to one environment. Omit (or pass 'ALL') to check every configured environment and get a combined result.", "enum": _ENV_NAMES + ["ALL"]},
                 "query": {"type": "string", "description": "Name or partial name to search for"},
                 "type":  {"type": "string", "description": "Optional: filter to a specific object type (record, field, component, page, application_engine, peoplecode, sql_definition, query, menu, role, permissionlist, etc.)"},
             },
-            "required": ["env", "query"],
+            "required": ["query"],
         },
     },
     {
@@ -41,11 +49,11 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":   {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":   {"type": "string", "description": "Optional: scope to one environment. Omit (or pass 'ALL') to check every configured environment and get a combined result.", "enum": _ENV_NAMES + ["ALL"]},
                 "query": {"type": "string", "description": "Text to search for in PeopleCode source"},
                 "limit": {"type": "integer", "description": "Max results (default 20, max 100)"},
             },
-            "required": ["env", "query"],
+            "required": ["query"],
         },
     },
     {
@@ -58,11 +66,11 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":     {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":     {"type": "string", "description": "Optional: scope to one environment. Omit (or pass 'ALL') to check every configured environment and get a combined result.", "enum": _ENV_NAMES + ["ALL"]},
                 "node_id": {"type": "string", "description": "Node ID from search_objects (e.g. record:PS_JOB or component:JOB_DATA)"},
                 "depth":   {"type": "integer", "description": "Traversal depth (default 2, max 4)"},
             },
-            "required": ["env", "node_id"],
+            "required": ["node_id"],
         },
     },
     {
@@ -75,11 +83,11 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":     {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":     {"type": "string", "description": "Optional: scope to one environment. Omit (or pass 'ALL') to check every configured environment and get a combined result.", "enum": _ENV_NAMES + ["ALL"]},
                 "node_id": {"type": "string", "description": "Node ID from search_objects"},
                 "depth":   {"type": "integer", "description": "Traversal depth (default 2, max 4)"},
             },
-            "required": ["env", "node_id"],
+            "required": ["node_id"],
         },
     },
     {
@@ -91,10 +99,10 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":       {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":       {"type": "string", "description": "Optional: scope to one environment. Omit (or pass 'ALL') to check every configured environment and get a combined result.", "enum": _ENV_NAMES + ["ALL"]},
                 "component": {"type": "string", "description": "Component name (PNLGRPNAME)"},
             },
-            "required": ["env", "component"],
+            "required": ["component"],
         },
     },
     {
@@ -106,10 +114,10 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":      {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":      {"type": "string", "description": "Optional: scope to one environment. Omit (or pass 'ALL') to check every configured environment and get a combined result.", "enum": _ENV_NAMES + ["ALL"]},
                 "ae_name":  {"type": "string", "description": "AE program name (AE_APPLID)"},
             },
-            "required": ["env", "ae_name"],
+            "required": ["ae_name"],
         },
     },
     {
@@ -121,10 +129,10 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":   {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":   {"type": "string", "description": "Optional: scope to one environment. Omit (or pass 'ALL') to check every configured environment and get a combined result.", "enum": _ENV_NAMES + ["ALL"]},
                 "sqlid": {"type": "string", "description": "SQL definition name (SQLID in PSSQLDEFN)"},
             },
-            "required": ["env", "sqlid"],
+            "required": ["sqlid"],
         },
     },
     {
@@ -136,8 +144,8 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env1": {"type": "string", "description": "First environment", "enum": ["HCM", "FSCM"]},
-                "env2": {"type": "string", "description": "Second environment", "enum": ["HCM", "FSCM"]},
+                "env1": {"type": "string", "description": "First environment to compare", "enum": _ENV_NAMES},
+                "env2": {"type": "string", "description": "Second environment to compare", "enum": _ENV_NAMES},
             },
             "required": ["env1", "env2"],
         },
@@ -152,10 +160,10 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":     {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":     {"type": "string", "description": "Optional: scope to one environment. Omit (or pass 'ALL') to check every configured environment and get a combined result.", "enum": _ENV_NAMES + ["ALL"]},
                 "project": {"type": "string", "description": "Project name (PSPROJECTDEFN)"},
             },
-            "required": ["env", "project"],
+            "required": ["project"],
         },
     },
     {
@@ -175,7 +183,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":            {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":            {"type": "string", "description": "Environment name (see enum for configured environments)", "enum": _ENV_NAMES},
                 "hours":          {"type": "integer", "description": "Lookback window in hours for recent_users history (default 8)"},
                 "active_minutes": {"type": "integer", "description": "Window in minutes for 'currently active' detection (default 30). Increase to 60 if unsure."},
                 "limit":          {"type": "integer", "description": "Max users to return (default 50)"},
@@ -197,10 +205,10 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":    {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":    {"type": "string", "description": "Optional: scope to one environment. Omit (or pass 'ALL') to check every configured environment and get a combined result.", "enum": _ENV_NAMES + ["ALL"]},
                 "record": {"type": "string", "description": "Record name (RECNAME), e.g. JOB, JOB_DATA, PERSONAL_DATA"},
             },
-            "required": ["env", "record"],
+            "required": ["record"],
         },
     },
     {
@@ -223,7 +231,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env": {"type": "string", "description": "Environment to health-check: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env": {"type": "string", "description": "Environment name to health-check (see enum for configured environments)", "enum": _ENV_NAMES},
             },
             "required": ["env"],
         },
@@ -242,7 +250,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":       {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":       {"type": "string", "description": "Environment name (see enum for configured environments)", "enum": _ENV_NAMES},
                 "node_name": {"type": "string", "description": "Optional: filter to a specific IB node name (e.g. PSFT_EP, ANONYMOUS)"},
             },
             "required": ["env"],
@@ -261,7 +269,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":   {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":   {"type": "string", "description": "Environment name (see enum for configured environments)", "enum": _ENV_NAMES},
                 "hours": {"type": "integer", "description": "Hours to look back for recent jobs (default 24)"},
             },
             "required": ["env"],
@@ -284,7 +292,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":      {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":      {"type": "string", "description": "Environment name (see enum for configured environments)", "enum": _ENV_NAMES},
                 "instance": {"type": "integer", "description": "Exact PRCSINSTANCE number, e.g. 605810"},
             },
             "required": ["env", "instance"],
@@ -303,7 +311,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":         {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":         {"type": "string", "description": "Environment name (see enum for configured environments)", "enum": _ENV_NAMES},
                 "tier":        {"type": "string", "description": "web | app | both (default: both)", "enum": ["web", "app", "both"]},
                 "oprid":       {"type": "string", "description": "Filter to a specific user OPRID"},
                 "component":   {"type": "string", "description": "Filter web entries to a specific component name"},
@@ -328,7 +336,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env":        {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "env":        {"type": "string", "description": "Environment name (see enum for configured environments)", "enum": _ENV_NAMES},
                 "error_code": {"type": "string", "description": "Filter to a specific error code (e.g. ORA-00942)"},
                 "object_ref": {"type": "string", "description": "Filter to errors related to a specific object name"},
                 "limit":      {"type": "integer", "description": "Max error groups to return (default 50)"},
@@ -441,10 +449,10 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "env": {"type": "string", "description": "Optional: scope to one environment. Omit (or pass 'ALL') to check every configured environment and get a combined result.", "enum": _ENV_NAMES + ["ALL"]},
                 "component": {"type": "string", "description": "Component name (e.g. JOB_DATA, HR_JOBDATA_ADD_FL)"},
             },
-            "required": ["env", "component"],
+            "required": ["component"],
         },
     },
     {
@@ -465,10 +473,10 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "env": {"type": "string", "description": "Optional: scope to one environment. Omit (or pass 'ALL') to check every configured environment and get a combined result.", "enum": _ENV_NAMES + ["ALL"]},
                 "component": {"type": "string", "description": "Component name (PNLGRPNAME), e.g. JOB_DATA"},
             },
-            "required": ["env", "component"],
+            "required": ["component"],
         },
     },
     {
@@ -489,12 +497,12 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "env": {"type": "string", "description": "Optional: scope to one environment. Omit (or pass 'ALL') to check every configured environment and get a combined result.", "enum": _ENV_NAMES + ["ALL"]},
                 "list_type": {"type": "string", "enum": ["search", "detail"], "description": "search=find configs by component/description; detail=full config by exact name"},
                 "query": {"type": "string", "description": "Component name or description substring (search mode)"},
                 "config_name": {"type": "string", "description": "Exact PNLGRPNAME.MARKET.CONFIG_TYPE (detail mode), e.g. PERSONAL_DATA.GBL.MASK"},
             },
-            "required": ["env", "list_type"],
+            "required": ["list_type"],
         },
     },
     {
@@ -517,7 +525,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "env": {"type": "string", "description": "Optional: scope to one environment. Omit (or pass 'ALL') to check every configured environment and get a combined result.", "enum": _ENV_NAMES + ["ALL"]},
                 "target_type": {
                     "type": "string",
                     "enum": ["component", "record", "page"],
@@ -527,7 +535,7 @@ TOOLS = [
                 },
                 "name": {"type": "string", "description": "Component, record, or page name"},
             },
-            "required": ["env", "target_type", "name"],
+            "required": ["target_type", "name"],
         },
     },
     {
@@ -554,7 +562,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "env": {"type": "string", "description": "Environment name (see enum for configured environments)", "enum": _ENV_NAMES},
                 "sql": {"type": "string", "description": "A single read-only SELECT or WITH statement (no semicolons, no DML/DDL)"},
                 "max_rows": {"type": "integer", "description": "Max rows to return (default 50, max 200)"},
             },
@@ -576,7 +584,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "env": {"type": "string", "description": "Environment name (see enum for configured environments)", "enum": _ENV_NAMES},
             },
             "required": ["env"],
         },
@@ -593,7 +601,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "env": {"type": "string", "description": "Environment name (see enum for configured environments)", "enum": _ENV_NAMES},
                 "pattern": {"type": "string", "description": "Glob pattern, default '*.trace*' (matches both *.tracesql and *.tracepc)"},
             },
             "required": ["env"],
@@ -613,7 +621,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "env": {"type": "string", "description": "Environment name (see enum for configured environments)", "enum": _ENV_NAMES},
                 "filename": {"type": "string", "description": "Filename or full path from list_trace_files"},
                 "max_kb": {"type": "integer", "description": "Max KB to read (default 200)"},
             },
@@ -635,7 +643,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env": {"type": "string", "description": "Current environment with the customizations (e.g. HCM)"},
+                "env": {"type": "string", "description": "Current environment with the customizations", "enum": _ENV_NAMES},
                 "target_env": {"type": "string", "description": "Target/upgrade environment to compare against"},
                 "object_types": {
                     "type": "array", "items": {"type": "string"},
@@ -659,7 +667,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env": {"type": "string", "description": "Current environment (e.g. HCM)"},
+                "env": {"type": "string", "description": "Current environment", "enum": _ENV_NAMES},
                 "target_env": {"type": "string", "description": "Target/upgrade environment to compare against"},
                 "object_type": {
                     "type": "string",
@@ -685,7 +693,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env": {"type": "string", "description": "Current environment (e.g. HCM)"},
+                "env": {"type": "string", "description": "Current environment", "enum": _ENV_NAMES},
                 "target_env": {"type": "string", "description": "Target/upgrade environment to compare against"},
                 "object_type": {
                     "type": "string",
@@ -714,7 +722,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "env": {"type": "string", "description": "Optional: scope to one environment. Omit (or pass 'ALL') to check every configured environment and get a combined result.", "enum": _ENV_NAMES + ["ALL"]},
                 "report_type": {
                     "type": "string",
                     "enum": ["dependency", "sequence", "impact"],
@@ -727,7 +735,7 @@ TOOLS = [
                 "name": {"type": "string", "description": "The object's name"},
                 "depth": {"type": "integer", "description": "Traversal depth for dependency/impact reports (default 3, max 4)"},
             },
-            "required": ["env", "report_type", "node_type", "name"],
+            "required": ["report_type", "node_type", "name"],
         },
     },
 ]
@@ -738,18 +746,115 @@ TOOL_BY_NAME = {t["name"]: t for t in TOOLS}
 
 # ── Tool dispatch ─────────────────────────────────────────────────────────────
 
+# Tools that look up static metadata/code for one named object. For these,
+# "env" is a scope, not a required fact the user must supply — an object
+# lookup should check every configured environment by default and only
+# narrow to one if the user names it. Tools NOT in this set deal in live
+# state (sessions, health, logs, traces) or already take two envs by design
+# (envcompare_summary) or have no env concept at all (sqr_program,
+# cobol_program) — those keep "env" required as declared in TOOLS.
+_MULTI_ENV_TOOLS = {
+    "search_objects", "peoplecode_search", "graph_dependencies", "graph_impact",
+    "who_has_access", "ae_steps", "sql_lookup", "project_impact", "record_usage",
+    "component_events", "component_detail", "page_field_config",
+    "peoplecode_sequence", "architecture_report",
+}
+
+
 def dispatch(name: str, inputs: dict) -> str:
     """
     Execute a tool call by name with the given inputs.
     Returns a JSON string suitable for passing back to the AI as a tool result.
+
+    For tools in _MULTI_ENV_TOOLS, an omitted (or "ALL") env fans the same
+    lookup out across every configured environment and returns a combined
+    per-environment result, so the assistant doesn't have to guess or default
+    to a single hardcoded environment for object lookups.
     """
-    try:
-        result = _HANDLERS[name](**inputs)
-        return json.dumps(result, default=str)
-    except KeyError:
+    handler = _HANDLERS.get(name)
+    if handler is None:
         return json.dumps({"error": f"Unknown tool: {name}"})
+
+    env = inputs.get("env")
+    if name in _MULTI_ENV_TOOLS and (not env or str(env).strip().upper() == "ALL"):
+        return _dispatch_multi_env(name, handler, inputs)
+
+    try:
+        result = handler(**inputs)
+        return json.dumps(result, default=str)
     except Exception as exc:
         return json.dumps({"error": str(exc), "tool": name})
+
+
+def _dispatch_multi_env(name: str, handler, inputs: dict) -> str:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    envs = _env_names()
+    by_env = {}
+    found_in, empty_in, error_in = [], [], []
+
+    def _call(e):
+        return e, handler(**{**inputs, "env": e})
+
+    # Each env is an independent, blocking Oracle/SSH round-trip (seconds
+    # each) — run them concurrently so total latency is ~the slowest single
+    # environment instead of the sum of all of them.
+    with ThreadPoolExecutor(max_workers=max(len(envs), 1)) as pool:
+        futures = {pool.submit(_call, e): e for e in envs}
+        for fut in as_completed(futures, timeout=60):
+            e = futures[fut]
+            try:
+                _, result = fut.result()
+                by_env[e] = result
+                if _looks_empty(result):
+                    empty_in.append(e)
+                else:
+                    found_in.append(e)
+            except Exception as exc:
+                by_env[e] = {"error": str(exc)}
+                error_in.append(e)
+
+    # Preserve config order in the output regardless of completion order.
+    by_env = {e: by_env[e] for e in envs if e in by_env}
+    found_in = [e for e in envs if e in found_in]
+    empty_in = [e for e in envs if e in empty_in]
+    error_in = [e for e in envs if e in error_in]
+
+    # Best-effort signal for whether results materially differ across the
+    # environments where the object was actually found — lets the assistant
+    # decide whether it needs to point out a difference or ask the user to
+    # pick one, without having to diff the payloads itself.
+    comparable = [json.dumps(by_env[e], default=str, sort_keys=True) for e in found_in]
+    differs_across_environments = len(set(comparable)) > 1 if len(comparable) > 1 else False
+
+    return json.dumps({
+        "multi_environment": True,
+        "environments_checked": envs,
+        "found_in": found_in,
+        "empty_or_not_found_in": empty_in,
+        "error_in": error_in,
+        "differs_across_environments": differs_across_environments,
+        "by_environment": by_env,
+    }, default=str)
+
+
+def _looks_empty(result) -> bool:
+    """Heuristic: did this env's lookup come back with nothing useful?"""
+    if not isinstance(result, dict):
+        return not result
+    if result.get("error"):
+        return True
+    if result.get("found") is False:
+        return True
+    for key in ("results", "items", "events", "grants", "access_grants"):
+        if key in result:
+            return not result[key]
+    if "count" in result:
+        return not result["count"]
+    if "total" in result:
+        return not result["total"]
+    # No recognizable emptiness signal — assume it has content.
+    return False
 
 
 def _search_objects(env: str, query: str, type: str = None) -> dict:

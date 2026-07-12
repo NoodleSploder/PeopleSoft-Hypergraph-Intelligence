@@ -20,14 +20,14 @@ def runtime_config():
 
 
 @router.get("/status")
-def runtime_status(env: str = "HCM", db: str = None):
+def runtime_status(env: str = psdb.default_env(), db: str = None):
     """Combined runtime snapshot: process scheduler + AE active + IB queue + Oracle sessions."""
     return execution.runtime_status(env, db_name=db or None)
 
 
 @router.get("/processes")
 def runtime_processes(
-    env: str = "HCM",
+    env: str = psdb.default_env(),
     status: str = None,
     limit: int = 100,
 ):
@@ -42,13 +42,13 @@ def runtime_processes(
 
 
 @router.get("/process/{instance}")
-def runtime_process_detail(instance: int, env: str = "HCM"):
+def runtime_process_detail(instance: int, env: str = psdb.default_env()):
     """Return full detail for a single process instance."""
     return execution.process_instance(env, instance)
 
 
 @router.get("/process/{instance}/trace")
-def runtime_process_trace(instance: int, env: str = "HCM", db: str = None):
+def runtime_process_trace(instance: int, env: str = psdb.default_env(), db: str = None):
     """AE-focused runtime trace for a single process instance: PSPRCSRQST
     detail + AE program definition (if applicable) + Oracle ASH wait events/
     top SQL correlated to the run window (if db is given) + log errors in
@@ -59,7 +59,7 @@ def runtime_process_trace(instance: int, env: str = "HCM", db: str = None):
 
 
 @router.get("/ae")
-def runtime_ae(env: str = "HCM", limit: int = 50):
+def runtime_ae(env: str = psdb.default_env(), limit: int = 50):
     """Return running/queued Application Engine processes."""
     return execution.ae_running(env, limit=limit)
 
@@ -95,25 +95,25 @@ def runtime_longops(db: str):
 
 
 @router.get("/ib")
-def runtime_ib(env: str = "HCM"):
+def runtime_ib(env: str = psdb.default_env()):
     """Return Integration Broker queue depth summary."""
     return execution.ib_queue_summary(env)
 
 
 @router.get("/user-sessions")
-def runtime_user_sessions(env: str = "HCM", limit: int = 50):
+def runtime_user_sessions(env: str = psdb.default_env(), limit: int = 50):
     """Return recent/active PeopleSoft user sessions from PSACCESSLOG."""
     return execution.user_sessions(env, limit=limit)
 
 
 @router.get("/servers")
-def runtime_servers(env: str = "HCM"):
+def runtime_servers(env: str = psdb.default_env()):
     """Return Process Scheduler server status from PSSERVERSTAT."""
     return psdb.process_scheduler_servers(env)
 
 
 @router.get("/alerts")
-def runtime_alerts(env: str = "HCM", db: str = None):
+def runtime_alerts(env: str = psdb.default_env(), db: str = None):
     """Evaluate runtime alert thresholds and return active alerts."""
     return alerts_conn.evaluate_alerts(env, db_name=db or None)
 
@@ -131,7 +131,7 @@ def runtime_ash_sql(db: str, minutes: int = 30, limit: int = 10):
 
 
 @router.get("/ash/process")
-def runtime_ash_process(db: str, env: str = "HCM", instance: int = None):
+def runtime_ash_process(db: str, env: str = psdb.default_env(), instance: int = None):
     """Return Oracle ASH activity correlated to a specific PeopleSoft process instance."""
     if not instance:
         return {"events": [], "top_sql": [], "total_samples": 0, "source": None, "warnings": []}
@@ -139,13 +139,13 @@ def runtime_ash_process(db: str, env: str = "HCM", instance: int = None):
 
 
 @router.get("/domains")
-def runtime_domains(env: str = "HCM"):
+def runtime_domains(env: str = psdb.default_env()):
     """Return App Server domain topology from PSPMDOMAIN_VW (or PS_PSPMDOMAIN1_VW fallback)."""
     return psdb.app_server_domains(env)
 
 
 @router.get("/appserver-processes")
-def runtime_appserver_processes(env: str = "HCM"):
+def runtime_appserver_processes(env: str = psdb.default_env()):
     """
     Return live Tuxedo/PeopleSoft server processes (PSAPPSRV, PSAESRV, WSL,
     BBL, ...) on the app server host for this env, via SSH `ps`. This goes
@@ -178,7 +178,7 @@ def runtime_appserver_processes(env: str = "HCM"):
 
 
 @router.get("/process-log")
-def process_log(env: str = "HCM", instance: int = 0, limit: int = 200):
+def process_log(env: str = psdb.default_env(), instance: int = 0, limit: int = 200):
     """
     Return PRCS AE server log entries for a specific process instance.
     Queries app_entries for sources of type prcs_ae where raw contains the instance number.
@@ -207,7 +207,7 @@ def process_log(env: str = "HCM", instance: int = 0, limit: int = 200):
 
 
 @router.get("/history")
-def runtime_history(env: str = "HCM", hours: int = 24):
+def runtime_history(env: str = psdb.default_env(), hours: int = 24):
     """Return time-series runtime metric snapshots for trend charts."""
     from connectors import runtimedb
     runtimedb.init_db()
@@ -215,7 +215,7 @@ def runtime_history(env: str = "HCM", hours: int = 24):
 
 
 @router.get("/history/snapshot")
-def runtime_snapshot_now(env: str = "HCM"):
+def runtime_snapshot_now(env: str = psdb.default_env()):
     """Trigger an immediate runtime snapshot (blocking)."""
     from connectors.scheduler import _run_runtime_snapshot
     _run_runtime_snapshot(env)
@@ -223,7 +223,7 @@ def runtime_snapshot_now(env: str = "HCM"):
 
 
 @router.get("/graph")
-def runtime_graph(env: str = "HCM", db: str = None, process_limit: int = 30, session_limit: int = 30):
+def runtime_graph(env: str = psdb.default_env(), db: str = None, process_limit: int = 30, session_limit: int = 30):
     """Return a best-effort graph of active runtime relationships."""
     return execution.runtime_graph(
         env,
@@ -234,7 +234,7 @@ def runtime_graph(env: str = "HCM", db: str = None, process_limit: int = 30, ses
 
 
 @router.get("/rca")
-def runtime_rca(env: str = "HCM", start: str = "", end: str = "", db: str = None):
+def runtime_rca(env: str = psdb.default_env(), start: str = "", end: str = "", db: str = None):
     """Root cause analysis: correlate process failures, log errors, ASH, and IB errors."""
     import datetime as _dt
     if not end:
@@ -255,7 +255,7 @@ def runtime_plugins_list():
 
 
 @router.get("/plugins/{name}")
-def runtime_plugin_status(name: str, env: str = "HCM"):
+def runtime_plugin_status(name: str, env: str = psdb.default_env()):
     """Return live status from a registered plugin runtime provider."""
     from connectors import plugins
     provider = plugins.get_runtime_providers().get(name)
@@ -266,7 +266,7 @@ def runtime_plugin_status(name: str, env: str = "HCM"):
 
 
 @router.get("/health-checks")
-def runtime_health_checks(env: str = "HCM"):
+def runtime_health_checks(env: str = psdb.default_env()):
     """Run every registered plugin health check and return their results.
 
     Each check is executed on demand (not polled/cached) — a broken check

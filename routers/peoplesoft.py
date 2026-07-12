@@ -881,7 +881,7 @@ def peoplesoft_find_tables(env: str, pattern: str):
 
 
 @router.get("/api/peoplesoft/schema/search")
-def peoplesoft_schema_search(env: str = "HCM", q: str = "", owner: str = "SYSADM"):
+def peoplesoft_schema_search(env: str = psdb.default_env(), q: str = "", owner: str = "SYSADM"):
     return psdb.search_objects(env, q, owner)
 
 
@@ -901,7 +901,7 @@ def peoplesoft_schema_sample(env: str, owner: str, object_name: str, limit: int 
 
 
 @router.get("/api/peoplesoft/records/search")
-def peoplesoft_record_search(env: str = "HCM", q: str = ""):
+def peoplesoft_record_search(env: str = psdb.default_env(), q: str = ""):
     return psdb.search_records(env, q)
 
 
@@ -955,7 +955,7 @@ def peoplesoft_record_where_used(env: str, recname: str):
 
 
 @router.get("/api/peoplesoft/fields")
-def peoplesoft_fields(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_fields(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.fields(env, q, limit))
@@ -963,40 +963,40 @@ def peoplesoft_fields(env: str = "HCM", q: str = "", limit: int = 100):
 
 
 @router.get("/api/peoplesoft/fields/{field_ref}/records")
-def peoplesoft_field_records(field_ref: str, env: str = "HCM"):
+def peoplesoft_field_records(field_ref: str, env: str = psdb.default_env()):
     field = uom.field_object(env, field_ref)
     return field["_relationships"]["records"]
 
 
 @router.get("/api/peoplesoft/fields/{field_ref}/pages")
-def peoplesoft_field_pages(field_ref: str, env: str = "HCM"):
+def peoplesoft_field_pages(field_ref: str, env: str = psdb.default_env()):
     field = uom.field_object(env, field_ref)
     return field["_relationships"]["pages"]
 
 
 @router.get("/api/peoplesoft/fields/{field_ref}/components")
-def peoplesoft_field_components(field_ref: str, env: str = "HCM"):
+def peoplesoft_field_components(field_ref: str, env: str = psdb.default_env()):
     field = uom.field_object(env, field_ref)
     return field["_relationships"]["components"]
 
 
 @router.get("/api/peoplesoft/fields/{field_ref}/graph")
-def peoplesoft_field_graph(field_ref: str, env: str = "HCM"):
+def peoplesoft_field_graph(field_ref: str, env: str = psdb.default_env()):
     return uom.field_object(env, field_ref)["_graph"]
 
 
 @router.get("/api/peoplesoft/fields/{field_ref}")
-def peoplesoft_field(field_ref: str, env: str = "HCM"):
+def peoplesoft_field(field_ref: str, env: str = psdb.default_env()):
     return uom.field_object(env, field_ref)
 
 
 @router.get("/api/peoplesoft/peoplecode/search")
-def peoplesoft_peoplecode_search(q: str = "", env: str = "HCM", limit: int = 100):
+def peoplesoft_peoplecode_search(q: str = "", env: str = psdb.default_env(), limit: int = 100):
     return peoplecode.programs(env, q, limit)
 
 
 @router.get("/api/peoplesoft/peoplecode/source-search")
-def peoplesoft_peoplecode_source_search(q: str, env: str = "HCM", limit: int = 100):
+def peoplesoft_peoplecode_source_search(q: str, env: str = psdb.default_env(), limit: int = 100):
     """Search PeopleCode source text (PSPCMTXT.PCTEXT) for a literal string."""
     if not q.strip():
         return {"items": [], "warnings": []}
@@ -1004,22 +1004,22 @@ def peoplesoft_peoplecode_source_search(q: str, env: str = "HCM", limit: int = 1
 
 
 @router.get("/api/peoplesoft/peoplecode")
-def peoplesoft_peoplecode(env: str = "HCM", q: str = "", limit: int = 100, offset: int = 0):
+def peoplesoft_peoplecode(env: str = psdb.default_env(), q: str = "", limit: int = 100, offset: int = 0):
     return peoplecode.programs(env, q, limit=limit, offset=offset)
 
 
 @router.get("/api/peoplesoft/peoplecode/{reference:path}/references")
-def peoplesoft_peoplecode_references(reference: str, env: str = "HCM"):
+def peoplesoft_peoplecode_references(reference: str, env: str = psdb.default_env()):
     return peoplecode.references(reference, env)
 
 
 @router.get("/api/peoplesoft/peoplecode/{reference:path}/graph")
-def peoplesoft_peoplecode_graph(reference: str, env: str = "HCM"):
+def peoplesoft_peoplecode_graph(reference: str, env: str = psdb.default_env()):
     return peoplecode.graph(reference, env)
 
 
 @router.get("/api/peoplesoft/peoplecode/{reference:path}")
-def peoplesoft_peoplecode_program(reference: str, env: str = "HCM"):
+def peoplesoft_peoplecode_program(reference: str, env: str = psdb.default_env()):
     return uom.peoplecode_object(env, reference)
 
 
@@ -1029,47 +1029,47 @@ def peoplesoft_peoplecode_program(reference: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/ae")
-def peoplesoft_ae_list(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_ae_list(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     return ae.programs(env, q, limit)
 
 
 @router.get("/api/peoplesoft/ae/{ae_applid}/sections")
-def peoplesoft_ae_sections(ae_applid: str, env: str = "HCM"):
+def peoplesoft_ae_sections(ae_applid: str, env: str = psdb.default_env()):
     return ae.sections(env, ae_applid)
 
 
 @router.get("/api/peoplesoft/ae/{ae_applid}/steps")
-def peoplesoft_ae_steps(ae_applid: str, env: str = "HCM", section: str = ""):
+def peoplesoft_ae_steps(ae_applid: str, env: str = psdb.default_env(), section: str = ""):
     return ae.steps(env, ae_applid, ae_section=section or None)
 
 
 @router.get("/api/peoplesoft/ae/{ae_applid}/state-records")
-def peoplesoft_ae_state_records(ae_applid: str, env: str = "HCM"):
+def peoplesoft_ae_state_records(ae_applid: str, env: str = psdb.default_env()):
     return ae.state_records(env, ae_applid)
 
 
 @router.get("/api/peoplesoft/ae/{ae_applid}/process-definitions")
-def peoplesoft_ae_process_definitions(ae_applid: str, env: str = "HCM"):
+def peoplesoft_ae_process_definitions(ae_applid: str, env: str = psdb.default_env()):
     return ae.process_definitions(env, ae_applid)
 
 
 @router.get("/api/peoplesoft/ae/{ae_applid}/runtime")
-def peoplesoft_ae_runtime(ae_applid: str, env: str = "HCM", limit: int = 20):
+def peoplesoft_ae_runtime(ae_applid: str, env: str = psdb.default_env(), limit: int = 20):
     return ae.runtime_instances(env, ae_applid, limit)
 
 
 @router.get("/api/peoplesoft/ae/{ae_applid}/peoplecode")
-def peoplesoft_ae_peoplecode(ae_applid: str, env: str = "HCM"):
+def peoplesoft_ae_peoplecode(ae_applid: str, env: str = psdb.default_env()):
     return ae.ae_peoplecode(env, ae_applid)
 
 
 @router.get("/api/peoplesoft/ae/{ae_applid}/graph")
-def peoplesoft_ae_graph(ae_applid: str, env: str = "HCM"):
+def peoplesoft_ae_graph(ae_applid: str, env: str = psdb.default_env()):
     return ae.program_graph(env, ae_applid)
 
 
 @router.get("/api/peoplesoft/ae/{ae_applid}")
-def peoplesoft_ae_program(ae_applid: str, env: str = "HCM"):
+def peoplesoft_ae_program(ae_applid: str, env: str = psdb.default_env()):
     return uom.ae_object(env, ae_applid)
 
 
@@ -1079,7 +1079,7 @@ def peoplesoft_ae_program(ae_applid: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/processes")
-def peoplesoft_processes(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_processes(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     """List process scheduler process definitions."""
     limit = max(1, min(int(limit), 500))
     if not ptmetadata.has_table(env, "PSPROCESSDEFN"):
@@ -1110,7 +1110,7 @@ def peoplesoft_processes(env: str = "HCM", q: str = "", limit: int = 100):
 
 
 @router.get("/api/peoplesoft/search")
-def peoplesoft_global_search(env: str = "HCM", q: str = "", limit: int = 20):
+def peoplesoft_global_search(env: str = psdb.default_env(), q: str = "", limit: int = 20):
     if not q.strip():
         return []
 
@@ -1137,18 +1137,18 @@ def peoplesoft_global_search(env: str = "HCM", q: str = "", limit: int = 20):
 
 
 @router.get("/api/peoplesoft/object/{object_type}/{object_name}")
-def peoplesoft_object(object_type: str, object_name: str, env: str = "HCM"):
+def peoplesoft_object(object_type: str, object_name: str, env: str = psdb.default_env()):
     return attach_graph_context(object_payload(env, object_type, object_name), env)
 
 
 @router.get("/api/peoplesoft/portal-registry/{portal_objname}")
-def peoplesoft_portal_registry_ref(portal_objname: str, env: str = "HCM"):
+def peoplesoft_portal_registry_ref(portal_objname: str, env: str = psdb.default_env()):
     portal_obj = uom.portal_registry_object(env, portal_objname)
     return attach_graph_context(uom.portal_registry_payload(portal_obj), env)
 
 
 @router.get("/api/peoplesoft/portal-registry/{portal_objname}/security")
-def peoplesoft_portal_registry_security(portal_objname: str, env: str = "HCM"):
+def peoplesoft_portal_registry_security(portal_objname: str, env: str = psdb.default_env()):
     portal_row = psdb.portal_registry_ref(env, portal_objname)
     portal_name = (portal_row or {}).get("portal_name")
     permissions = [
@@ -1179,7 +1179,7 @@ def peoplesoft_portal_registry_security(portal_objname: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/portal/portals")
-def portal_portals(env: str = "HCM"):
+def portal_portals(env: str = psdb.default_env()):
     """List all portals with counts and root folder."""
     return psdb.portal_registry_portals(env)
 
@@ -1189,7 +1189,7 @@ def portal_folder_children(
     portal_name: str = "EMPLOYEE",
     parent: str = "PORTAL_ROOT_OBJECT",
     folders_only: bool = False,
-    env: str = "HCM",
+    env: str = psdb.default_env(),
 ):
     """Return immediate children of a portal folder — used for lazy tree navigation."""
     rows = safe_rows(lambda: psdb.portal_registry_folder_children(env, portal_name, parent, include_crefs=not folders_only))
@@ -1205,13 +1205,13 @@ def portal_folder_children(
 
 
 @router.get("/api/peoplesoft/portal/breadcrumbs/{portal_objname}")
-def portal_breadcrumbs_fast(portal_objname: str, portal_name: str = "EMPLOYEE", env: str = "HCM"):
+def portal_breadcrumbs_fast(portal_objname: str, portal_name: str = "EMPLOYEE", env: str = psdb.default_env()):
     """Fast breadcrumb chain using Oracle CONNECT BY (single query)."""
     return psdb.portal_registry_breadcrumbs_fast(env, portal_objname, portal_name)
 
 
 @router.get("/api/peoplesoft/portal/analysis")
-def portal_analysis(portal_name: str = "EMPLOYEE", env: str = "HCM"):
+def portal_analysis(portal_name: str = "EMPLOYEE", env: str = psdb.default_env()):
     """Structural analysis: orphans, empty folders, top-referenced components."""
     return psdb.portal_registry_analysis(env, portal_name)
 
@@ -1222,7 +1222,7 @@ def portal_subtree(
     parent: str = "",
     max_depth: int = 6,
     max_rows: int = 500,
-    env: str = "HCM",
+    env: str = psdb.default_env(),
 ):
     """Full descendant subtree of a portal folder (CONNECT BY, ordered, depth-annotated)."""
     rows = psdb.portal_registry_subtree(env, portal_name, parent,
@@ -1231,16 +1231,16 @@ def portal_subtree(
 
 
 @router.get("/api/peoplesoft/oprids")
-def search_oprids(env: str = "HCM", q: str = ""):
+def search_oprids(env: str = psdb.default_env(), q: str = ""):
     return psdb.search_oprids(env, q)
 
 @router.get("/api/peoplesoft/oprids/{oprid}/roles")
-def peoplesoft_oprid_roles(oprid: str, env: str = "HCM"):
+def peoplesoft_oprid_roles(oprid: str, env: str = psdb.default_env()):
     return psdb.oprid_roles(oprid, env, columns="summary")
 
 
 @router.get("/api/peoplesoft/security/operators/{oprid}")
-def peoplesoft_operator_security(oprid: str, env: str = "HCM"):
+def peoplesoft_operator_security(oprid: str, env: str = psdb.default_env()):
     operator = psdb.oprid(oprid, env)
 
     if not operator:
@@ -1299,7 +1299,7 @@ def peoplesoft_operator_security(oprid: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/security/operators/{oprid}/permissionlists")
-def peoplesoft_operator_permissionlists(oprid: str, env: str = "HCM"):
+def peoplesoft_operator_permissionlists(oprid: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in psdb.operator_permissionlists(env, oprid)
@@ -1307,7 +1307,7 @@ def peoplesoft_operator_permissionlists(oprid: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/security/operators/{oprid}/menus")
-def peoplesoft_operator_menus(oprid: str, env: str = "HCM"):
+def peoplesoft_operator_menus(oprid: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in psdb.operator_menus(env, oprid)
@@ -1315,7 +1315,7 @@ def peoplesoft_operator_menus(oprid: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/security/operators/{oprid}/components")
-def peoplesoft_operator_components(oprid: str, env: str = "HCM"):
+def peoplesoft_operator_components(oprid: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in psdb.operator_components(env, oprid)
@@ -1323,7 +1323,7 @@ def peoplesoft_operator_components(oprid: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/security/components/{component}/access")
-def peoplesoft_component_access(component: str, env: str = "HCM"):
+def peoplesoft_component_access(component: str, env: str = psdb.default_env()):
     warnings = []
 
     try:
@@ -1371,7 +1371,7 @@ def peoplesoft_component_access(component: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/security/bulk-component-access")
-def peoplesoft_bulk_component_access(components: str, env: str = "HCM"):
+def peoplesoft_bulk_component_access(components: str, env: str = psdb.default_env()):
     """Return aggregate user/role/PL counts for a comma-separated list of component names."""
     comp_list = [c.strip().upper() for c in components.split(",") if c.strip()]
     if not comp_list:
@@ -1402,7 +1402,7 @@ def peoplesoft_bulk_component_access(components: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/security/explain")
-def peoplesoft_security_explain(oprid: str, component: str, env: str = "HCM"):
+def peoplesoft_security_explain(oprid: str, component: str, env: str = psdb.default_env()):
     result = psdb.explain_operator_component_access(env, oprid, component)
     result["operator"] = attach_links(result["operator"], env) if result.get("operator") else None
     result["component_row"] = attach_links(result["component_row"], env)
@@ -1423,7 +1423,7 @@ def peoplesoft_security_explain(oprid: str, component: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/security/explain-page")
-def peoplesoft_security_explain_page(oprid: str, page: str, env: str = "HCM"):
+def peoplesoft_security_explain_page(oprid: str, page: str, env: str = psdb.default_env()):
     result = psdb.explain_operator_page_access(env, oprid, page)
     result["page_row"] = attach_links(result["page_row"], env)
     result["components"] = [attach_links(row, env) for row in result.get("components", [])]
@@ -1437,7 +1437,7 @@ def peoplesoft_security_explain_page(oprid: str, page: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/security/explain-menu")
-def peoplesoft_security_explain_menu(oprid: str, menu: str, env: str = "HCM"):
+def peoplesoft_security_explain_menu(oprid: str, menu: str, env: str = psdb.default_env()):
     result = psdb.explain_operator_menu_access(env, oprid, menu)
     result["grant_paths"] = [attach_links(row, env) for row in result.get("grant_paths", [])]
     result["_links"] = {
@@ -1448,7 +1448,7 @@ def peoplesoft_security_explain_menu(oprid: str, menu: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/security/explain-portal")
-def peoplesoft_security_explain_portal(oprid: str, portal: str, env: str = "HCM"):
+def peoplesoft_security_explain_portal(oprid: str, portal: str, env: str = psdb.default_env()):
     result = psdb.explain_operator_portal_access(env, oprid, portal)
     result["operator"] = attach_links(result["operator"], env) if result.get("operator") else None
     result["portal_row"] = attach_links(result["portal_row"], env) if result.get("portal_row") else None
@@ -1468,7 +1468,7 @@ def peoplesoft_security_explain_portal(oprid: str, portal: str, env: str = "HCM"
 
 
 @router.get("/api/peoplesoft/security/compare-operators")
-def peoplesoft_compare_operators(oprid1: str, oprid2: str, env: str = "HCM"):
+def peoplesoft_compare_operators(oprid1: str, oprid2: str, env: str = psdb.default_env()):
     """Diff the security profiles of two operators: roles, permission lists, and component access."""
     def _safe(fn):
         try:
@@ -1513,7 +1513,7 @@ def peoplesoft_compare_operators(oprid1: str, oprid2: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/sql_definitions")
-def peoplesoft_sql_definitions(env: str = "HCM", q: str = "", sqltype: str = "", limit: int = 100):
+def peoplesoft_sql_definitions(env: str = psdb.default_env(), q: str = "", sqltype: str = "", limit: int = 100):
     """Search SQL definitions with optional SQLTYPE filter (0=standalone, 1=AE, 2=PC, 6=trigger)."""
     st = int(sqltype) if sqltype.strip().lstrip("-").isdigit() else None
     rows = psdb.search_sql_definitions(env, q=q, sqltype=st, limit=limit)
@@ -1525,7 +1525,7 @@ def peoplesoft_sql_definitions(env: str = "HCM", q: str = "", sqltype: str = "",
 
 
 @router.get("/api/peoplesoft/queries")
-def peoplesoft_queries(env: str = "HCM", q: str = "", folder: str = "", limit: int = 100):
+def peoplesoft_queries(env: str = psdb.default_env(), q: str = "", folder: str = "", limit: int = 100):
     """Search public PS Queries (OPRID=' ') by name or description."""
     rows = psdb.search_queries(env, q=q, folder=folder or None, limit=limit)
     for row in rows:
@@ -1536,13 +1536,13 @@ def peoplesoft_queries(env: str = "HCM", q: str = "", folder: str = "", limit: i
 
 
 @router.get("/api/peoplesoft/query-folders")
-def peoplesoft_query_folders(env: str = "HCM"):
+def peoplesoft_query_folders(env: str = psdb.default_env()):
     """Return distinct query folder names for public queries."""
     return psdb.query_folders(env)
 
 
 @router.get("/api/peoplesoft/trees")
-def peoplesoft_trees(env: str = "HCM", q: str = "", setid: str = "", limit: int = 100):
+def peoplesoft_trees(env: str = psdb.default_env(), q: str = "", setid: str = "", limit: int = 100):
     """Search PSTREEDEFN tree definitions."""
     rows = psdb.search_trees(env, q=q, setid=setid or None, limit=limit)
     for row in rows:
@@ -1553,7 +1553,7 @@ def peoplesoft_trees(env: str = "HCM", q: str = "", setid: str = "", limit: int 
 
 
 @router.get("/api/peoplesoft/cis")
-def peoplesoft_cis(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_cis(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     """Search PSBCDEFN component interfaces."""
     rows = psdb.search_cis(env, q=q, limit=limit)
     for row in rows:
@@ -1564,7 +1564,7 @@ def peoplesoft_cis(env: str = "HCM", q: str = "", limit: int = 100):
 
 
 @router.get("/api/peoplesoft/approvals")
-def peoplesoft_approvals(env: str = "HCM", q: str = "", status: str = "", limit: int = 100):
+def peoplesoft_approvals(env: str = psdb.default_env(), q: str = "", status: str = "", limit: int = 100):
     """Search Approval Workflow Engine transaction definitions (PS_EOAW_TXN)."""
     result = psdb.search_approvals(env, q=q, status=status or None, limit=limit)
     for item in result.get("items", []):
@@ -1575,7 +1575,7 @@ def peoplesoft_approvals(env: str = "HCM", q: str = "", status: str = "", limit:
 
 
 @router.get("/api/peoplesoft/messages")
-def peoplesoft_messages(env: str = "HCM", q: str = "", set_nbr: str = "",
+def peoplesoft_messages(env: str = psdb.default_env(), q: str = "", set_nbr: str = "",
                         severity: str = "", limit: int = 100):
     """Search Message Catalog (PSMSGCATDEFN) by text or message set number."""
     sn = int(set_nbr) if set_nbr.strip().isdigit() else None
@@ -1589,221 +1589,221 @@ def peoplesoft_messages(env: str = "HCM", q: str = "", set_nbr: str = "",
 
 
 @router.get("/api/peoplesoft/message-sets")
-def peoplesoft_message_sets(env: str = "HCM"):
+def peoplesoft_message_sets(env: str = psdb.default_env()):
     """Return list of message sets with descriptions and message counts."""
     return psdb.message_sets(env)
 
 
 @router.get("/api/peoplesoft/xpub/reports")
-def peoplesoft_xpub_reports(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_xpub_reports(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     return psdb.search_xpub_reports(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/xpub/datasources")
-def peoplesoft_xpub_datasources(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_xpub_datasources(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     return psdb.search_xpub_datasources(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/nav-collections")
-def peoplesoft_nav_collections(env: str = "HCM", q: str = "", portal: str = "EMPLOYEE", limit: int = 100):
+def peoplesoft_nav_collections(env: str = psdb.default_env(), q: str = "", portal: str = "EMPLOYEE", limit: int = 100):
     return psdb.search_nav_collections(env, q=q, portal=portal or "EMPLOYEE", limit=limit)
 
 
 @router.get("/api/peoplesoft/event-mappings")
-def peoplesoft_event_mappings(env: str = "HCM", q: str = "", status: str = "", limit: int = 100):
+def peoplesoft_event_mappings(env: str = psdb.default_env(), q: str = "", status: str = "", limit: int = 100):
     return psdb.search_event_mappings(env, q=q, status=status or None, limit=limit)
 
 
 @router.get("/api/peoplesoft/related-content")
-def peoplesoft_related_content(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_related_content(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     return psdb.search_related_content(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/search-definitions")
-def peoplesoft_search_definitions(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_search_definitions(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     return psdb.search_search_definitions(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/search-categories")
-def peoplesoft_search_categories(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_search_categories(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     return psdb.search_search_categories(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/drop-zones")
-def peoplesoft_drop_zones_list(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_drop_zones_list(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     return psdb.search_drop_zones(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/pivot-grids")
-def peoplesoft_pivot_grids(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_pivot_grids(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     """Search PivotGrid definitions (PSPGCORE)."""
     return psdb.search_pivot_grids(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/connected-queries")
-def peoplesoft_connected_queries(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_connected_queries(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     """Search Connected Query definitions (PSCONQRSDEFN)."""
     return psdb.search_connected_queries(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/process-definitions")
-def peoplesoft_process_definitions(env: str = "HCM", q: str = "", prcstype: str = "", limit: int = 200):
+def peoplesoft_process_definitions(env: str = psdb.default_env(), q: str = "", prcstype: str = "", limit: int = 200):
     """Search Process Scheduler definitions (PS_PRCSDEFN)."""
     return psdb.search_process_definitions(env, q=q, prcstype=prcstype, limit=limit)
 
 
 @router.get("/api/peoplesoft/file-layouts")
-def peoplesoft_file_layouts(env: str = "HCM", q: str = "", limit: int = 200):
+def peoplesoft_file_layouts(env: str = psdb.default_env(), q: str = "", limit: int = 200):
     """Search File Layout definitions (PSFLDDEFN)."""
     return psdb.search_file_layouts(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/translate-fields")
-def peoplesoft_translate_fields(env: str = "HCM", q: str = "", limit: int = 200):
+def peoplesoft_translate_fields(env: str = psdb.default_env(), q: str = "", limit: int = 200):
     """Search fields with translate values (PSXLATDEFN)."""
     return psdb.search_translate_fields(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/projects")
-def peoplesoft_projects(env: str = "HCM", q: str = "", limit: int = 200):
+def peoplesoft_projects(env: str = psdb.default_env(), q: str = "", limit: int = 200):
     """Search App Designer projects (PSPROJECTDEFN)."""
     return psdb.search_projects(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/ib-messages")
-def peoplesoft_ib_messages(env: str = "HCM", q: str = "", limit: int = 200):
+def peoplesoft_ib_messages(env: str = psdb.default_env(), q: str = "", limit: int = 200):
     """Search IB Message definitions (PSMSGDEFN)."""
     return psdb.search_ib_messages(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/ib-applications")
-def peoplesoft_ib_applications(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_ib_applications(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     """Search IB Application Service definitions (PSIBAPPLDEFN)."""
     return psdb.search_ib_applications(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/app-classes")
-def peoplesoft_app_classes(env: str = "HCM", q: str = "", pkg: str = "", limit: int = 200):
+def peoplesoft_app_classes(env: str = psdb.default_env(), q: str = "", pkg: str = "", limit: int = 200):
     """Search Application Class definitions (PSAPPCLASSDEFN)."""
     return psdb.search_app_classes(env, q=q, pkg=pkg, limit=limit)
 
 
 @router.get("/api/peoplesoft/content-services")
-def peoplesoft_content_services(env: str = "HCM", q: str = "", owner: str = "", limit: int = 200):
+def peoplesoft_content_services(env: str = psdb.default_env(), q: str = "", owner: str = "", limit: int = 200):
     """Search Content Service Provider definitions (PSPTCSSRVDEFN)."""
     return psdb.search_content_services(env, q=q, owner=owner, limit=limit)
 
 
 @router.get("/api/peoplesoft/ptf-tests")
-def peoplesoft_ptf_tests(env: str = "HCM", q: str = "", ptf_type: str = "", limit: int = 200):
+def peoplesoft_ptf_tests(env: str = psdb.default_env(), q: str = "", ptf_type: str = "", limit: int = 200):
     """Search PeopleTools Test Framework definitions (PSPTTSTDEFN)."""
     return psdb.search_ptf_tests(env, q=q, ptf_type=ptf_type, limit=limit)
 
 
 @router.get("/api/peoplesoft/ads-definitions")
-def peoplesoft_ads_definitions(env: str = "HCM", q: str = "", owner: str = "", limit: int = 200):
+def peoplesoft_ads_definitions(env: str = psdb.default_env(), q: str = "", owner: str = "", limit: int = 200):
     """Search Application Data Set definitions (PSADSDEFN)."""
     return psdb.search_ads_definitions(env, q=q, owner=owner, limit=limit)
 
 
 @router.get("/api/peoplesoft/ib-service-groups")
-def peoplesoft_ib_service_groups(env: str = "HCM", q: str = "", owner: str = "", limit: int = 200):
+def peoplesoft_ib_service_groups(env: str = psdb.default_env(), q: str = "", owner: str = "", limit: int = 200):
     """Search IB Service Group definitions (PSIBGROUPDEFN)."""
     return psdb.search_ib_service_groups(env, q=q, owner=owner, limit=limit)
 
 
 @router.get("/api/peoplesoft/url-definitions")
-def peoplesoft_url_definitions(env: str = "HCM", q: str = "", limit: int = 200):
+def peoplesoft_url_definitions(env: str = psdb.default_env(), q: str = "", limit: int = 200):
     """Search URL definitions (PSURLDEFN)."""
     return psdb.search_url_definitions(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/chatbot-skills")
-def peoplesoft_chatbot_skills(env: str = "HCM", q: str = "", limit: int = 200):
+def peoplesoft_chatbot_skills(env: str = psdb.default_env(), q: str = "", limit: int = 200):
     """Search Chatbot Skill definitions (PSCBAPPLDEFN)."""
     return psdb.search_chatbot_skills(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/ib-routings")
-def peoplesoft_ib_routings(env: str = "HCM", q: str = "", rtng_type: str = "", status: str = "", limit: int = 200):
+def peoplesoft_ib_routings(env: str = psdb.default_env(), q: str = "", rtng_type: str = "", status: str = "", limit: int = 200):
     """Search IB Routing definitions (PSIBRTNGDEFN)."""
     return psdb.search_ib_routings(env, q=q, rtng_type=rtng_type, status=status, limit=limit)
 
 
 @router.get("/api/peoplesoft/style-sheets")
-def peoplesoft_style_sheets(env: str = "HCM", q: str = "", ss_type: str = "", limit: int = 200):
+def peoplesoft_style_sheets(env: str = psdb.default_env(), q: str = "", ss_type: str = "", limit: int = 200):
     """Search Style Sheet definitions (PSSTYLSHEETDEFN)."""
     return psdb.search_style_sheets(env, q=q, ss_type=ss_type, limit=limit)
 
 
 @router.get("/api/peoplesoft/archive-objects")
-def peoplesoft_archive_objects(env: str = "HCM", q: str = "", limit: int = 200):
+def peoplesoft_archive_objects(env: str = psdb.default_env(), q: str = "", limit: int = 200):
     """Search Data Archive Object definitions (PSARCHOBJDEFN)."""
     return psdb.search_archive_objects(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/timezones")
-def peoplesoft_timezones(env: str = "HCM", q: str = "", limit: int = 200):
+def peoplesoft_timezones(env: str = psdb.default_env(), q: str = "", limit: int = 200):
     """Search Timezone definitions (PSTIMEZONEDEFN)."""
     return psdb.search_timezones(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/locales")
-def peoplesoft_locales(env: str = "HCM", q: str = "", limit: int = 200):
+def peoplesoft_locales(env: str = psdb.default_env(), q: str = "", limit: int = 200):
     """Search Locale definitions (PSLOCALEDEFN)."""
     return psdb.search_locales(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/pm-metrics")
-def peoplesoft_pm_metrics(env: str = "HCM", q: str = "", limit: int = 200):
+def peoplesoft_pm_metrics(env: str = psdb.default_env(), q: str = "", limit: int = 200):
     """Search Performance Monitor metric definitions (PSPMMETRICDEFN)."""
     return psdb.search_pm_metrics(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/pm-transactions")
-def peoplesoft_pm_transactions(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_pm_transactions(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     """Search Performance Monitor transaction definitions (PSPMTRANSDEFN)."""
     return psdb.search_pm_transactions(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/pm-events")
-def peoplesoft_pm_events(env: str = "HCM", q: str = "", limit: int = 50):
+def peoplesoft_pm_events(env: str = psdb.default_env(), q: str = "", limit: int = 50):
     """Search Performance Monitor event definitions (PSPMEVENTDEFN)."""
     return psdb.search_pm_events(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/ib-operations")
-def peoplesoft_ib_operations(env: str = "HCM", q: str = "", rtype: str = "", limit: int = 100):
+def peoplesoft_ib_operations(env: str = psdb.default_env(), q: str = "", rtype: str = "", limit: int = 100):
     """Search IB service operation definitions (PSOPERATION)."""
     return psdb.search_ib_operations(env, q=q, rtype=rtype, limit=limit)
 
 
 @router.get("/api/peoplesoft/security/reports")
-def peoplesoft_security_report(report: str = "empty_roles", env: str = "HCM", limit: int = 100):
+def peoplesoft_security_report(report: str = "empty_roles", env: str = psdb.default_env(), limit: int = 100):
     """Run a canned security audit report."""
     return psdb.security_report(env, report, limit=limit)
 
 
 @router.get("/api/peoplesoft/reports")
-def peoplesoft_report(report: str, env: str = "HCM", limit: int = 200):
+def peoplesoft_report(report: str, env: str = psdb.default_env(), limit: int = 200):
     """Run any report from the full catalog by key."""
     return psdb.security_report(env, report, limit=limit)
 
 
 @router.get("/api/peoplesoft/reports/catalog")
-def peoplesoft_reports_catalog(env: str = "HCM"):
+def peoplesoft_reports_catalog(env: str = psdb.default_env()):
     """Return list of all available reports with title, category, and key."""
     result = psdb.security_report(env, "__catalog__", limit=1)
     return result.get("available_reports", [])
 
 
 @router.get("/api/peoplesoft/roles")
-def peoplesoft_roles(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_roles(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     return [attach_links(row, env) for row in psdb.roles(env, q, limit)]
 
 
 @router.get("/api/peoplesoft/roles/{rolename}")
-def peoplesoft_role(rolename: str, env: str = "HCM"):
+def peoplesoft_role(rolename: str, env: str = psdb.default_env()):
     role = psdb.role(env, rolename)
 
     if not role:
@@ -1815,7 +1815,7 @@ def peoplesoft_role(rolename: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/roles/{rolename}/permissionlists")
-def peoplesoft_role_permissionlists(rolename: str, env: str = "HCM"):
+def peoplesoft_role_permissionlists(rolename: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in psdb.role_permissionlists(env, rolename)
@@ -1823,7 +1823,7 @@ def peoplesoft_role_permissionlists(rolename: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/permissionlists")
-def peoplesoft_permissionlists(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_permissionlists(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     return [
         attach_links(row, env)
         for row in psdb.permissionlists(env, q, limit)
@@ -1831,7 +1831,7 @@ def peoplesoft_permissionlists(env: str = "HCM", q: str = "", limit: int = 100):
 
 
 @router.get("/api/peoplesoft/permissionlists/{classid}")
-def peoplesoft_permissionlist(classid: str, env: str = "HCM"):
+def peoplesoft_permissionlist(classid: str, env: str = psdb.default_env()):
     permissionlist = psdb.permissionlist(env, classid)
 
     if not permissionlist:
@@ -1844,7 +1844,7 @@ def peoplesoft_permissionlist(classid: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/permissionlists/{classid}/menus")
-def peoplesoft_permissionlist_menus(classid: str, env: str = "HCM"):
+def peoplesoft_permissionlist_menus(classid: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in psdb.permissionlist_menus(env, classid)
@@ -1852,7 +1852,7 @@ def peoplesoft_permissionlist_menus(classid: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/permissionlists/{classid}/components")
-def peoplesoft_permissionlist_components(classid: str, env: str = "HCM"):
+def peoplesoft_permissionlist_components(classid: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in psdb.permissionlist_components(env, classid)
@@ -1860,12 +1860,12 @@ def peoplesoft_permissionlist_components(classid: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/permissionlists/{classid}/page-grants")
-def peoplesoft_permissionlist_page_grants(classid: str, env: str = "HCM", limit: int = 200):
+def peoplesoft_permissionlist_page_grants(classid: str, env: str = psdb.default_env(), limit: int = 200):
     return psdb.permissionlist_page_grants(env, classid, limit=limit)
 
 
 @router.get("/api/peoplesoft/components")
-def peoplesoft_components(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_components(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     return [
         attach_links(row, env)
         for row in psdb.components(env, q, limit)
@@ -1873,7 +1873,7 @@ def peoplesoft_components(env: str = "HCM", q: str = "", limit: int = 100):
 
 
 @router.get("/api/peoplesoft/components/{component}")
-def peoplesoft_component(component: str, env: str = "HCM"):
+def peoplesoft_component(component: str, env: str = psdb.default_env()):
     result = psdb.component(env, component)
 
     if not result:
@@ -1886,7 +1886,7 @@ def peoplesoft_component(component: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/components/{component}/pages")
-def peoplesoft_component_pages(component: str, env: str = "HCM"):
+def peoplesoft_component_pages(component: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in psdb.component_pages(env, component)
@@ -1894,7 +1894,7 @@ def peoplesoft_component_pages(component: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/components/{component}/permissionlists")
-def peoplesoft_component_permissionlists(component: str, env: str = "HCM"):
+def peoplesoft_component_permissionlists(component: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in psdb.component_permissionlists(env, component)
@@ -1902,19 +1902,19 @@ def peoplesoft_component_permissionlists(component: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/components/{component}/page-grants")
-def peoplesoft_component_page_grants(component: str, env: str = "HCM", limit: int = 300):
+def peoplesoft_component_page_grants(component: str, env: str = psdb.default_env(), limit: int = 300):
     """Return page-level security for a component — which permission lists grant each page."""
     return psdb.component_page_grants(env, component, limit=limit)
 
 
 @router.get("/api/peoplesoft/components/{component}/hierarchy")
-def peoplesoft_component_hierarchy(component: str, env: str = "HCM"):
+def peoplesoft_component_hierarchy(component: str, env: str = psdb.default_env()):
     """Return page hierarchy with structural contents (subpages/grids) for a component."""
     return psdb.component_page_hierarchy(env, component)
 
 
 @router.get("/api/peoplesoft/components/{component}/menu-placements")
-def peoplesoft_component_menu_placements(component: str, env: str = "HCM"):
+def peoplesoft_component_menu_placements(component: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.component_menu_placements(env, component))
@@ -1922,7 +1922,7 @@ def peoplesoft_component_menu_placements(component: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/menus")
-def peoplesoft_search_menus(q: str = "", env: str = "HCM"):
+def peoplesoft_search_menus(q: str = "", env: str = psdb.default_env()):
     rows = safe_rows(lambda: psdb.search_menus(env, q))
     return [
         {**r, "_links": {"admin": f"/admin/object/menu/{r.get('menuname','')}"}}
@@ -1931,7 +1931,7 @@ def peoplesoft_search_menus(q: str = "", env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/menus/{menuname}")
-def peoplesoft_menu(menuname: str, env: str = "HCM"):
+def peoplesoft_menu(menuname: str, env: str = psdb.default_env()):
     defn = psdb.menu(env, menuname.upper())
     if not defn:
         raise HTTPException(status_code=404, detail="Menu not found")
@@ -1939,12 +1939,12 @@ def peoplesoft_menu(menuname: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/menus/{menuname}/items")
-def peoplesoft_menu_items(menuname: str, env: str = "HCM"):
+def peoplesoft_menu_items(menuname: str, env: str = psdb.default_env()):
     return safe_rows(lambda: psdb.menu_items(env, menuname.upper()))
 
 
 @router.get("/api/peoplesoft/components/{component}/menus")
-def peoplesoft_component_menus(component: str, env: str = "HCM"):
+def peoplesoft_component_menus(component: str, env: str = psdb.default_env()):
     rows = safe_rows(lambda: psdb.component_menus(env, component.upper()))
     return [
         {**r, "_links": {"admin": f"/admin/object/menu/{r.get('menuname','')}"}}
@@ -1953,7 +1953,7 @@ def peoplesoft_component_menus(component: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/components/{component}/records")
-def peoplesoft_component_records(component: str, env: str = "HCM"):
+def peoplesoft_component_records(component: str, env: str = psdb.default_env()):
     component_row = safe_rows(lambda: [psdb.component(env, component)])
     component_row = component_row[0] if component_row else None
 
@@ -1973,7 +1973,7 @@ def peoplesoft_component_records(component: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/components/{component}/portal-refs")
-def peoplesoft_component_portal_refs(component: str, env: str = "HCM"):
+def peoplesoft_component_portal_refs(component: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.component_portal_refs(env, component))
@@ -1981,7 +1981,7 @@ def peoplesoft_component_portal_refs(component: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/components/{component}/related-content")
-def peoplesoft_component_related_content(component: str, env: str = "HCM"):
+def peoplesoft_component_related_content(component: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.component_related_content(env, component))
@@ -1989,7 +1989,7 @@ def peoplesoft_component_related_content(component: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/components/{component}/event-mapping")
-def peoplesoft_component_event_mapping(component: str, env: str = "HCM"):
+def peoplesoft_component_event_mapping(component: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.component_event_mapping(env, component))
@@ -1997,13 +1997,13 @@ def peoplesoft_component_event_mapping(component: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/components/{component}/events")
-def peoplesoft_component_events(component: str, env: str = "HCM"):
+def peoplesoft_component_events(component: str, env: str = psdb.default_env()):
     from connectors import peoplecode as pc
     return pc.component_events(env, component)
 
 
 @router.get("/api/peoplesoft/components/{component}/sequence")
-def peoplesoft_component_sequence(component: str, env: str = "HCM"):
+def peoplesoft_component_sequence(component: str, env: str = psdb.default_env()):
     """Canonical ordered processing sequence for a component, with real
     PeopleCode slotted in (empty/delivered/custom per event)."""
     from connectors import peoplecode as pc
@@ -2011,7 +2011,7 @@ def peoplesoft_component_sequence(component: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/records/{recname}/sequence")
-def peoplesoft_record_sequence(recname: str, env: str = "HCM"):
+def peoplesoft_record_sequence(recname: str, env: str = psdb.default_env()):
     """Canonical ordered Record Field PeopleCode sequence (PSPCMPROG
     OBJECTID1=1) — independent of any component."""
     from connectors import peoplecode as pc
@@ -2019,7 +2019,7 @@ def peoplesoft_record_sequence(recname: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/pages/{pnlname}/owned-events")
-def peoplesoft_page_owned_events(pnlname: str, env: str = "HCM"):
+def peoplesoft_page_owned_events(pnlname: str, env: str = psdb.default_env()):
     """Page-owned PeopleCode (PSPCMPROG OBJECTID1=8) — independent of
     Component-level PeopleCode, which /api/peoplesoft/components/*/events
     already covers."""
@@ -2029,7 +2029,7 @@ def peoplesoft_page_owned_events(pnlname: str, env: str = "HCM"):
 
 @router.get("/api/peoplesoft/components/{component}/event-source")
 def peoplesoft_component_event_source(
-    component: str, env: str = "HCM",
+    component: str, env: str = psdb.default_env(),
     event: str = "", record: str = "", field: str = "",
 ):
     from connectors import peoplecode as pc
@@ -2037,7 +2037,7 @@ def peoplesoft_component_event_source(
 
 
 @router.get("/api/peoplesoft/components/{component}/drop-zones")
-def peoplesoft_component_drop_zones(component: str, env: str = "HCM"):
+def peoplesoft_component_drop_zones(component: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.component_drop_zones(env, component))
@@ -2045,7 +2045,7 @@ def peoplesoft_component_drop_zones(component: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/pages")
-def peoplesoft_pages(env: str = "HCM", q: str = "", limit: int = 100):
+def peoplesoft_pages(env: str = psdb.default_env(), q: str = "", limit: int = 100):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.pages(env, q, limit))
@@ -2053,7 +2053,7 @@ def peoplesoft_pages(env: str = "HCM", q: str = "", limit: int = 100):
 
 
 @router.get("/api/peoplesoft/pages/{page_name}")
-def peoplesoft_page(page_name: str, env: str = "HCM"):
+def peoplesoft_page(page_name: str, env: str = psdb.default_env()):
     result = safe_rows(lambda: [psdb.page(env, page_name)])
     result = result[0] if result else None
 
@@ -2069,7 +2069,7 @@ def peoplesoft_page(page_name: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/pages/{page_name}/components")
-def peoplesoft_page_components(page_name: str, env: str = "HCM"):
+def peoplesoft_page_components(page_name: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.page_components(env, page_name))
@@ -2077,7 +2077,7 @@ def peoplesoft_page_components(page_name: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/pages/{page_name}/records")
-def peoplesoft_page_records(page_name: str, env: str = "HCM"):
+def peoplesoft_page_records(page_name: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.page_records(env, page_name))
@@ -2085,7 +2085,7 @@ def peoplesoft_page_records(page_name: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/pages/{page_name}/fields")
-def peoplesoft_page_fields(page_name: str, env: str = "HCM"):
+def peoplesoft_page_fields(page_name: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.page_fields(env, page_name))
@@ -2093,7 +2093,7 @@ def peoplesoft_page_fields(page_name: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/pages/{page_name}/scroll-structure")
-def peoplesoft_page_scroll_structure(page_name: str, env: str = "HCM"):
+def peoplesoft_page_scroll_structure(page_name: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.page_scroll_structure(env, page_name))
@@ -2101,7 +2101,7 @@ def peoplesoft_page_scroll_structure(page_name: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/pages/{page_name}/grids")
-def peoplesoft_page_grids(page_name: str, env: str = "HCM"):
+def peoplesoft_page_grids(page_name: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.page_grids(env, page_name))
@@ -2109,7 +2109,7 @@ def peoplesoft_page_grids(page_name: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/pages/{page_name}/subpages")
-def peoplesoft_page_subpages(page_name: str, env: str = "HCM"):
+def peoplesoft_page_subpages(page_name: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.page_subpages(env, page_name))
@@ -2117,7 +2117,7 @@ def peoplesoft_page_subpages(page_name: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/pages/{page_name}/peoplecode")
-def peoplesoft_page_peoplecode(page_name: str, env: str = "HCM"):
+def peoplesoft_page_peoplecode(page_name: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.page_peoplecode_metadata(env, page_name))
@@ -2125,7 +2125,7 @@ def peoplesoft_page_peoplecode(page_name: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/pages/{page_name}/event-mapping")
-def peoplesoft_page_event_mapping(page_name: str, env: str = "HCM"):
+def peoplesoft_page_event_mapping(page_name: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.page_event_mapping(env, page_name))
@@ -2133,7 +2133,7 @@ def peoplesoft_page_event_mapping(page_name: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/pages/{page_name}/related-content")
-def peoplesoft_page_related_content(page_name: str, env: str = "HCM"):
+def peoplesoft_page_related_content(page_name: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.page_related_content(env, page_name))
@@ -2141,7 +2141,7 @@ def peoplesoft_page_related_content(page_name: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/pages/{page_name}/drop-zones")
-def peoplesoft_page_drop_zones(page_name: str, env: str = "HCM"):
+def peoplesoft_page_drop_zones(page_name: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.page_drop_zones(env, page_name))
@@ -2149,7 +2149,7 @@ def peoplesoft_page_drop_zones(page_name: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/pages/{page_name}/transfers")
-def peoplesoft_page_transfers(page_name: str, env: str = "HCM"):
+def peoplesoft_page_transfers(page_name: str, env: str = psdb.default_env()):
     return [
         attach_links(row, env)
         for row in safe_rows(lambda: psdb.page_transfers(env, page_name))
@@ -2157,7 +2157,7 @@ def peoplesoft_page_transfers(page_name: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/graph/{object_type}/{object_name}")
-def peoplesoft_graph(object_type: str, object_name: str, env: str = "HCM"):
+def peoplesoft_graph(object_type: str, object_name: str, env: str = psdb.default_env()):
     object_type = normalize_object_type(object_type)
     object_name = object_name.upper()
 
@@ -2178,7 +2178,7 @@ def peoplesoft_graph(object_type: str, object_name: str, env: str = "HCM"):
 
 
 @router.get("/api/peoplesoft/debug/roleuser-count")
-def debug_roleuser_count(env: str = "HCM"):
+def debug_roleuser_count(env: str = psdb.default_env()):
     sql = """
         SELECT COUNT(*) AS CNT
           FROM SYSADM.PSROLEUSER
@@ -2187,7 +2187,7 @@ def debug_roleuser_count(env: str = "HCM"):
     return psdb.query(env, sql)
 
 @router.get("/api/peoplesoft/debug/connection")
-def debug_connection(env: str = "HCM"):
+def debug_connection(env: str = psdb.default_env()):
     sql = """
         SELECT
             sys_context('USERENV','DB_NAME') db_name,

@@ -1,4 +1,5 @@
 from fastapi import Request
+from connectors import psdb
 from fastapi.responses import HTMLResponse
 from ._core import router, _shell
 
@@ -24,7 +25,7 @@ _PC_BUILTIN = ("'MessageBox','SQLExec','CreateSQL','Close','Fetch','Insert','Upd
 
 
 @router.get("/compflow", response_class=HTMLResponse)
-def admin_compflow(request: Request, env: str = "HCM", comp: str = ""):
+def admin_compflow(request: Request, env: str = psdb.default_env(), comp: str = ""):
     preload = (comp or request.query_params.get("component") or "").upper()
     return _shell("Component Event Flow", "compflow", content=f"""
 <style>
@@ -311,7 +312,7 @@ window.onEnvChange=()=>{{const comp=document.getElementById('compInp').value.tri
 
 
 @router.get("/compseq", response_class=HTMLResponse)
-def admin_compseq(request: Request, env: str = "HCM", comp: str = ""):
+def admin_compseq(request: Request, env: str = psdb.default_env(), comp: str = ""):
     preload = bool(comp)
     return _shell("PC Timeline", "compseq", content=f"""
 <style>

@@ -14,13 +14,32 @@ import logging
 import threading
 import time
 
-from connectors import driftdb, graphdb
+from connectors import driftdb, graphdb, psdb
 
 logger = logging.getLogger("deathstar.scheduler")
 
+
+def _default_envs() -> list[str]:
+    try:
+        return [e["name"] for e in psdb.load_envs()]
+    except Exception:
+        return ["HCM"]
+
+
+def _default_drift_pairs() -> list[tuple]:
+    """Consecutive pairs from the configured environment list (e.g.
+    [(env[0], env[1]), (env[1], env[2]), ...]) — a reasonable default so
+    every configured environment is covered by at least one scheduled
+    drift comparison, without guessing at a specific lifecycle ordering."""
+    envs = _default_envs()
+    if len(envs) < 2:
+        return []
+    return [(envs[i], envs[i + 1]) for i in range(len(envs) - 1)]
+
+
 # Configuration — values can be overridden before calling start().
-ENVS: list[str] = ["HCM"]
-DRIFT_ENV_PAIRS: list[tuple] = [("HCM", "FSCM")]   # env pairs for drift comparison
+ENVS: list[str] = _default_envs()
+DRIFT_ENV_PAIRS: list[tuple] = _default_drift_pairs()   # env pairs for drift comparison
 INTERVAL_HOURS: int = 24
 RETAIN_COUNT: int = 7
 DRIFT_RETAIN_DAYS: int = 90

@@ -1,22 +1,22 @@
 from fastapi import APIRouter, HTTPException, Response
 
-from connectors import graphdb, scheduler
+from connectors import graphdb, scheduler, psdb
 
 router = APIRouter(prefix="/api/graph", tags=["DeathStar Knowledge Graph"])
 
 
 @router.get("/build")
-def graph_build(env: str = "HCM", limit: int = 50, persist: bool = True):
+def graph_build(env: str = psdb.default_env(), limit: int = 50, persist: bool = True):
     return graphdb.build(env, limit, persist)
 
 
 @router.get("/stats")
-def graph_stats(env: str = "HCM"):
+def graph_stats(env: str = psdb.default_env()):
     return graphdb.stats(env)
 
 
 @router.post("/snapshots")
-def graph_snapshot_create(env: str = "HCM", name: str = "", note: str = ""):
+def graph_snapshot_create(env: str = psdb.default_env(), name: str = "", note: str = ""):
     return graphdb.create_snapshot(env, name=name, note=note)
 
 
@@ -54,18 +54,18 @@ def graph_snapshot_delete(snapshot_id: str):
 
 
 @router.post("/clear")
-def graph_clear(env: str = "HCM"):
+def graph_clear(env: str = psdb.default_env()):
     return graphdb.clear(env)
 
 
 @router.post("/compact")
-def graph_compact(env: str = "HCM"):
+def graph_compact(env: str = psdb.default_env()):
     """Deduplicate edges and rebuild the O(1) edge index. Persists the result."""
     return graphdb.compact(env)
 
 
 @router.get("/node/{node_id}")
-def graph_node(node_id: str, env: str = "HCM"):
+def graph_node(node_id: str, env: str = psdb.default_env()):
     node = graphdb.get_node(env, node_id)
 
     if not node:
@@ -75,40 +75,40 @@ def graph_node(node_id: str, env: str = "HCM"):
 
 
 @router.get("/neighbors/{node_id}")
-def graph_neighbors(node_id: str, env: str = "HCM", direction: str = "both", depth: int = 1, edge_types: str = ""):
+def graph_neighbors(node_id: str, env: str = psdb.default_env(), direction: str = "both", depth: int = 1, edge_types: str = ""):
     return graphdb.neighbors(env, node_id, direction, depth, edge_types)
 
 
 @router.get("/path")
-def graph_path(source: str, target: str, env: str = "HCM", edge_types: str = ""):
+def graph_path(source: str, target: str, env: str = psdb.default_env(), edge_types: str = ""):
     edge_type_set = {item.strip().upper() for item in edge_types.split(",") if item.strip()} if edge_types else None
     return graphdb.shortest_path(env, source, target, edge_type_set)
 
 
 @router.get("/dependencies/{node_id}")
-def graph_dependencies(node_id: str, env: str = "HCM", depth: int = 3):
+def graph_dependencies(node_id: str, env: str = psdb.default_env(), depth: int = 3):
     return graphdb.dependency_tree(env, node_id, reverse=False, depth=depth)
 
 
 @router.get("/reverse-dependencies/{node_id}")
-def graph_reverse_dependencies(node_id: str, env: str = "HCM", depth: int = 3):
+def graph_reverse_dependencies(node_id: str, env: str = psdb.default_env(), depth: int = 3):
     return graphdb.dependency_tree(env, node_id, reverse=True, depth=depth)
 
 
 @router.get("/impact/{node_id}")
-def graph_impact(node_id: str, env: str = "HCM", depth: int = 3):
+def graph_impact(node_id: str, env: str = psdb.default_env(), depth: int = 3):
     """Combined impact analysis: what this node depends on + what depends on it."""
     return graphdb.impact(env, node_id, depth=depth)
 
 
 @router.get("/drift")
-def graph_drift(env: str = "HCM", node_types: str = "", limit: int = 500):
+def graph_drift(env: str = psdb.default_env(), node_types: str = "", limit: int = 500):
     """Compare the current in-memory graph against the most recent snapshot for an environment."""
     return graphdb.drift(env, node_types=node_types or None, limit=limit)
 
 
 @router.get("/search")
-def graph_search(env: str = "HCM", q: str = "", limit: int = 50, node_types: str = ""):
+def graph_search(env: str = psdb.default_env(), q: str = "", limit: int = 50, node_types: str = ""):
     if not q.strip():
         return []
 
@@ -116,7 +116,7 @@ def graph_search(env: str = "HCM", q: str = "", limit: int = 50, node_types: str
 
 
 @router.get("/export")
-def graph_export(env: str = "HCM", format: str = "json"):
+def graph_export(env: str = psdb.default_env(), format: str = "json"):
     format = format.lower()
 
     if format == "json":
@@ -132,7 +132,7 @@ def graph_export(env: str = "HCM", format: str = "json"):
 
 
 @router.get("/components")
-def graph_components(env: str = "HCM"):
+def graph_components(env: str = psdb.default_env()):
     groups = graphdb.connected_components(env)
     return {
         "component_count": len(groups),
@@ -144,7 +144,7 @@ def graph_components(env: str = "HCM"):
 
 
 @router.get("/cycles")
-def graph_cycles(env: str = "HCM"):
+def graph_cycles(env: str = psdb.default_env()):
     found = graphdb.cycles(env)
     return {
         "cycle_count": len(found),
@@ -153,7 +153,7 @@ def graph_cycles(env: str = "HCM"):
 
 
 @router.get("/topological-order")
-def graph_topological_order(env: str = "HCM"):
+def graph_topological_order(env: str = psdb.default_env()):
     return graphdb.topological_order(env)
 
 

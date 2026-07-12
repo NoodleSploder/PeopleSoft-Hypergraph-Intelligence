@@ -3,14 +3,14 @@ Impact Forecasting API — pre-migration impact reports.
 """
 
 from fastapi import APIRouter, Query
-from connectors import impact
+from connectors import impact, psdb
 
 router = APIRouter(prefix="/api/impact", tags=["Impact Forecasting"])
 
 
 @router.get("/project")
 def impact_project(
-    env:     str = Query("HCM"),
+    env: str = Query(psdb.default_env()),
     project: str = Query(..., description="Project name (PSPROJECTDEFN)"),
 ):
     """
@@ -23,8 +23,8 @@ def impact_project(
 
 @router.get("/risk")
 def impact_risk(
-    env1: str = Query("HCM"),
-    env2: str = Query("FSCM"),
+    env1: str = Query(psdb.default_env()),
+    env2: str = Query(psdb.default_env2()),
 ):
     """
     KG-independent deployment risk assessment between two environments.
