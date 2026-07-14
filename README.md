@@ -173,7 +173,14 @@ PeopleSoft-Hypergraph-Intelligence/
 
 ## Container installation
 
-Create a local configuration:
+Prebuilt images are published to GHCR on every tagged release:
+`ghcr.io/noodlesploder/peoplesoft-hypergraph-intelligence`. Both
+[Docker](https://docs.docker.com/engine/install/) (with the Compose
+plugin) and [Podman](https://podman.io/) (with `podman-compose`) work —
+pick whichever you have installed; the commands below are identical
+except for the binary name.
+
+### 1. Create a local configuration
 
 ```bash
 mkdir -p phi/config
@@ -185,6 +192,69 @@ curl -o config/config.example.json \
 cp config/config.example.json config/config.json
 chmod 600 config/config.json
 ```
+
+Edit `config/config.json` and fill in your real `oracle.databases`,
+`peoplesoft.environments`, and (optionally) `ai`/`ssh_hosts`/`log_sources`
+entries — see [Configuration](#configuration) below for the full field
+reference. `config.json` contains real credentials; `chmod 600` and never
+commit it.
+
+### 2. Get compose.yml
+
+```bash
+curl -o compose.yml \
+  https://raw.githubusercontent.com/NoodleSploder/PeopleSoft-Hypergraph-Intelligence/main/compose.yml
+```
+
+### 3. Start it
+
+**Docker:**
+
+```bash
+docker compose up -d
+```
+
+**Podman:**
+
+```bash
+podman-compose up -d
+```
+
+Then open **http://localhost:8088**.
+
+To stop it: `docker compose down` / `podman-compose down` (add `-v` to
+also drop the `phi-data`/`phi-logs` volumes — this deletes all stored
+history/graph snapshots/audit logs, so only do this if you actually want
+a clean slate).
+
+### Notes
+
+-   **No Oracle Instant Client needed.** The container connects to
+    Oracle using `python-oracledb`'s pure-Python "thin mode" — no
+    separate client library to install or license.
+-   **Config, data, and logs are three separate mounts by design**, set
+    via `PHI_CONFIG_FILE`, `PHI_DATA_DIR`, `PHI_LOG_DIR` (already wired
+    up in `compose.yml`, no need to set them yourself unless you're
+    customizing the layout): `config.json` is mounted read-only from your
+    host (`./config/config.json`, never baked into the image), while
+    `data/` (SQLite stores: knowledge graph, drift history, incidents,
+    conversations, etc.) and `logs/` (audit trails) are separate named
+    volumes (`phi-data`, `phi-logs`) that persist across container
+    restarts/upgrades.
+-   **SSH-based log/SQR/COBOL ingestion is optional** and disabled by
+    default in the container (no SSH key mounted). To enable it, mount a
+    private key and configure `ssh_hosts` in `config.json` — see the
+    commented-out volume lines in `compose.yml`.
+-   **AI Assistant API keys** (`OPENAI_API_KEY`, `CLAUDE_API_KEY`) can be
+    set as environment variables instead of embedding them in
+    `config.json` — `compose.yml` already passes them through if set in
+    your shell/`.env` file. Ollama needs no key, just
+    `OLLAMA_BASE_URL` pointed at your Ollama instance (use
+    `http://host.docker.internal:11434` to reach one running on the host).
+-   **Updating**: `docker compose pull && docker compose up -d` (or the
+    `podman-compose` equivalent) pulls the latest published image and
+    recreates the container — your config/data/logs volumes are
+    untouched.
 
 ------------------------------------------------------------------------
 
