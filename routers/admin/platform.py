@@ -1493,10 +1493,11 @@ function setTab(name, el) {{
 
 @router.get("/component", response_class=HTMLResponse)
 def admin_component(request: Request):
-    nav = _nav_html("component", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("component")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Component Explorer</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 <style>
@@ -1541,7 +1542,14 @@ body{{margin:0;background:#050b12;color:#c8d8e8;font-family:Arial,sans-serif}}
 </head>
 <body>
 {nav}
-<div style="display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 42px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">Component Explorer</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div style="display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 90px)">
   <!-- LEFT RAIL -->
   <div style="border-right:1px solid #1a2a3a;display:flex;flex-direction:column;overflow:hidden">
     <div style="padding:10px;border-bottom:1px solid #1a2a3a">
@@ -1559,7 +1567,7 @@ body{{margin:0;background:#050b12;color:#c8d8e8;font-family:Arial,sans-serif}}
 </div>
 <script>
 {_ESC_JS}
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO');
+function ENV_VAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 
 async function api(url) {{
   try {{
@@ -1591,7 +1599,7 @@ async function doSearch() {{
   const q = document.getElementById('q').value.trim();
   if (!q) return;
   document.getElementById('rail-status').textContent = 'Searching...';
-  const rows = await api(`/api/peoplesoft/components?env=${{ENV}}&q=${{encodeURIComponent(q)}}&limit=80`);
+  const rows = await api(`/api/peoplesoft/components?env=${{ENV_VAL()}}&q=${{encodeURIComponent(q)}}&limit=80`);
   const list = document.getElementById('rail-list');
   if (!rows || !rows.length) {{
     list.innerHTML = '<div class="muted" style="padding:12px">No components found.</div>';
@@ -1618,9 +1626,9 @@ async function loadComponent(name) {{
   panel.innerHTML = '<div class="muted" style="margin-top:40px;text-align:center">Loading...</div>';
 
   // update URL
-  history.replaceState(null,'',`/admin/component?q=${{encodeURIComponent(document.getElementById('q').value.trim())}}&name=${{encodeURIComponent(name)}}&env=${{ENV}}`);
+  history.replaceState(null,'',`/admin/component?q=${{encodeURIComponent(document.getElementById('q').value.trim())}}&name=${{encodeURIComponent(name)}}&env=${{ENV_VAL()}}`);
 
-  const d = await api(`/api/peoplesoft/object/component/${{encodeURIComponent(name)}}?env=${{ENV}}`);
+  const d = await api(`/api/peoplesoft/object/component/${{encodeURIComponent(name)}}?env=${{ENV_VAL()}}`);
   if (!d) {{
     panel.innerHTML = '<div style="color:#f88;padding:20px">Failed to load component data.</div>';
     return;
@@ -1681,7 +1689,7 @@ function renderComponent(d, name, panel) {{
         const link = (c._links && c._links.admin) || '#';
         const bits = [c.apply_level, c.apply_to, c.rolename].filter(Boolean).join(' · ');
         return `<div style="padding:5px 8px;border:1px solid #ffaa2233;background:#1a120033;margin-bottom:3px;font-size:12px">
-          <a href="${{link}}?env=${{ENV}}" style="color:#ffaa22;font-family:monospace;text-decoration:none">${{esc(c.config_name)}}</a>
+          <a href="${{link}}?env=${{ENV_VAL()}}" style="color:#ffaa22;font-family:monospace;text-decoration:none">${{esc(c.config_name)}}</a>
           <span style="color:#556;margin-left:6px">${{esc(c.descr||'')}}</span>
           ${{bits ? `<div style="font-size:10px;color:#445;margin-top:1px">${{esc(bits)}}</div>` : ''}}
         </div>`;
@@ -1703,16 +1711,16 @@ function renderComponent(d, name, panel) {{
       <span class="kv-lbl">Component</span><span class="kv-val">${{esc(ov.pnlgrpname||name)}}</span>
       ${{ov.description||ov.descr ? `<span class="kv-lbl">Description</span><span class="kv-val" style="color:#c8d8e8">${{esc(ov.description||ov.descr)}}</span>` : ''}}
       <span class="kv-lbl">Market</span><span class="kv-val">${{esc(ov.market||'')}}</span>
-      ${{searchrec ? `<span class="kv-lbl">Search Record</span><span class="kv-val"><a href="/admin/object/record/${{encodeURIComponent(searchrec)}}?env=${{ENV}}" style="color:#44aaff">${{esc(searchrec)}}</a></span>` : ''}}
-      ${{addsrec && addsrec !== searchrec ? `<span class="kv-lbl">Add Search Rec</span><span class="kv-val"><a href="/admin/object/record/${{encodeURIComponent(addsrec)}}?env=${{ENV}}" style="color:#44aaff">${{esc(addsrec)}}</a></span>` : ''}}
+      ${{searchrec ? `<span class="kv-lbl">Search Record</span><span class="kv-val"><a href="/admin/object/record/${{encodeURIComponent(searchrec)}}?env=${{ENV_VAL()}}" style="color:#44aaff">${{esc(searchrec)}}</a></span>` : ''}}
+      ${{addsrec && addsrec !== searchrec ? `<span class="kv-lbl">Add Search Rec</span><span class="kv-val"><a href="/admin/object/record/${{encodeURIComponent(addsrec)}}?env=${{ENV_VAL()}}" style="color:#44aaff">${{esc(addsrec)}}</a></span>` : ''}}
       <span class="kv-lbl">Version</span><span class="kv-val">${{ov.version||''}}</span>
       <span class="kv-lbl">Last Updated</span><span class="kv-val">${{fmt(ov.lastupddttm||'')}}</span>
       <span class="kv-lbl">Updated By</span><span class="kv-val">${{esc(ov.lastupdoprid||'')}}</span>
     </div>
     ${{pfcHtml}}
     <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
-      <a href="/admin/compflow?comp=${{encodeURIComponent(name)}}&env=${{ENV}}" style="color:#44aaff;font-size:12px">Event Flow &#x2197;</a>
-      <a href="/admin/object/component/${{encodeURIComponent(name)}}?env=${{ENV}}" style="color:#44aaff;font-size:12px">Full Object View &#x2197;</a>
+      <a href="/admin/compflow?comp=${{encodeURIComponent(name)}}&env=${{ENV_VAL()}}" style="color:#44aaff;font-size:12px">Event Flow &#x2197;</a>
+      <a href="/admin/object/component/${{encodeURIComponent(name)}}?env=${{ENV_VAL()}}" style="color:#44aaff;font-size:12px">Full Object View &#x2197;</a>
     </div>`;
 
   // --- PAGES TAB ---
@@ -1729,7 +1737,7 @@ function renderComponent(d, name, panel) {{
       const pnl = p.pnlname || '';
       const ttl = p.name || pnl;
       const rec = p.recname ? ` <span style="color:#446;font-size:10px">&#x2192; ${{esc(p.recname)}}</span>` : '';
-      const link = pnl ? `/admin/page?name=${{encodeURIComponent(pnl)}}&env=${{ENV}}` : '#';
+      const link = pnl ? `/admin/page?name=${{encodeURIComponent(pnl)}}&env=${{ENV_VAL()}}` : '#';
       return `<div class="page-row" style="padding-left:${{6+lvl*20}}px">
         <span class="page-badge" style="background:${{col}}22;color:${{col}};border:1px solid ${{col}}44">${{esc(rel)}}</span>
         <a href="${{link}}" style="color:#c8d8e8;font-family:monospace;font-size:12px;text-decoration:none" onmouseover="this.style.color='#44aaff'" onmouseout="this.style.color='#c8d8e8'">${{esc(pnl)}}</a>
@@ -1758,7 +1766,7 @@ function renderComponent(d, name, panel) {{
       const acts = actionChips(pl.actions);
       return `<div class="sec-card">
         <div class="sec-card-hdr">
-          <a href="/admin/permissionlist/${{encodeURIComponent(pl.classid)}}?env=${{ENV}}" class="sec-pl">${{esc(pl.classid)}}</a>
+          <a href="/admin/permissionlist/${{encodeURIComponent(pl.classid)}}?env=${{ENV_VAL()}}" class="sec-pl">${{esc(pl.classid)}}</a>
           <div>${{acts}}</div>
         </div>
         ${{via}}${{ops}}
@@ -1791,7 +1799,7 @@ function renderComponent(d, name, panel) {{
         const path = (pc.semantic_path || []).slice(2); // drop component + market
         const pathHtml = path.map(p => `<span style="color:#445;margin:0 2px">›</span><span style="color:#8aabb8;font-family:monospace">${{esc(p.name)}}</span>`).join('');
         const ref = pc.encoded_reference || pc.reference || '';
-        const lnk = ref ? `/admin/object/peoplecode/${{encodeURIComponent(ref)}}?env=${{ENV}}` : '#';
+        const lnk = ref ? `/admin/object/peoplecode/${{encodeURIComponent(ref)}}?env=${{ENV_VAL()}}` : '#';
         return `<div class="pc-row">
           ${{eventChip(pc.event||pc.event_label||'?')}}
           <span style="color:#556;font-size:10px">${{pathHtml}}</span>
@@ -1814,7 +1822,7 @@ function renderComponent(d, name, panel) {{
       const url  = p.portal_urltext || '';
       const portal = p.portal_name || '';
       const objname = p.portal_objname || '';
-      const lnk = objname ? `/admin/object/portal_registry/${{encodeURIComponent(objname)}}?env=${{ENV}}` : '#';
+      const lnk = objname ? `/admin/object/portal_registry/${{encodeURIComponent(objname)}}?env=${{ENV_VAL()}}` : '#';
       return `<div class="portal-row">
         <div class="breadcrumb">${{esc(portal)}} › ${{esc(path)}}</div>
         <div style="display:flex;align-items:center;gap:8px">
@@ -1838,7 +1846,7 @@ function renderComponent(d, name, panel) {{
       const rn = r.recname || r.name || '';
       const desc = r.descr || r.description || '';
       const rtype = r.rectype_label || '';
-      const lnk = rn ? `/admin/object/record/${{encodeURIComponent(rn)}}?env=${{ENV}}` : '#';
+      const lnk = rn ? `/admin/object/record/${{encodeURIComponent(rn)}}?env=${{ENV_VAL()}}` : '#';
       return `<div class="rec-row">
         <a href="${{lnk}}" style="color:#00e5ff;font-family:monospace;font-size:12px;flex:0 0 220px;text-decoration:none" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${{esc(rn)}}</a>
         ${{rtype ? `<span style="font-size:10px;color:#446;margin-right:8px">${{esc(rtype)}}</span>` : ''}}
@@ -1890,16 +1898,29 @@ function setTab(name, el) {{
     loadComponent(name);
   }}
 }})();
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only captured ENV once at load into a const, so switching environments
+// silently left the prior env's rail list and detail panel on screen.
+function reload() {{
+  document.getElementById('detail-panel').innerHTML =
+    '<div class="muted" style="margin-top:40px;text-align:center">Search for a component to explore its structure, security, and PeopleCode.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
 </script>
 </body></html>""")
 
 
 @router.get("/page", response_class=HTMLResponse)
 def admin_page(request: Request):
-    nav = _nav_html("page", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("page")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Page Explorer</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 <style>
@@ -1934,7 +1955,14 @@ body{{margin:0;background:#050b12;color:#c8d8e8;font-family:Arial,sans-serif}}
 </style>
 </head><body>
 {nav}
-<div style="display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 42px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">Page Explorer</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div style="display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 90px)">
   <!-- RAIL -->
   <div style="border-right:1px solid #1a2a3a;display:flex;flex-direction:column;overflow:hidden">
     <div style="padding:10px;border-bottom:1px solid #1a2a3a">
@@ -1952,7 +1980,7 @@ body{{margin:0;background:#050b12;color:#c8d8e8;font-family:Arial,sans-serif}}
 </div>
 <script>
 {_ESC_JS}
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO');
+function ENV_VAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 
 async function api(url) {{
   try {{ const r = await fetch(url); if (!r.ok) return null; return await r.json(); }} catch(e) {{ return null; }}
@@ -1973,7 +2001,7 @@ async function doSearch() {{
   const q = document.getElementById('q').value.trim();
   if (!q) return;
   document.getElementById('rail-status').textContent = 'Searching...';
-  const rows = await api(`/api/peoplesoft/pages?env=${{ENV}}&q=${{encodeURIComponent(q)}}&limit=100`);
+  const rows = await api(`/api/peoplesoft/pages?env=${{ENV_VAL()}}&q=${{encodeURIComponent(q)}}&limit=100`);
   const list = document.getElementById('rail-list');
   if (!rows || !rows.length) {{
     list.innerHTML = '<div class="muted" style="padding:12px">No pages found.</div>';
@@ -1999,9 +2027,9 @@ async function loadPage(name) {{
   document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('sel', el.dataset.name === name));
   const panel = document.getElementById('detail-panel');
   panel.innerHTML = '<div class="muted" style="margin-top:40px;text-align:center">Loading...</div>';
-  history.replaceState(null, '', `/admin/page?q=${{encodeURIComponent(document.getElementById('q').value.trim())}}&name=${{encodeURIComponent(name)}}&env=${{ENV}}`);
+  history.replaceState(null, '', `/admin/page?q=${{encodeURIComponent(document.getElementById('q').value.trim())}}&name=${{encodeURIComponent(name)}}&env=${{ENV_VAL()}}`);
 
-  const d = await api(`/api/peoplesoft/object/page/${{encodeURIComponent(name)}}?env=${{ENV}}`);
+  const d = await api(`/api/peoplesoft/object/page/${{encodeURIComponent(name)}}?env=${{ENV_VAL()}}`);
   if (!d) {{ panel.innerHTML = '<div style="color:#f88;padding:20px">Failed to load page data.</div>'; return; }}
   renderPage(d, name, panel);
 }}
@@ -2049,9 +2077,9 @@ function renderPage(d, name, panel) {{
       <span class="kv-lbl">Last Updated</span><span class="kv-val">${{fmt(ov.lastupddttm||'')}}</span>
       <span class="kv-lbl">Updated By</span><span class="kv-val">${{esc(ov.lastupdoprid||'')}}</span>
     </div>
-    ${{subItems.length ? `<div style="margin-top:8px"><div style="font-size:11px;color:#556;margin-bottom:6px;font-weight:bold;text-transform:uppercase;letter-spacing:.5px">Subpages</div>${{subItems.map(s=>`<span style="font-family:monospace;font-size:11px;margin-right:10px"><a href="/admin/page?name=${{encodeURIComponent(s.pnlname||'')}}&env=${{ENV}}" style="color:#8888ff;text-decoration:none">${{esc(s.pnlname||'')}}</a></span>`).join('')}}</div>` : ''}}
+    ${{subItems.length ? `<div style="margin-top:8px"><div style="font-size:11px;color:#556;margin-bottom:6px;font-weight:bold;text-transform:uppercase;letter-spacing:.5px">Subpages</div>${{subItems.map(s=>`<span style="font-family:monospace;font-size:11px;margin-right:10px"><a href="/admin/page?name=${{encodeURIComponent(s.pnlname||'')}}&env=${{ENV_VAL()}}" style="color:#8888ff;text-decoration:none">${{esc(s.pnlname||'')}}</a></span>`).join('')}}</div>` : ''}}
     <div style="margin-top:12px">
-      <a href="/admin/object/page/${{encodeURIComponent(name)}}?env=${{ENV}}" style="color:#8888ff;font-size:12px">Full Object View &#x2197;</a>
+      <a href="/admin/object/page/${{encodeURIComponent(name)}}?env=${{ENV_VAL()}}" style="color:#8888ff;font-size:12px">Full Object View &#x2197;</a>
     </div>`;
 
   // Records tab
@@ -2063,7 +2091,7 @@ function renderPage(d, name, panel) {{
         const fc = r.field_count || 0;
         const usage = (r.usage || []).join(', ');
         return `<div class="rec-row">
-          <a href="/admin/record/${{encodeURIComponent(rn)}}?env=${{ENV}}" style="color:#00e5ff;font-family:monospace;font-size:12px;flex:0 0 220px;text-decoration:none" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${{esc(rn)}}</a>
+          <a href="/admin/record/${{encodeURIComponent(rn)}}?env=${{ENV_VAL()}}" style="color:#00e5ff;font-family:monospace;font-size:12px;flex:0 0 220px;text-decoration:none" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${{esc(rn)}}</a>
           <span style="color:#556;font-size:11px;flex:1">${{esc(usage)}}</span>
           <span class="scroll-badge">${{fc}} field${{fc===1?'':'s'}}</span>
         </div>`;
@@ -2075,7 +2103,7 @@ function renderPage(d, name, panel) {{
     const cn = c.pnlgrpname || '';
     const mk = c.market || '';
     return `<div class="comp-row">
-      <a href="/admin/component?name=${{encodeURIComponent(cn)}}&env=${{ENV}}" style="color:#44aaff;font-family:monospace;font-size:12px;flex:1;text-decoration:none" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${{esc(cn)}}</a>
+      <a href="/admin/component?name=${{encodeURIComponent(cn)}}&env=${{ENV_VAL()}}" style="color:#44aaff;font-family:monospace;font-size:12px;flex:1;text-decoration:none" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${{esc(cn)}}</a>
       ${{mk ? `<span style="font-size:11px;color:#446">${{esc(mk)}}</span>` : ''}}
     </div>`;
   }}).join('') : '<div class="muted">No components reference this page.</div>';
@@ -2093,7 +2121,7 @@ function renderPage(d, name, panel) {{
     pcHtml = Object.entries(groups).map(([comp, pcs]) => {{
       const rows = pcs.slice(0, 30).map(pc => {{
         const ref = pc.encoded_reference || pc.reference || '';
-        const lnk = ref ? `/admin/object/peoplecode/${{encodeURIComponent(ref)}}?env=${{ENV}}` : '#';
+        const lnk = ref ? `/admin/object/peoplecode/${{encodeURIComponent(ref)}}?env=${{ENV_VAL()}}` : '#';
         const pathParts = (pc.semantic_path || []).slice(2);
         const pathHtml = pathParts.map(p => `<span style="color:#445;margin:0 2px">›</span><span style="color:#8aabb8;font-family:monospace">${{esc(p.name)}}</span>`).join('');
         return `<div class="pc-row">
@@ -2105,7 +2133,7 @@ function renderPage(d, name, panel) {{
       const extra = pcs.length > 30 ? `<div style="color:#446;font-size:10px;padding:3px 6px">+${{pcs.length-30}} more</div>` : '';
       return `<div class="pc-group">
         <div class="pc-group-hdr">
-          <a href="/admin/component?name=${{encodeURIComponent(comp)}}&env=${{ENV}}" style="color:#acd;text-decoration:none">${{esc(comp)}}</a>
+          <a href="/admin/component?name=${{encodeURIComponent(comp)}}&env=${{ENV_VAL()}}" style="color:#acd;text-decoration:none">${{esc(comp)}}</a>
           <span style="margin-left:4px;color:#446">(${{pcs.length}} event${{pcs.length===1?'':'s'}})</span>
         </div>
         ${{rows}}${{extra}}
@@ -2123,7 +2151,7 @@ function renderPage(d, name, panel) {{
       const acts = (pl.actions||'').split(',').map(a => `<span class="action-chip">${{esc(a.trim())}}</span>`).join('');
       return `<div class="sec-card">
         <div style="display:flex;align-items:center;justify-content:space-between">
-          <a href="/admin/permissionlist/${{encodeURIComponent(pl.classid)}}?env=${{ENV}}" style="color:#ff9900;font-family:monospace;font-size:13px;font-weight:bold;text-decoration:none">${{esc(pl.classid)}}</a>
+          <a href="/admin/permissionlist/${{encodeURIComponent(pl.classid)}}?env=${{ENV_VAL()}}" style="color:#ff9900;font-family:monospace;font-size:13px;font-weight:bold;text-decoration:none">${{esc(pl.classid)}}</a>
           <div>${{acts}}</div>
         </div>
         ${{via}}
@@ -2161,7 +2189,7 @@ function setTab(name, el, pageName) {{
   if (pane) pane.classList.add('on');
   if (name === 'pageowned' && pageName && _pageOwnedLoaded !== pageName) {{
     _pageOwnedLoaded = pageName;
-    api(`/api/peoplesoft/pages/${{encodeURIComponent(pageName)}}/owned-events?env=${{ENV}}`).then(d => {{
+    api(`/api/peoplesoft/pages/${{encodeURIComponent(pageName)}}/owned-events?env=${{ENV_VAL()}}`).then(d => {{
       const events = (d && d.events) || [];
       if (!events.length) {{
         pane.innerHTML = `<div class="muted">No Page-Owned PeopleCode (OBJECTID1=8, e.g. Page Activate) on <span style="font-family:monospace">${{esc(pageName)}}</span>.<br><span style="font-size:10px">This is a distinct, real PeopleTools category independent of Component-level PeopleCode (the PeopleCode tab above) — most pages have none; this environment has zero rows in this category.</span></div>`;
@@ -2186,6 +2214,18 @@ function setTab(name, el, pageName) {{
     loadPage(name);
   }}
 }})();
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only captured ENV once at load into a const, so switching environments
+// silently left the prior env's rail list and detail panel on screen.
+function reload() {{
+  document.getElementById('detail-panel').innerHTML =
+    '<div class="muted" style="margin-top:40px;text-align:center">Search for a page to explore its records, components, and PeopleCode.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
 </script>
 </body></html>""")
 

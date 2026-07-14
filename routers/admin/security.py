@@ -187,7 +187,7 @@ def admin_security():
     </div>
 
 <script>
-const ENV = 'HCM';
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 const state = {
     role: null,
     classid: null,
@@ -285,7 +285,7 @@ async function loadRoles() {
     document.getElementById('accessSummary').className = 'muted';
     document.getElementById('accessSummary').textContent = 'Role browsing mode.';
 
-    const roles = await api(`/api/peoplesoft/roles?env=${ENV}&q=${encodeURIComponent(q)}`);
+    const roles = await api(`/api/peoplesoft/roles?env=${ENV_VAL()}&q=${encodeURIComponent(q)}`);
     renderList('roles', roles, 'No roles found.', row => {
         const role = label(row, ['rolename']);
         const subtitle = detail(row, ['descr', 'rolestatus']);
@@ -333,7 +333,7 @@ async function analyzeOperator() {
     state.classid = null;
     state.component = null;
 
-    const data = await api(`/api/peoplesoft/security/operators/${encodeURIComponent(oprid)}?env=${ENV}`);
+    const data = await api(`/api/peoplesoft/security/operators/${encodeURIComponent(oprid)}?env=${ENV_VAL()}`);
     renderSummary(`Operator ${data.operator.oprid}`, data.counts);
 
     renderList('roles', data.roles, 'No roles found.', row => {
@@ -375,7 +375,7 @@ async function analyzeComponentAccess() {
     clearPanel('menus', 'Component access mode.');
     clearPanel('pages', 'Select the component below to view pages.');
 
-    const data = await api(`/api/peoplesoft/security/components/${encodeURIComponent(component)}/access?env=${ENV}`);
+    const data = await api(`/api/peoplesoft/security/components/${encodeURIComponent(component)}/access?env=${ENV_VAL()}`);
     renderSummary(`Component ${data.component.pnlgrpname}`, data.counts);
 
     renderList('roles', data.roles.map(rolename => ({rolename})), 'No roles found.', row => {
@@ -410,7 +410,7 @@ async function explainAccess() {
     clearPanel('menus', 'Access explanation mode.');
     clearPanel('pages', 'Select a component to view pages.');
 
-    const data = await api(`/api/peoplesoft/security/explain?env=${ENV}&oprid=${encodeURIComponent(oprid)}&component=${encodeURIComponent(component)}`);
+    const data = await api(`/api/peoplesoft/security/explain?env=${ENV_VAL()}&oprid=${encodeURIComponent(oprid)}&component=${encodeURIComponent(component)}`);
     renderSummary(data.explanation, data.counts);
 
     renderList('roles', data.operator_roles || [], 'No operator roles found.', row => {
@@ -464,7 +464,7 @@ async function explainPageAccess() {
     clearPanel('menus', 'Page access explanation mode.');
     clearPanel('pages', 'Page explanation result.');
 
-    const data = await api(`/api/peoplesoft/security/explain-page?env=${ENV}&oprid=${encodeURIComponent(oprid)}&page=${encodeURIComponent(page)}`);
+    const data = await api(`/api/peoplesoft/security/explain-page?env=${ENV_VAL()}&oprid=${encodeURIComponent(oprid)}&page=${encodeURIComponent(page)}`);
     renderSummary(data.explanation, data.counts);
 
     renderList('components', data.components || [], 'No components found for page.', row => {
@@ -511,7 +511,7 @@ async function explainMenuAccess() {
     clearPanel('components', 'Menu access explanation mode.');
     clearPanel('pages', 'Select a component to view pages.');
 
-    const data = await api(`/api/peoplesoft/security/explain-menu?env=${ENV}&oprid=${encodeURIComponent(oprid)}&menu=${encodeURIComponent(menu)}`);
+    const data = await api(`/api/peoplesoft/security/explain-menu?env=${ENV_VAL()}&oprid=${encodeURIComponent(oprid)}&menu=${encodeURIComponent(menu)}`);
     renderSummary(data.explanation, data.counts);
 
     renderList('menus', data.grant_paths || [], 'No menu grant paths found.', row => {
@@ -538,7 +538,7 @@ async function compareOperators() {
     }
     setStatus(`Comparing ${oprid1} vs ${oprid2}...`);
 
-    const d = await api(`/api/peoplesoft/security/compare-operators?env=${ENV}&oprid1=${encodeURIComponent(oprid1)}&oprid2=${encodeURIComponent(oprid2)}`);
+    const d = await api(`/api/peoplesoft/security/compare-operators?env=${ENV_VAL()}&oprid1=${encodeURIComponent(oprid1)}&oprid2=${encodeURIComponent(oprid2)}`);
     const r = d.roles || {}, pl = d.permission_lists || {}, co = d.components || {};
 
     function diffSection(title, data, key1, key2) {
@@ -578,7 +578,7 @@ async function selectRole(rolename) {
     clearPanel('components', 'Select a permission list.');
     clearPanel('pages', 'Select a component.');
 
-    const rows = await api(`/api/peoplesoft/roles/${encodeURIComponent(rolename)}/permissionlists?env=${ENV}`);
+    const rows = await api(`/api/peoplesoft/roles/${encodeURIComponent(rolename)}/permissionlists?env=${ENV_VAL()}`);
     renderList('permissionlists', rows, 'No permission lists found.', row => {
         const classid = label(row, ['classid']);
         const subtitle = detail(row, ['dynamic_sw']);
@@ -594,9 +594,9 @@ async function selectPermissionList(classid) {
     clearPanel('pages', 'Select a component.');
 
     const [menus, components, pageGrants] = await Promise.all([
-        api(`/api/peoplesoft/permissionlists/${encodeURIComponent(classid)}/menus?env=${ENV}`),
-        api(`/api/peoplesoft/permissionlists/${encodeURIComponent(classid)}/components?env=${ENV}`),
-        api(`/api/peoplesoft/permissionlists/${encodeURIComponent(classid)}/page-grants?env=${ENV}`),
+        api(`/api/peoplesoft/permissionlists/${encodeURIComponent(classid)}/menus?env=${ENV_VAL()}`),
+        api(`/api/peoplesoft/permissionlists/${encodeURIComponent(classid)}/components?env=${ENV_VAL()}`),
+        api(`/api/peoplesoft/permissionlists/${encodeURIComponent(classid)}/page-grants?env=${ENV_VAL()}`),
     ]);
 
     renderList('menus', menus, 'No menus found.', row => {
@@ -667,8 +667,8 @@ async function selectComponent(component) {
     setStatus(`Loading pages and page grants for ${component}...`);
 
     const [pages, pgGrants] = await Promise.all([
-        api(`/api/peoplesoft/components/${encodeURIComponent(component)}/pages?env=${ENV}`),
-        api(`/api/peoplesoft/components/${encodeURIComponent(component)}/page-grants?env=${ENV}`),
+        api(`/api/peoplesoft/components/${encodeURIComponent(component)}/pages?env=${ENV_VAL()}`),
+        api(`/api/peoplesoft/components/${encodeURIComponent(component)}/page-grants?env=${ENV_VAL()}`),
     ]);
 
     // Build permission-list map by pnlitemname for annotation
@@ -747,6 +747,14 @@ document.getElementById('componentAccessSearch').addEventListener('keydown', eve
         analyzeComponentAccess();
     }
 });
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only read ENV_VAL() lazily per-request, so no explicit reload wiring was
+// needed for in-flight actions, but the role list itself needs a refresh
+// when the environment changes since it was loaded for the old one.
+window.onEnvChange = loadRoles;
+document.addEventListener('deathstar:envchange', loadRoles);
 
 loadRoles();
 </script>
@@ -1923,7 +1931,7 @@ function renderPC(d) {
 @router.get("/operator", response_class=HTMLResponse)
 @router.get("/operator/{oprid_val:path}", response_class=HTMLResponse)
 def admin_operator(oprid_val: str = None):
-    return _shell("Operator Explorer", "security", noscroll=True, content="""\
+    return _shell("Operator Explorer", "operator", noscroll=True, content="""\
 <style>
 *{box-sizing:border-box;}
 body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;height:100vh;display:flex;flex-direction:column;}
@@ -2292,7 +2300,7 @@ function renderProcesses(d) {
 @router.get("/role", response_class=HTMLResponse)
 @router.get("/role/{rolename:path}", response_class=HTMLResponse)
 def admin_role(rolename: str = None):
-    return _shell("Role Explorer", "security", noscroll=True, content="""\
+    return _shell("Role Explorer", "role", noscroll=True, content="""\
 <style>
 *{box-sizing:border-box;}
 body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;height:100vh;display:flex;flex-direction:column;}
@@ -2917,6 +2925,8 @@ def admin_permissionlist(classid_val: str = None):
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Permission List Explorer</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
+<script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 <style>
 *{{box-sizing:border-box}}
@@ -2950,7 +2960,14 @@ body{{margin:0;background:#050b12;color:#c8d8e8;font-family:Arial,sans-serif}}
 </style>
 </head><body>
 {nav}
-<div style="display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 42px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">Permission List Explorer</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div style="display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 90px)">
   <!-- RAIL -->
   <div style="border-right:1px solid #1a2a3a;display:flex;flex-direction:column;overflow:hidden">
     <div style="padding:10px;border-bottom:1px solid #1a2a3a">
@@ -2968,7 +2985,7 @@ body{{margin:0;background:#050b12;color:#c8d8e8;font-family:Arial,sans-serif}}
 </div>
 <script>
 {_ESC_JS}
-const ENV = (new URLSearchParams(location.search).get('env')) || 'HCM';
+function ENV_VAL() {{ return window.dsGetEnv ? window.dsGetEnv() : ((new URLSearchParams(location.search).get('env')) || 'HCM'); }}
 
 async function api(url) {{
   try {{ const r = await fetch(url); if (!r.ok) return null; return await r.json(); }} catch(e) {{ return null; }}
@@ -2987,7 +3004,7 @@ async function doSearch() {{
   const q = document.getElementById('q').value.trim();
   if (!q) return;
   document.getElementById('rail-status').textContent = 'Searching...';
-  const rows = await api(`/api/peoplesoft/permissionlists?env=${{ENV}}&q=${{encodeURIComponent(q)}}&limit=100`);
+  const rows = await api(`/api/peoplesoft/permissionlists?env=${{ENV_VAL()}}&q=${{encodeURIComponent(q)}}&limit=100`);
   const list = document.getElementById('rail-list');
   if (!rows || !rows.length) {{
     list.innerHTML = '<div class="muted" style="padding:12px">No permission lists found.</div>';
@@ -3009,9 +3026,9 @@ async function loadPL(classid) {{
   document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('sel', el.dataset.id === classid));
   const panel = document.getElementById('detail-panel');
   panel.innerHTML = '<div class="muted" style="margin-top:40px;text-align:center">Loading...</div>';
-  history.replaceState(null, '', `/admin/permissionlist/${{encodeURIComponent(classid)}}?env=${{ENV}}`);
+  history.replaceState(null, '', `/admin/permissionlist/${{encodeURIComponent(classid)}}?env=${{ENV_VAL()}}`);
 
-  const d = await api(`/api/peoplesoft/object/permissionlist/${{encodeURIComponent(classid)}}?env=${{ENV}}`);
+  const d = await api(`/api/peoplesoft/object/permissionlist/${{encodeURIComponent(classid)}}?env=${{ENV_VAL()}}`);
   if (!d) {{ panel.innerHTML = '<div style="color:#f88;padding:20px">Failed to load data.</div>'; return; }}
   renderPL(d, classid, panel);
 }}
@@ -3083,7 +3100,7 @@ function renderPL(d, classid, panel) {{
       return `<div class="comp-block">
         <div class="comp-hdr" onclick="toggleBlock('${{uid}}')">
           <span style="color:#778;font-size:11px">&#x25B6;</span>
-          <a href="/admin/component?name=${{encodeURIComponent(cname)}}&env=${{ENV}}" style="color:#44aaff;font-family:monospace;font-size:13px;text-decoration:none" onclick="event.stopPropagation()">${{esc(cname)}}</a>
+          <a href="/admin/component?name=${{encodeURIComponent(cname)}}&env=${{ENV_VAL()}}" style="color:#44aaff;font-family:monospace;font-size:13px;text-decoration:none" onclick="event.stopPropagation()">${{esc(cname)}}</a>
           ${{cdesc ? `<span style="color:#556;font-size:11px">${{esc(cdesc)}}</span>` : ''}}
           <span style="margin-left:auto;color:#446;font-size:11px">${{b.pages.length}} page(s)</span>
         </div>
@@ -3096,7 +3113,7 @@ function renderPL(d, classid, panel) {{
     compHtml = comps.filter(c => {{ const k = c.pnlgrpname; if (seen.has(k)) return false; seen.add(k); return true; }}).map(c => {{
       const cname = c.pnlgrpname || '';
       return `<div style="padding:5px 8px;border-bottom:1px solid #0d1520;font-size:12px">
-        <a href="/admin/component?name=${{encodeURIComponent(cname)}}&env=${{ENV}}" style="color:#44aaff;font-family:monospace">${{esc(cname)}}</a>
+        <a href="/admin/component?name=${{encodeURIComponent(cname)}}&env=${{ENV_VAL()}}" style="color:#44aaff;font-family:monospace">${{esc(cname)}}</a>
         <span style="color:#556;margin-left:8px">${{esc(c.component_descr||'')}}</span>
       </div>`;
     }}).join('');
@@ -3106,7 +3123,7 @@ function renderPL(d, classid, panel) {{
   const rolesHtml = roles.length ? roles.map(r => {{
     const rn = r.rolename || '';
     return `<div class="role-row">
-      <a href="/admin/role/${{encodeURIComponent(rn)}}?env=${{ENV}}" style="color:#ffaa22;font-size:13px;text-decoration:none" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${{esc(rn)}}</a>
+      <a href="/admin/role/${{encodeURIComponent(rn)}}?env=${{ENV_VAL()}}" style="color:#ffaa22;font-size:13px;text-decoration:none" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${{esc(rn)}}</a>
     </div>`;
   }}).join('') : '<div class="muted">No roles assigned.</div>';
 
@@ -3115,7 +3132,7 @@ function renderPL(d, classid, panel) {{
     const mn = m.menuname || m.name || '';
     const mi = m.baritemname || '';
     return `<div class="menu-row">
-      <a href="/admin/object/menu/${{encodeURIComponent(mn)}}?env=${{ENV}}" style="color:#00e5ff;font-family:monospace;font-size:12px;text-decoration:none" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${{esc(mn)}}</a>
+      <a href="/admin/object/menu/${{encodeURIComponent(mn)}}?env=${{ENV_VAL()}}" style="color:#00e5ff;font-family:monospace;font-size:12px;text-decoration:none" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${{esc(mn)}}</a>
       ${{mi ? `<span style="color:#446;margin-left:8px;font-size:11px">${{esc(mi)}}</span>` : ''}}
     </div>`;
   }}).join('') : '<div class="muted">No menus found.</div>';
@@ -3166,6 +3183,18 @@ function toggleBlock(uid) {{
     doSearch();
   }}
 }})();
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only read ENV from the URL once at load, so switching environments
+// silently left the prior env's rail list and detail panel on screen.
+function reload() {{
+  document.getElementById('detail-panel').innerHTML =
+    '<div class="muted" style="margin-top:40px;text-align:center">Search for a permission list to explore its components and roles.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
 </script>
 </body></html>""")
 
@@ -3209,8 +3238,6 @@ def admin_secaudit():
 </style>
 
 <div class="sa-env-bar">
-  <span style="font-size:12px;color:#7faab2">Environment:</span>
-  <select id="env" class="sa-env-sel" onchange="loadAll()"></select>
   <button class="sa-btn" onclick="loadAll()">Refresh</button>
   <span id="status" class="sa-spinner" style="margin-left:8px"></span>
 </div>
@@ -3267,7 +3294,7 @@ function pick(row, ...keys) {
   return '';
 }
 async function runSql(sql) {
-  const env = document.getElementById('env').value;
+  const env = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
   const r = await fetch('/api/sqlws/execute', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({sql, env, limit:200})
@@ -3416,12 +3443,9 @@ async function loadAll() {
   }
 }
 
-(async function initEnv(){
-  const cfg = await fetch('/api/runtime/config').then(r=>r.json()).catch(()=>({envs:['HCM','FSCM']}));
-  const envs = cfg.envs && cfg.envs.length ? cfg.envs : ['HCM','FSCM'];
-  document.getElementById('env').innerHTML = envs.map(e=>`<option value="${e}">${e}</option>`).join('');
-  loadAll();
-})();
+window.onEnvChange = loadAll;
+document.addEventListener('deathstar:envchange', loadAll);
+loadAll();
 </script>""")
 
 

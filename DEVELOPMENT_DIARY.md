@@ -9084,3 +9084,99 @@ body, and an empty (not erroring) errors list.
 schema/data source I don't currently have access to, or the user's
 direct knowledge of the `pubid` bridge). User has not yet asked to
 restart the service or commit.
+
+## 2026-07-14 (session 50) — Admin UI: Page Header/Env-Selector Sweep Across Standalone Pages
+
+**Context:** Several admin pages were built as standalone HTML responses
+(not via the shared `_shell()` helper), predating the global page-header
++ Env-selector convention. User reported, one screenshot at a time, that
+these pages were either missing the page header entirely, had a
+duplicate/dead local Env selector, or had a working Env selector that
+didn't actually reload data when changed. Fixed each as reported rather
+than guessing which pages needed it, then generalized the fix once the
+pattern repeated across `routers/admin/integration.py`,
+`routers/admin/platform.py`, `routers/admin/objects.py`, and
+`routers/admin/security.py`.
+
+**Bug pattern 1 — no page header:** Pages built with a raw
+`<html>...{nav}...` template instead of `_shell()` never got the
+`.ds-page-hdr` title bar. Fixed by adding `<link rel="stylesheet"
+href="/static/app.css?v=2">` (the `.ds-page-hdr`/`.ds-env-sel` styles
+live there and weren't loaded on these pages) plus the header markup
+itself, matching `_shell()`'s output exactly. Affected: IB Messages, IB
+Application Services, IB Service Groups, IB Routings, Permission List
+Explorer, Component Explorer, Page Explorer, Application Classes,
+Content Services, ADS Definitions, URL Definitions, Chatbot Skills.
+
+**Bug pattern 2 — Env selector present but inert:** Two distinct root
+causes, both meaning `doSearch()`/`loadRoles()` never re-ran when the
+global Env dropdown changed:
+  - Some pages captured `const ENV = window.dsGetEnv() || 'HCM'` **once**
+    at page load instead of reading it live per-request (`Security
+    Explorer` had this hardcoded to a literal `'HCM'` regardless of the
+    selector — the actual root cause of user-reported 500s, since the
+    account may not have the same grants/data in every env). Fixed by
+    converting to a `function ENV_VAL()` read live at each API call, and
+    scripted-replacing every `${ENV}` template use to `${ENV_VAL()}` (one
+    replace mangled a `+ENV)` call-closing-paren into `+ENV_VAL();` —
+    caught by re-running `ast.parse()` after the sed-style pass and fixed
+    manually).
+  - Other pages already read env live via a function, but never
+    registered `window.onEnvChange`/`deathstar:envchange` — app.js calls
+    these hooks after the shared selector's value changes, but if a page
+    doesn't listen, the visible list/detail panel just keeps showing the
+    old env's data until the user manually re-searches. Fixed by adding
+    a `reload()` function (resets the detail panel to its default empty
+    state, then re-runs the search) wired to both hooks, on every
+    affected page.
+
+**Bug pattern 3 — duplicate Env selector:** `Security Audit` had its own
+local `<select id="env">` populated from a separate `/api/runtime/config`
+call, entirely disconnected from the global one — two selectors on one
+page, only one of which actually worked. Removed the local selector,
+`runSql()` now reads `window.dsGetEnv()`.
+
+**Nav highlight bug (unrelated but found while fixing Security pages):**
+`admin_operator` and `admin_role` both passed `"security"` as the
+`_shell()` active-nav key instead of `"operator"`/`"role"`, so the
+Security dropdown always highlighted "Security" no matter which of the
+six Security sub-pages was open. Fixed both.
+
+**Application Classes page — additional requested improvements** (same
+page, follow-up requests in this session):
+  - Selecting a class now shows an "Open in Object Explorer ↗" link
+    (`uom._links.admin`, falls back to a constructed
+    `/admin/object/app_class/{key}` if absent) and a PeopleCode Programs
+    section (verified live against `ADSM:ADSCompareValue` in HRTST —
+    backend already returned this section, frontend just wasn't
+    rendering it). First attempt matched the wrong section via
+    `title.includes('PeopleCode')` (matched "PeopleCode Source" instead
+    of "PeopleCode Programs", since the former appears first in the
+    section list and has no `.items`) — caught immediately by checking
+    the live API response's section order before shipping, fixed to
+    match on `'PeopleCode Programs'` specifically.
+  - Package Root and Sub-Package Path in the Overview panel, plus the
+    Sub-Packages chip list, are now drill-through: clicking filters the
+    rail list to that package/sub-package (client-side filter on
+    `qualifypath`, since the search API only supports exact-package
+    filtering, not sub-path). Added a filter chip with a clear button;
+    typing in the search boxes manually clears the sub-package filter so
+    it doesn't silently keep restricting results.
+  - The class detail title previously could fall back to the raw
+    internal compound key (`PKG~SUBPATH~CLASSID`, tilde-delimited — the
+    tilde is required internally since `qualifypath` values can contain
+    colons) if `display_name` was ever falsy. Per explicit user
+    instruction ("don't use tildes, use colons"), the title now always
+    renders with tildes replaced by colons for display, regardless of
+    which value it fell back to.
+
+**Verification:** `ast.parse()` after every edit (catching the mangled
+`+ENV_VAL();` bug above); `TestClient` GET on every affected route
+confirming 200, presence of `ds-page-hdr`/`ds-env-sel`, and presence of
+the `onEnvChange` wiring; live `uom.app_class_object()` and
+`/api/peoplesoft/object/app_class/...` calls against HRTST to confirm
+the PeopleCode Programs section title and shape before wiring the
+frontend to it.
+
+**Files:** `routers/admin/integration.py`, `routers/admin/platform.py`,
+`routers/admin/objects.py`, `routers/admin/security.py`.

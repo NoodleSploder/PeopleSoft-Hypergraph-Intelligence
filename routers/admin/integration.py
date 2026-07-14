@@ -987,15 +987,16 @@ document.addEventListener('deathstar:envchange', reload);
 
 @router.get("/ibmessage")
 def admin_ibmessage(request: Request):
-    nav = _nav_html("ibmessage", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("ibmessage")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script><title>IB Messages</title>
 {_NAV_CSS}
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:#0d0d11;color:#ccd;font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}}
-.shell{{display:flex;flex:1;overflow:hidden}}
+.shell{{display:flex;flex:1;overflow:hidden;min-height:0}}
 .sidebar{{width:300px;min-width:220px;border-right:1px solid #222;display:flex;flex-direction:column;overflow:hidden}}
 .filters{{padding:10px;border-bottom:1px solid #1a1a22}}
 .filters input{{width:100%;background:#111;border:1px solid #333;color:#ccd;padding:5px 8px;border-radius:3px;font-size:12px}}
@@ -1023,6 +1024,13 @@ h2{{color:#cc44ff;font-size:12px;font-weight:700;letter-spacing:.08em;text-trans
 </style></head>
 <body>
 {nav}
+<div class="ds-page-hdr">
+  <span class="ds-page-title">IB Messages</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
 <div class="shell">
   <div class="sidebar">
     <div class="filters">
@@ -1125,6 +1133,17 @@ async function selectItem(idx, name) {{
   detail.innerHTML = html;
 }}
 
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only loaded its list once at startup and never re-ran the search, so
+// switching environments silently left the prior env's messages on screen.
+function reload() {{
+  document.getElementById('detail').innerHTML = '<div class="muted">Select an IB message definition.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
+
 doSearch();
 </script>
 </body></html>""")
@@ -1132,15 +1151,23 @@ doSearch();
 
 @router.get("/ibapp", response_class=HTMLResponse)
 def admin_ibapp(request: Request):
-    nav = _nav_html("ibapp", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("ibapp")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>IB Application Services</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
-<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">IB Application Services</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 90px)">
 <div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
   <div style="margin-bottom:10px">
     <input id="q" placeholder="Search applications…" oninput="doSearch()"
@@ -1249,6 +1276,18 @@ async function loadDetail(name) {{
   detail.innerHTML = html;
 }}
 
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only loaded its list once at startup and never re-ran the search, so
+// switching environments silently left the prior env's data on screen.
+function reload() {{
+  selected = null;
+  document.getElementById('detail').innerHTML = '<div class="muted">Select an IB Application Service to view its REST endpoints and operations.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
+
 doSearch();
 </script>
 </body></html>""")
@@ -1256,15 +1295,23 @@ doSearch();
 
 @router.get("/ibsvcgrp", response_class=HTMLResponse)
 def admin_ibsvcgrp(request: Request):
-    nav = _nav_html("ibsvcgrp", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("ibsvcgrp")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>IB Service Groups</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
-<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">IB Service Groups</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 90px)">
 <div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
   <div style="margin-bottom:6px;display:flex;gap:6px">
     <input id="q" placeholder="Search group name or description…" oninput="doSearch()"
@@ -1350,6 +1397,18 @@ async function loadDetail(name) {{
   `;
 }}
 
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only loaded its list once at startup and never re-ran the search, so
+// switching environments silently left the prior env's data on screen.
+function reload() {{
+  selected = null;
+  document.getElementById('detail').innerHTML = '<div class="muted">Select an IB Service Group to view its member service operations.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
+
 doSearch();
 </script>
 </body></html>""")
@@ -1357,15 +1416,23 @@ doSearch();
 
 @router.get("/ibrtng", response_class=HTMLResponse)
 def admin_ibrtng(request: Request):
-    nav = _nav_html("ibrtng", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("ibrtng")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>IB Routings</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
-<div class="ds-main" style="display:grid;grid-template-columns:380px 1fr;gap:0;height:calc(100vh - 48px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">IB Routings</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div class="ds-main" style="display:grid;grid-template-columns:380px 1fr;gap:0;height:calc(100vh - 90px)">
 <div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
   <div style="margin-bottom:6px;display:flex;gap:6px">
     <input id="q" placeholder="Search name, operation, or node…" oninput="doSearch()"
@@ -1475,6 +1542,18 @@ async function loadDetail(name) {{
     ${{aliasSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">${{esc(aliasSec.title)}}</h3>${{itemList(aliasSec)}}` : ''}}
   `;
 }}
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only loaded its list once at startup and never re-ran the search, so
+// switching environments silently left the prior env's data on screen.
+function reload() {{
+  selected = null;
+  document.getElementById('detail').innerHTML = '<div class="muted">Select an IB Routing to view its node connections and handlers.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
 
 doSearch();
 </script>

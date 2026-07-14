@@ -50,7 +50,7 @@ button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 
 async function api(path) {
   const res = await fetch(path);
@@ -67,7 +67,7 @@ async function doSearch() {
   list.innerHTML = '<span class="muted">Loading...</span>';
   document.getElementById('detail').innerHTML = '<span class="muted">Select a tree.</span>';
 
-  const rows = await api(`/api/peoplesoft/trees?env=${ENV}&q=${encodeURIComponent(q)}&setid=${encodeURIComponent(setid)}&limit=200`);
+  const rows = await api(`/api/peoplesoft/trees?env=${ENV_VAL()}&q=${encodeURIComponent(q)}&setid=${encodeURIComponent(setid)}&limit=200`);
   if (!rows) { list.innerHTML = '<span class="muted">Error loading trees.</span>'; return; }
 
   document.getElementById('stats').textContent = `${rows.length} result${rows.length===1?'':'s'}`;
@@ -96,7 +96,7 @@ function selectTree(r, el) {
     <div style="margin-bottom:12px">
       <span style="font-size:16px;font-family:monospace;color:#d7faff">${esc(r.treename)}</span>
       <span class="chip ${active ? 'chip-ok' : 'chip-warn'}" style="margin-left:8px">${active ? 'ACTIVE' : 'INACTIVE'}</span>
-      <a href="/admin/object/tree/${encodeURIComponent(r.treename)}?env=${ENV}" style="margin-left:12px;font-size:11px;color:#00e5ff">Open in Object Explorer &#x2197;</a>
+      <a href="/admin/object/tree/${encodeURIComponent(r.treename)}?env=${ENV_VAL()}" style="margin-left:12px;font-size:11px;color:#00e5ff">Open in Object Explorer &#x2197;</a>
     </div>
     ${r.descr ? `<div style="color:#8ab;font-size:12px;margin-bottom:10px">${esc(r.descr)}</div>` : ''}
     <div style="margin-bottom:10px">
@@ -104,11 +104,18 @@ function selectTree(r, el) {
       <span class="stat"><b>${esc(r.setcntrlvalue || '—')}</b>Set Control</span>
     </div>
     <div style="font-size:12px">
-      ${r.treestrctpnm && r.treestrctpnm.trim() ? `<div style="margin-bottom:6px">Structure Record: <a href="/admin/object/record/${encodeURIComponent(r.treestrctpnm.trim())}?env=${ENV}" style="color:#00e5ff">${esc(r.treestrctpnm.trim())} &#x2197;</a></div>` : ''}
-      ${r.tree_recname && r.tree_recname.trim() ? `<div>Leaf Record: <a href="/admin/object/record/${encodeURIComponent(r.tree_recname.trim())}?env=${ENV}" style="color:#00e5ff">${esc(r.tree_recname.trim())} &#x2197;</a></div>` : ''}
+      ${r.treestrctpnm && r.treestrctpnm.trim() ? `<div style="margin-bottom:6px">Structure Record: <a href="/admin/object/record/${encodeURIComponent(r.treestrctpnm.trim())}?env=${ENV_VAL()}" style="color:#00e5ff">${esc(r.treestrctpnm.trim())} &#x2197;</a></div>` : ''}
+      ${r.tree_recname && r.tree_recname.trim() ? `<div>Leaf Record: <a href="/admin/object/record/${encodeURIComponent(r.tree_recname.trim())}?env=${ENV_VAL()}" style="color:#00e5ff">${esc(r.tree_recname.trim())} &#x2197;</a></div>` : ''}
     </div>`;
 }
 
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only captured ENV once at load into a const, so switching environments
+// silently left the prior env's list and detail panel on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
 doSearch();
 </script>""")
 
@@ -156,7 +163,7 @@ button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 
 async function api(path) {
   const res = await fetch(path);
@@ -174,7 +181,7 @@ async function doSearch() {
   list.innerHTML = '<span class="muted">Loading...</span>';
   document.getElementById('detail').innerHTML = '<span class="muted">Select a CI.</span>';
 
-  const rows = await api(`/api/peoplesoft/cis?env=${ENV}&q=${encodeURIComponent(q)}&limit=200`);
+  const rows = await api(`/api/peoplesoft/cis?env=${ENV_VAL()}&q=${encodeURIComponent(q)}&limit=200`);
   if (!rows) { list.innerHTML = '<span class="muted">Error loading CIs.</span>'; return; }
 
   document.getElementById('stats').textContent = `${rows.length} result${rows.length===1?'':'s'}`;
@@ -203,19 +210,26 @@ function selectCi(r, el) {
     <div style="margin-bottom:12px">
       <span style="font-size:16px;font-family:monospace;color:#d7faff">${esc(r.bcname)}</span>
       <span class="chip chip-info" style="margin-left:8px">${esc(typeLabel)}</span>
-      <a href="/admin/object/ci/${encodeURIComponent(r.bcname)}?env=${ENV}" style="margin-left:12px;font-size:11px;color:#00e5ff">Open in Object Explorer &#x2197;</a>
+      <a href="/admin/object/ci/${encodeURIComponent(r.bcname)}?env=${ENV_VAL()}" style="margin-left:12px;font-size:11px;color:#00e5ff">Open in Object Explorer &#x2197;</a>
     </div>
     ${r.bcdisplayname && r.bcdisplayname.trim() ? `<div style="color:#8ab;font-size:13px;margin-bottom:4px">${esc(r.bcdisplayname.trim())}</div>` : ''}
     ${r.descr ? `<div style="color:#667;font-size:12px;margin-bottom:10px">${esc(r.descr)}</div>` : ''}
     <div style="font-size:12px;margin-top:8px">
       ${r.pnlgrpname && r.pnlgrpname.trim()
-        ? `<div style="margin-bottom:6px">Wrapped Component: <a href="/admin/component?name=${encodeURIComponent(r.pnlgrpname.trim())}&env=${ENV}" style="color:#00e5ff">${esc(r.pnlgrpname.trim())} &#x2197;</a></div>`
+        ? `<div style="margin-bottom:6px">Wrapped Component: <a href="/admin/component?name=${encodeURIComponent(r.pnlgrpname.trim())}&env=${ENV_VAL()}" style="color:#00e5ff">${esc(r.pnlgrpname.trim())} &#x2197;</a></div>`
         : ''}
       ${r.objectownerid && r.objectownerid.trim() ? `<div style="color:#445;margin-bottom:4px">Owner: ${esc(r.objectownerid.trim())}</div>` : ''}
       ${r.lastupddttm ? `<div style="color:#445;font-size:11px">Last updated: ${esc(String(r.lastupddttm))}</div>` : ''}
     </div>`;
 }
 
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only captured ENV once at load into a const, so switching environments
+// silently left the prior env's list and detail panel on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
 doSearch();
 </script>""")
 
@@ -263,7 +277,7 @@ button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 const MENU_TYPE = {'0':'Standard','1':'Pop-up'};
 async function api(path) { const r=await fetch(path); return r.ok?r.json():null; }
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
@@ -272,7 +286,7 @@ async function doSearch() {
   const list=document.getElementById('list');
   list.innerHTML='<span class="muted">Loading...</span>';
   document.getElementById('detail').innerHTML='<span class="muted">Select a menu.</span>';
-  const rows=await api('/api/peoplesoft/menus?env='+ENV+'&q='+encodeURIComponent(q));
+  const rows=await api('/api/peoplesoft/menus?env='+ENV_VAL()+'&q='+encodeURIComponent(q));
   if(!rows){list.innerHTML='<span class="muted">Error.</span>';return;}
   document.getElementById('stats').textContent=rows.length+' result'+(rows.length===1?'':'s');
   list.innerHTML='';
@@ -289,11 +303,11 @@ async function selectMenu(r,el){
   if(el)el.classList.add('sel');
   const d=document.getElementById('detail');
   d.innerHTML='<span class="muted">Loading items...</span>';
-  const items=await api('/api/peoplesoft/menus/'+encodeURIComponent(r.menuname)+'/items?env='+ENV);
+  const items=await api('/api/peoplesoft/menus/'+encodeURIComponent(r.menuname)+'/items?env='+ENV_VAL());
   const tl=MENU_TYPE[String(r.menutype)]||('Type '+r.menutype);
   const hdr='<div style="margin-bottom:12px"><span style="font-size:16px;font-family:monospace;color:#d7faff">'+esc(r.menuname)+'</span>'
     +' <span class="chip chip-info">'+esc(tl)+'</span>'
-    +' <a href="/admin/object/menu/'+encodeURIComponent(r.menuname)+'?env='+ENV+'" style="margin-left:12px;font-size:11px;color:#00e5ff">Open in Object Explorer &#x2197;</a></div>'
+    +' <a href="/admin/object/menu/'+encodeURIComponent(r.menuname)+'?env='+ENV_VAL()+'" style="margin-left:12px;font-size:11px;color:#00e5ff">Open in Object Explorer &#x2197;</a></div>'
     +(r.descr?'<div style="color:#8ab;font-size:12px;margin-bottom:10px">'+esc(r.descr)+'</div>':'');
   if(!items||!items.length){d.innerHTML=hdr+'<span class="muted">No items found.</span>';return;}
   let table='<table style="width:100%;border-collapse:collapse;font-size:11px">'
@@ -307,11 +321,18 @@ async function selectMenu(r,el){
       +'<td style="padding:4px 6px;color:#445">'+esc(i.barname||'')+'</td>'
       +'<td style="padding:4px 6px;font-family:monospace">'+esc(i.itemname||'')+'</td>'
       +'<td style="padding:4px 6px;color:#8ab">'+esc(i.itemlabel||i.barlabel||'')+'</td>'
-      +'<td style="padding:4px 6px">'+(comp?'<a href="/admin/component?name='+encodeURIComponent(comp)+'&env='+ENV+'" style="color:#00e5ff">'+esc(comp)+'</a>':'')+'</td>'
+      +'<td style="padding:4px 6px">'+(comp?'<a href="/admin/component?name='+encodeURIComponent(comp)+'&env='+ENV_VAL()+'" style="color:#00e5ff">'+esc(comp)+'</a>':'')+'</td>'
       +'</tr>';});
   table+='</tbody></table>';
   d.innerHTML=hdr+table;
 }
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only captured ENV once at load into a const, so switching environments
+// silently left the prior env's list and detail panel on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
 doSearch();
 </script>""")
 
@@ -371,7 +392,7 @@ a{color:#00e5ff;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 const STATUS_LABELS = {'A':['chip-ok','Active'], 'I':['chip-muted','Inactive']};
 
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
@@ -386,7 +407,7 @@ async function doSearch() {
   const status = document.getElementById('awStatus').value;
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 200});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 200});
   if (q) params.set('q', q);
   if (status) params.set('status', status);
   const d = await api(`/api/peoplesoft/approvals?${params}`);
@@ -410,7 +431,7 @@ async function selectApproval(eoawprcsId, idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/approval/${encodeURIComponent(eoawprcsId)}?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/object/approval/${encodeURIComponent(eoawprcsId)}?env=${ENV_VAL()}`);
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const ov = d.overview || {};
@@ -478,28 +499,44 @@ async function selectApproval(eoawprcsId, idx) {
   detail.innerHTML = html;
 }
 
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only captured ENV once at load into a const, so switching environments
+// silently left the prior env's list and detail panel on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
 doSearch();
 </script>""")
 
 
 @router.get("/appclass", response_class=HTMLResponse)
 def admin_appclass(request: Request):
-    nav = _nav_html("appclass", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("appclass")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Application Classes</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
-<div class="ds-main" style="display:grid;grid-template-columns:380px 1fr;gap:0;height:calc(100vh - 48px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">Application Classes</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div class="ds-main" style="display:grid;grid-template-columns:380px 1fr;gap:0;height:calc(100vh - 90px)">
 <div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
   <div style="margin-bottom:6px;display:flex;gap:6px">
-    <input id="q" placeholder="Search class or package…" oninput="doSearch()"
+    <input id="q" placeholder="Search class or package…" oninput="onManualFilter()"
       style="flex:1;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 10px;border-radius:4px;font-size:13px">
-    <input id="pkg" placeholder="Exact package…" oninput="doSearch()"
+    <input id="pkg" placeholder="Exact package…" oninput="onManualFilter()"
       style="width:130px;background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 8px;border-radius:4px;font-size:12px">
   </div>
+  <div id="filter-bar" style="font-size:11px;margin-bottom:4px"></div>
   <div id="list" style="font-size:12px"></div>
 </div>
 <div id="detail" style="overflow-y:auto;padding:20px 28px;color:#c8d8e8">
@@ -510,12 +547,55 @@ def admin_appclass(request: Request):
 {_ESC_JS}
 function ENVVAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
 let selected = null;
+let subpathFilter = null;
+
+// Typing in the search/package boxes manually means the user isn't
+// drilling through a sub-package anymore — drop that filter so results
+// aren't silently restricted to the last-clicked sub-package.
+function onManualFilter() {{
+  subpathFilter = null;
+  doSearch();
+}}
+
+function renderFilterBar() {{
+  const pkg = document.getElementById('pkg').value.trim();
+  const bar = document.getElementById('filter-bar');
+  if (subpathFilter !== null && pkg) {{
+    const label = subpathFilter === ':' ? '(root)' : subpathFilter;
+    bar.innerHTML = `<span style="background:#0a1528;border:1px solid #1a3a5a;border-radius:3px;padding:2px 8px;color:#7ab">Sub-package: <b>${{esc(label)}}</b>
+      <span style="cursor:pointer;color:#f66;margin-left:6px" onclick="subpathFilter=null;doSearch()">&times;</span></span>`;
+  }} else {{
+    bar.innerHTML = '';
+  }}
+}}
+
+function drillPackage(pkg) {{
+  document.getElementById('q').value = '';
+  document.getElementById('pkg').value = pkg;
+  subpathFilter = null;
+  doSearch();
+}}
+
+function drillSubPackage(pkg, qp) {{
+  document.getElementById('q').value = '';
+  document.getElementById('pkg').value = pkg;
+  subpathFilter = (qp === '(root)') ? ':' : qp;
+  doSearch();
+}}
 
 async function doSearch() {{
   const q = document.getElementById('q').value.trim();
   const pkg = document.getElementById('pkg').value.trim();
   const url = `/api/peoplesoft/app-classes?env=${{encodeURIComponent(ENVVAL())}}&q=${{encodeURIComponent(q)}}&pkg=${{encodeURIComponent(pkg)}}&limit=200`;
-  const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  let data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  if (subpathFilter !== null && pkg) {{
+    data = data.filter(r => {{
+      const rq = (r.qualifypath || '').trim();
+      const norm = (rq === '' || rq === ':') ? ':' : rq;
+      return norm.toUpperCase() === subpathFilter.toUpperCase();
+    }});
+  }}
+  renderFilterBar();
   const list = document.getElementById('list');
   if (!data.length) {{ list.innerHTML = '<div class="muted">No results.</div>'; return; }}
   list.innerHTML = data.map(r => {{
@@ -546,26 +626,42 @@ async function loadDetail(key) {{
   const ovSec = secs.find(s=>s.title?.includes('Overview'));
   const sibSec = secs.find(s=>s.title?.includes('Sibling'));
   const spSec = secs.find(s=>s.title?.includes('Sub-Package'));
+  const pcSec = secs.find(s=>s.title?.includes('PeopleCode Programs'));
 
-  let html = `<h1 style="color:#aa66ff;font-size:16px;margin:0 0 4px;font-family:monospace">${{esc(uom.display_name || key)}}</h1>`;
+  const objLink = uom._links?.admin || `/admin/object/app_class/${{encodeURIComponent(key)}}`;
+  const displayTitle = (uom.display_name || key).replace(/~/g, ':');
+  let html = `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+    <h1 style="color:#aa66ff;font-size:16px;margin:0;font-family:monospace">${{esc(displayTitle)}}</h1>
+    <a href="${{objLink}}?env=${{encodeURIComponent(ENVVAL())}}" style="color:#44aaff;font-size:12px">Open in Object Explorer &#x2197;</a>
+  </div>`;
 
-  // Overview KV
+  // Overview KV — Package Root and Sub-Package Path drill through to
+  // filter the rail list, since there's no dedicated package/sub-package
+  // object page to navigate to.
+  const pkgVal = (ovSec?.rows || []).find(r => r.key === 'Package Root')?.value || '';
   if (ovSec?.rows?.length) {{
     html += '<table style="border-collapse:collapse;margin-bottom:16px;font-size:13px">';
     ovSec.rows.forEach(row => {{
+      const val = String(row.value || '—');
+      let valHtml = esc(val);
+      if (row.key === 'Package Root' && val && val !== '—') {{
+        valHtml = `<a href="#" onclick="drillPackage('${{esc(val)}}');return false;" style="color:#aa66ff;text-decoration:underline">${{esc(val)}}</a>`;
+      }} else if (row.key === 'Sub-Package Path' && val && val !== '—' && pkgVal) {{
+        valHtml = `<a href="#" onclick="drillSubPackage('${{esc(pkgVal)}}','${{esc(val)}}');return false;" style="color:#aa66ff;text-decoration:underline">${{esc(val)}}</a>`;
+      }}
       html += `<tr><td style="color:#556;padding:2px 16px 2px 0;white-space:nowrap;vertical-align:top">${{esc(row.key)}}</td>
-        <td style="color:#acd;font-family:monospace;word-break:break-all">${{esc(String(row.value || '—'))}}</td></tr>`;
+        <td style="color:#acd;font-family:monospace;word-break:break-all">${{valHtml}}</td></tr>`;
     }});
     html += '</table>';
   }}
 
-  // Sub-packages section (show as KV-style summary)
+  // Sub-packages section — clickable to drill into that sub-package.
   if (spSec?.items?.length) {{
     html += `<h2 style="color:#aab;font-size:13px;margin:16px 0 6px">${{esc(spSec.title)}}</h2>`;
     html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px">';
     spSec.items.forEach(sp => {{
       const cnt = sp.chips?.[0]?.label || '';
-      html += `<span style="display:inline-block;background:#0a1528;border:1px solid #1a3a5a;border-radius:3px;padding:2px 8px;font-size:11px;font-family:monospace;color:#7ab">${{esc(sp.name)}} <span style="color:#445">${{esc(cnt)}}</span></span>`;
+      html += `<span style="display:inline-block;background:#0a1528;border:1px solid #1a3a5a;border-radius:3px;padding:2px 8px;font-size:11px;font-family:monospace;color:#7ab;cursor:pointer" onclick="drillSubPackage('${{esc(pkgVal)}}','${{esc(sp.name)}}')">${{esc(sp.name)}} <span style="color:#445">${{esc(cnt)}}</span></span>`;
     }});
     html += '</div>';
   }}
@@ -581,11 +677,43 @@ async function loadDetail(key) {{
     html += '</div>';
   }}
 
+  // PeopleCode source for this class.
+  if (pcSec?.items?.length) {{
+    html += `<h2 style="color:#aab;font-size:13px;margin:16px 0 6px">${{esc(pcSec.title)}}</h2>`;
+    html += '<div style="display:flex;flex-direction:column;gap:2px">';
+    pcSec.items.forEach(pc => {{
+      const chips = pc.chips?.map(ch => `<span style="font-size:9px;color:#996;margin-left:6px">${{esc(ch.label)}}</span>`).join('') || '';
+      const link = pc._links?.admin || (pc.name ? `/admin/object/peoplecode/${{encodeURIComponent(pc.name)}}` : '');
+      html += `<div style="padding:4px 8px;border-bottom:1px solid #0d1520;font-size:12px">
+        ${{link ? `<a href="${{link}}?env=${{encodeURIComponent(ENVVAL())}}" style="color:#44cc88;font-family:monospace;text-decoration:none">${{esc(pc.name || '')}}</a>` : `<span style="font-family:monospace;color:#44cc88">${{esc(pc.name || '')}}</span>`}}
+        ${{chips}}
+        ${{pc.meta ? `<span style="color:#445;font-size:10px;margin-left:8px">${{esc(pc.meta)}}</span>` : ''}}
+      </div>`;
+    }});
+    html += '</div>';
+  }} else {{
+    html += `<h2 style="color:#aab;font-size:13px;margin:16px 0 6px">PeopleCode</h2><div class="muted">No PeopleCode found for this class.</div>`;
+  }}
+
   if (!ovSec && !sibSec) {{
     html += '<div class="muted">No detail available.</div>';
   }}
   detail.innerHTML = html;
 }}
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// never listened for it, so switching environments silently left the
+// prior env's rail list and detail panel on screen.
+function reload() {{
+  selected = null;
+  subpathFilter = null;
+  document.getElementById('detail').innerHTML =
+    '<div class="muted">Select an Application Class to view its package context and sibling classes.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
 
 doSearch();
 </script>
@@ -594,15 +722,23 @@ doSearch();
 
 @router.get("/contsvc", response_class=HTMLResponse)
 def admin_contsvc(request: Request):
-    nav = _nav_html("contsvc", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("contsvc")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Content Services</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
-<div class="ds-main" style="display:grid;grid-template-columns:360px 1fr;gap:0;height:calc(100vh - 48px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">Content Services</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div class="ds-main" style="display:grid;grid-template-columns:360px 1fr;gap:0;height:calc(100vh - 90px)">
 <div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
   <div style="margin-bottom:6px;display:flex;gap:6px">
     <input id="q" placeholder="Search service ID, name, or desc…" oninput="doSearch()"
@@ -719,6 +855,19 @@ async function loadDetail(sid) {{
   detail.innerHTML = html;
 }}
 
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// never listened for it, so switching environments silently left the
+// prior env's rail list and detail panel on screen.
+function reload() {{
+  selected = null;
+  document.getElementById('detail').innerHTML =
+    '<div class="muted">Select a Content Service to view its parameters and usage.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
+
 doSearch();
 </script>
 </body></html>""")
@@ -726,15 +875,23 @@ doSearch();
 
 @router.get("/adsdef", response_class=HTMLResponse)
 def admin_adsdef(request: Request):
-    nav = _nav_html("adsdef", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("adsdef")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>ADS Definitions</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
-<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">ADS Definitions</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 90px)">
 <div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
   <div style="margin-bottom:6px;display:flex;gap:6px">
     <input id="q" placeholder="Search ADS name or description…" oninput="doSearch()"
@@ -829,6 +986,19 @@ async function loadDetail(name) {{
   `;
 }}
 
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// never listened for it, so switching environments silently left the
+// prior env's rail list and detail panel on screen.
+function reload() {{
+  selected = null;
+  document.getElementById('detail').innerHTML =
+    '<div class="muted">Select an Application Data Set definition to view its records and groups.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
+
 doSearch();
 </script>
 </body></html>""")
@@ -836,15 +1006,23 @@ doSearch();
 
 @router.get("/urldef", response_class=HTMLResponse)
 def admin_urldef(request: Request):
-    nav = _nav_html("urldef", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("urldef")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>URL Definitions</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
-<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">URL Definitions</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 90px)">
 <div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
   <div style="margin-bottom:6px;display:flex;gap:6px">
     <input id="q" placeholder="Search URL ID, description, or URL…" oninput="doSearch()"
@@ -933,6 +1111,19 @@ async function loadDetail(name) {{
   `;
 }}
 
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// never listened for it, so switching environments silently left the
+// prior env's rail list and detail panel on screen.
+function reload() {{
+  selected = null;
+  document.getElementById('detail').innerHTML =
+    '<div class="muted">Select a URL definition to view its details.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
+
 doSearch();
 </script>
 </body></html>""")
@@ -940,15 +1131,23 @@ doSearch();
 
 @router.get("/cbskill", response_class=HTMLResponse)
 def admin_cbskill(request: Request):
-    nav = _nav_html("cbskill", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("cbskill")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Chatbot Skills</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
-<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">Chatbot Skills</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 90px)">
 <div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
   <div style="margin-bottom:6px;display:flex;gap:6px">
     <input id="q" placeholder="Search skill name, description, or URL param…" oninput="doSearch()"
@@ -1039,6 +1238,19 @@ async function loadDetail(name) {{
     ${{stateSec ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">${{esc(stateSec.title)}}</h3>${{itemList(stateSec)}}` : ''}}
   `;
 }}
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// never listened for it, so switching environments silently left the
+// prior env's rail list and detail panel on screen.
+function reload() {{
+  selected = null;
+  document.getElementById('detail').innerHTML =
+    '<div class="muted">Select a Chatbot Skill to view its parameters and result states.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
 
 doSearch();
 </script>
