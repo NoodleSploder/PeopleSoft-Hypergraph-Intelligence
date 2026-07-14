@@ -28,8 +28,9 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from connectors import paths
 
-DATA_DIR = Path("/opt/deathstar-api/data")
+DATA_DIR = paths.APP_ROOT / "data"
 DB_PATH  = DATA_DIR / "incidents.db"
 
 

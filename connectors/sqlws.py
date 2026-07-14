@@ -20,10 +20,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import oracledb
+from connectors import paths
 
-CONFIG = Path("/opt/deathstar-api/config.json")
-HISTORY_PATH = Path("/opt/deathstar-api/data/sqlws_history.jsonl")
-AUDIT_PATH   = Path("/opt/deathstar-api/logs/sqlws_audit.jsonl")
+CONFIG = paths.APP_ROOT / "config.json"
+HISTORY_PATH = paths.APP_ROOT / "data/sqlws_history.jsonl"
+AUDIT_PATH   = paths.APP_ROOT / "logs/sqlws_audit.jsonl"
 
 DEFAULT_PAGE_SIZE = 100
 MAX_PAGE_SIZE     = 1000

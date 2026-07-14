@@ -32,5 +32,24 @@ jobs:
       - name: Syntax check — all Python files
         run: python scripts/syntax_check.py --quiet
 
+      - name: Provide dummy config.json for import-time defaults
+        run: |
+          # config.json is gitignored (real credentials) and absent in CI.
+          # Many router functions evaluate psdb.default_env()/default_env2()
+          # as parameter DEFAULT VALUES, which Python runs once at import
+          # time — importing any such router module with no config.json
+          # present raises FileNotFoundError before a single test can run.
+          # This fixture has no real hosts/credentials; it exists only to
+          # satisfy that import-time read. See config.ci.json's own _comment.
+          cp config.ci.json config.json
+
       - name: Unit tests (no Oracle / Chrome required)
+        env:
+          # connectors/paths.py resolves APP_ROOT from this file's own
+          # location by default (production is always checked out at
+          # /opt/deathstar-api, so that default is correct there) — DEATHSTAR_HOME
+          # overrides it explicitly here to the actual checkout directory,
+          # so config.json/data/ etc. resolve to files that exist on this
+          # runner instead of an unrelated production-only absolute path.
+          DEATHSTAR_HOME: ${{ github.workspace }}
         run: python -m unittest discover -s tests/ -v

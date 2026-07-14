@@ -15,10 +15,11 @@ import json
 import sqlite3
 import time
 from pathlib import Path
+from connectors import paths
 
-DATA_DIR = Path("/opt/deathstar-api/data")
+DATA_DIR = paths.APP_ROOT / "data"
 DB_PATH = DATA_DIR / "deployment_events.db"
-CONFIG_PATH = Path("/opt/deathstar-api/config.json")
+CONFIG_PATH = paths.APP_ROOT / "config.json"
 
 
 def _conn():

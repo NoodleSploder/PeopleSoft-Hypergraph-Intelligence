@@ -22,8 +22,9 @@ to be turned on before any trace file exists to parse).
 
 import json
 from pathlib import Path
+from connectors import paths
 
-CONFIG_PATH = Path("/opt/deathstar-api/config.json")
+CONFIG_PATH = paths.APP_ROOT / "config.json"
 
 
 def _trace_sources() -> dict:

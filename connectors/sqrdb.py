@@ -12,8 +12,9 @@ Schema:
 import re
 import sqlite3
 from pathlib import Path
+from connectors import paths
 
-DATA_DIR = Path("/opt/deathstar-api/data")
+DATA_DIR = paths.APP_ROOT / "data"
 DB_PATH  = DATA_DIR / "sqr.db"
 
 # Same comment-line convention sqrparser.py already relies on for SQL/include

@@ -2,8 +2,9 @@ import json
 from pathlib import Path
 import re
 import oracledb
+from connectors import paths
 
-CONFIG = Path("/opt/deathstar-api/config.json")
+CONFIG = paths.APP_ROOT / "config.json"
 IDENTIFIER_RE = re.compile(r"^[A-Z][A-Z0-9_$#]*$")
 
 

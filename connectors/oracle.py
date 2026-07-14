@@ -2,8 +2,9 @@ import json
 import socket
 from pathlib import Path
 import oracledb
+from connectors import paths
 
-CONFIG = Path("/opt/deathstar-api/config.json")
+CONFIG = paths.APP_ROOT / "config.json"
 
 
 def load_databases():

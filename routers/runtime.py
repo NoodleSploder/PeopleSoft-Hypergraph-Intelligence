@@ -4,10 +4,11 @@ from pathlib import Path
 from fastapi import APIRouter
 
 from connectors import execution, psdb, alerts as alerts_conn, domaindisc
+from connectors import paths
 
 router = APIRouter(prefix="/api/runtime", tags=["Runtime"])
 
-CONFIG = Path("/opt/deathstar-api/config.json")
+CONFIG = paths.APP_ROOT / "config.json"
 
 
 @router.get("/config")

@@ -8289,3 +8289,59 @@ later (not just checking the two new lines parse). Not yet re-verified
 live — next step: restart + hard-refresh `/admin/ib`, switch
 environments, confirm Overview counts and any open object detail refresh
 instead of staying stuck on the previous environment.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 33) — Eliminated Hardcoded /opt/deathstar-api Paths Repo-Wide
+
+**Context:** After the CI fix (previous session, a `sudo mkdir /opt/deathstar-api`
+workaround), the user asked to check for hardcoded `/opt/deathstar-api`
+paths anywhere else in the codebase — correctly recognizing the CI
+workaround was patching around a real portability problem rather than
+fixing it. Audit found the literal absolute path
+`Path("/opt/deathstar-api/...")` repeated **26 times across 19 files**
+(config.json reads, `data/` and `logs/` directories, `config/
+role_mapping.yml`) — every one of them a copy-pasted literal with no
+single source of truth, meaning the app could only ever run from one
+specific filesystem location on one specific host.
+
+**Fix:** Added `connectors/paths.py` — `APP_ROOT` resolves from the
+file's own location (`Path(__file__).resolve().parent.parent`), so
+production behavior is byte-identical (this file lives at
+`/opt/deathstar-api/connectors/paths.py`, so `APP_ROOT` still resolves to
+`/opt/deathstar-api`), with a `DEATHSTAR_HOME` environment variable
+override for anywhere else (CI, a future second deployment, local dev).
+Mechanically replaced all 26 occurrences across 19 files
+(`Path("/opt/deathstar-api/X")` → `paths.APP_ROOT / "X"`) via a script
+rather than 19 manual edits, adding `from connectors import paths` to
+each file that needed it. `connectors/ai_tools.py`'s two inline
+`_Path("/opt/deathstar-api/config.json")` occurrences (local
+function-scoped imports, not module-level constants) were handled
+differently — replaced with `psdb.CONFIG` directly, since `psdb` was
+already imported at module level there, avoiding a redundant path import.
+
+Simplified the CI workflow from session 32's `sudo mkdir -p
+/opt/deathstar-api && sudo cp` workaround to `DEATHSTAR_HOME:
+${{ github.workspace }}` — no `sudo` needed at all now, since the app can
+genuinely run from wherever it's checked out.
+
+**Verification, more rigorous than previous sessions in this arc**:
+1. `python3 -c "import ast; ast.parse(...)"` on all 20 touched/new files.
+2. Actually **imported** all 20 modules against the real, unmodified
+   production `config.json` (still resolving to `/opt/deathstar-api` by
+   default) and printed the resolved paths — confirmed byte-identical to
+   the pre-refactor hardcoded values (`/opt/deathstar-api/config.json`,
+   `/opt/deathstar-api/data`, etc.) before considering production
+   behavior unchanged.
+3. Simulated the actual CI scenario locally: copied `config.ci.json` to a
+   throwaway `/tmp` directory, set `DEATHSTAR_HOME` to point at it, and
+   ran `python -m unittest discover -s tests/ -v` — all 24 tests passed,
+   including the previously-crashing `test_object_type_normalization`
+   (23 tests in the original failing CI run, now 24 since the import
+   failure is gone). This is the first fix in this whole domain-discovery-
+   adjacent arc verified by actually reproducing the failure scenario
+   end-to-end and confirming it now passes, rather than reasoning about
+   why it should work.
+4. Full repo syntax check (`scripts/syntax_check.py`, 115 files) — clean
+   aside from pre-existing unrelated warnings (embedded JS regex literals
+   in other files' template strings, not touched this session).

@@ -12,8 +12,9 @@ import json
 from pathlib import Path
 from connectors import oracle as oracle_connector
 from connectors import psdb, ptmetadata
+from connectors import paths
 
-CONFIG = Path("/opt/deathstar-api/config.json")
+CONFIG = paths.APP_ROOT / "config.json"
 
 RUNSTATUS_LABELS = {
     "0":  "Cancel",

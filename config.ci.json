@@ -1,0 +1,55 @@
+{
+  "_comment": "Dummy config used only for CI unit tests (no Oracle/SSH access, no real secrets). Router modules evaluate psdb.default_env()/default_env2() as function-default-argument values, which run at import time — importing any router module without a config.json present raises FileNotFoundError before a single test can even run. This fixture exists solely to satisfy that import-time read; no test in tests/ actually connects to these hosts.",
+  "oracle": {
+    "databases": [
+      {
+        "name": "CIDB1",
+        "host": "localhost",
+        "port": 1521,
+        "service": "CIDB1",
+        "user": "ci_dummy",
+        "password": "ci_dummy"
+      }
+    ]
+  },
+  "peoplesoft": {
+    "environments": [
+      {
+        "name": "CIENV1",
+        "pillar": "CI",
+        "db": "CIDB1",
+        "service": "CIDB1",
+        "host": "localhost",
+        "port": 1521,
+        "user": "ci_dummy",
+        "password": "ci_dummy"
+      },
+      {
+        "name": "CIENV2",
+        "pillar": "CI",
+        "db": "CIDB1",
+        "service": "CIDB1",
+        "host": "localhost",
+        "port": 1521,
+        "user": "ci_dummy",
+        "password": "ci_dummy"
+      }
+    ]
+  },
+  "ssh_hosts": {},
+  "log_sources": [],
+  "ai": {
+    "provider": "openai",
+    "claude": {"api_key": "", "model": "claude-sonnet-4-6"},
+    "openai": {"api_key": "", "model": "gpt-4o"},
+    "ollama": {"base_url": "http://localhost:11434", "model": "llama3.1"}
+  },
+  "igw_log_sources": [],
+  "sqr_sources": [],
+  "cobol_sources": [],
+  "sql_proxy": {
+    "salt": "ci-dummy-salt",
+    "sensitive_columns": {}
+  },
+  "trace_sources": []
+}

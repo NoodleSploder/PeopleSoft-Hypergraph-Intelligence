@@ -8,10 +8,11 @@ from pathlib import Path
 from fastapi import APIRouter, Query
 from connectors import tracing, psdb
 from connectors.execution import ps_env_names, oracle_db_names
+from connectors import paths
 
 router = APIRouter(prefix="/api/tracing", tags=["Transaction Tracing"])
 
-CONFIG = Path("/opt/deathstar-api/config.json")
+CONFIG = paths.APP_ROOT / "config.json"
 
 
 @router.get("/config")

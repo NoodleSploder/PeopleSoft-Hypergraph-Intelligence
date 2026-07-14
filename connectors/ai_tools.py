@@ -1208,7 +1208,7 @@ def _environment_health(env: str) -> dict:
     try:
         import json as _json
         from pathlib import Path as _Path
-        cfg = _json.loads(_Path("/opt/deathstar-api/config.json").read_text())
+        cfg = _json.loads(psdb.CONFIG.read_text())
         trace_src = next(
             (t for t in cfg.get("trace_sources", []) if t.get("env", "").upper() == env),
             None,
@@ -1473,7 +1473,7 @@ def _db_name_for_env(env: str) -> str | None:
     import json as _json
     from pathlib import Path as _Path
     try:
-        cfg = _json.loads(_Path("/opt/deathstar-api/config.json").read_text())
+        cfg = _json.loads(psdb.CONFIG.read_text())
         ps_env = next((e for e in cfg.get("peoplesoft", {}).get("environments", [])
                        if e.get("name", "").upper() == env.upper()), None)
         if not ps_env:

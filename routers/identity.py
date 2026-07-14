@@ -10,12 +10,13 @@ import json
 
 from routers import authelia_admin
 from connectors import psdb
+from connectors import paths
 
 router = APIRouter(prefix="/api/identity", tags=["Identity"])
 
-ROLE_MAP_FILE    = Path("/opt/deathstar-api/config/role_mapping.yml")
-AUDIT_FILE       = Path("/opt/deathstar-api/logs/identity_audit.jsonl")
-REQUESTS_FILE    = Path("/opt/deathstar-api/logs/provision_requests.json")
+ROLE_MAP_FILE    = paths.APP_ROOT / "config/role_mapping.yml"
+AUDIT_FILE       = paths.APP_ROOT / "logs/identity_audit.jsonl"
+REQUESTS_FILE    = paths.APP_ROOT / "logs/provision_requests.json"
 
 class ProvisionRequest(BaseModel):
     password: str
