@@ -968,6 +968,21 @@ def summary(env1, env2):
         ("PM Transactions",   "SELECT COUNT(*) AS n FROM SYSADM.PSPMTRANSDEFN"),
         ("PM Events",         "SELECT COUNT(*) AS n FROM SYSADM.PSPMEVENTDEFN"),
         ("IB Operations",     "SELECT COUNT(*) AS n FROM SYSADM.PSOPERATION"),
+        # These four were originally believed to have no backing table and
+        # were left out of drift coverage entirely (see Phase 5's
+        # deprioritization table). That was wrong — all four have real
+        # tables, just not the ones their names would suggest; see
+        # DEVELOPMENT_DIARY.md 2026-07-14/15 for the live-data
+        # investigation that found each one. Filtered subsets of tables
+        # already counted elsewhere above (Portal Entries/Content
+        # Services), not new tables, so no new grant risk.
+        ("Navigation Collections", "SELECT COUNT(*) AS n FROM SYSADM.PSPRSMDEFN WHERE PORTAL_REFTYPE = 'F' AND PORTAL_PRNTOBJNAME = 'CO_NAVIGATION_COLLECTIONS'"),
+        ("Related Content",   "SELECT COUNT(*) AS n FROM SYSADM.PSPTCSSRVDEFN WHERE TRIM(FIELDNAME) IS NOT NULL AND FIELDNAME != ' '"),
+        ("Event Mappings",    "SELECT COUNT(*) AS n FROM SYSADM.PSPTCSSRVDEFN WHERE TRIM(PC_EVENT_TYPE) IS NOT NULL AND PC_EVENT_TYPE != ' '"),
+        ("Drop Zones",        "SELECT COUNT(DISTINCT PNLGRPNAME) AS n FROM SYSADM.PSPNLGROUP"
+                               " WHERE PNLNAME IN (SELECT PNLNAME FROM SYSADM.PSPNLFIELD"
+                               " WHERE FIELDTYPE IN (11, 18) AND SUBPNLNAME ="
+                               " (SELECT PTSTUBSUBPAGE FROM SYSADM.PSOPTIONS))"),
     ]
     rows = []
     warnings = []

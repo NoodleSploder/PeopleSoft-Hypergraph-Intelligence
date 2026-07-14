@@ -166,6 +166,27 @@ def _app_server_ports(ssh_host: str, appserv_path: str, domain_name: str) -> dic
     return result
 
 
+def _domain_dbname(ssh_host: str, domain_dir: str, cfg_filename: str) -> str | None:
+    """Return the DBName= value from a domain's [Startup] section —
+    psappsrv.cfg for App Server domains, psprcs.cfg for Process Scheduler.
+    Confirmed live to be a reliable ground-truth environment identifier,
+    unlike the domain directory name itself: a real domain here named
+    "HCMDMO_APP" (predating an environment rename to HRDMO) has
+    DBName=HRDMO, not HCMDMO — matching name-substring heuristics against
+    the directory name alone would misattribute or fail to attribute it.
+    Also confirmed live that DBName matches the environment's Oracle
+    *service* name (peoplesoft.environments[].service), not its display
+    name — those differ for at least one configured environment here
+    (FSCM's service is FSCMDMO), so callers must compare against
+    `service`, not `name`."""
+    text = _read_text(ssh_host, f"{domain_dir}/{cfg_filename}")
+    if not text:
+        return None
+    sections = _parse_ini_sections(text)
+    dbname = sections.get("STARTUP", {}).get("DBNAME")
+    return dbname.strip().upper() if dbname else None
+
+
 def _web_domain_ports(ssh_host: str, webserv_path: str, domain_name: str) -> tuple[int | None, int | None]:
     """
     Return (http_port, https_port) parsed from WebLogic's config.xml. The
@@ -307,6 +328,49 @@ def discover_domains_by_path(ssh_host: str, ps_cfg_home: str) -> dict:
     try:
         for dname in sshclient.list_dirs(ssh_host, appserv_path):
             domain_type, domain_type_label = _classify_appserv_dir(dname)
+            domain_path = f"{appserv_path}/{dname}"
+
+            if domain_type == "process_scheduler":
+                # Confirmed live: some installs nest the real Process
+                # Scheduler domain one level under a container directory
+                # (e.g. "prcs/HCMDMO_PRCS") rather than putting psprcs.cfg
+                # directly under appserv/<name> — a top-level "prcs" dir
+                # here has no config file of its own at all. Without this,
+                # the container itself was silently reported as a fake
+                # domain with no ports, no DBName, no real status. Try the
+                # container's own psprcs.cfg first (some installs may
+                # genuinely have it there); if that's missing, list its
+                # subdirectories as the real domain(s) instead.
+                dbname = _domain_dbname(ssh_host, domain_path, "psprcs.cfg")
+                if dbname is None:
+                    try:
+                        sub_names = sshclient.list_dirs(ssh_host, domain_path)
+                    except Exception:
+                        sub_names = []
+                    if sub_names:
+                        for sub in sub_names:
+                            sub_path = f"{domain_path}/{sub}"
+                            items.append({
+                                "domain_name": sub,
+                                "domain_type": "process_scheduler",
+                                "domain_type_label": "Process Scheduler",
+                                "hosts": [hostname],
+                                "status": _domain_status(cmdlines, sub),
+                                "listener_count": None,
+                                "dbname": _domain_dbname(ssh_host, sub_path, "psprcs.cfg"),
+                            })
+                        continue
+                items.append({
+                    "domain_name": dname,
+                    "domain_type": "process_scheduler",
+                    "domain_type_label": "Process Scheduler",
+                    "hosts": [hostname],
+                    "status": _domain_status(cmdlines, dname),
+                    "listener_count": None,
+                    "dbname": dbname,
+                })
+                continue
+
             item = {
                 "domain_name": dname,
                 "domain_type": domain_type,
@@ -314,14 +378,12 @@ def discover_domains_by_path(ssh_host: str, ps_cfg_home: str) -> dict:
                 "hosts": [hostname],
                 "status": _domain_status(cmdlines, dname),
             }
-            if domain_type == "app_server":
-                ports = _app_server_ports(ssh_host, appserv_path, dname)
-                cfg_sections = ports.pop("_cfg_sections", None)
-                item.update(ports)
-                item["cfg_sections"] = cfg_sections
-                item["listener_count"] = _live_listener_count(listening_ports, ports.values())
-            else:
-                item["listener_count"] = None
+            ports = _app_server_ports(ssh_host, appserv_path, dname)
+            cfg_sections = ports.pop("_cfg_sections", None)
+            item.update(ports)
+            item["cfg_sections"] = cfg_sections
+            item["listener_count"] = _live_listener_count(listening_ports, ports.values())
+            item["dbname"] = _domain_dbname(ssh_host, domain_path, "psappsrv.cfg")
             items.append(item)
     except FileNotFoundError as exc:
         warnings.append({
@@ -388,21 +450,38 @@ def attribute_domains_to_envs(items: list[dict], envs: list[dict]) -> list[dict]
     Tag each domain item with the specific environment (and its pillar) it
     belongs to, when multiple environments share one ps_cfg_home tree.
 
-    Pass 1: match each domain name against configured environment names by
-    longest case-insensitive substring (e.g. "HRDEV_APP" -> "HRDEV"). This
-    correctly resolves domains that follow PeopleSoft's usual
-    `<ENVNAME>_APP`/`<ENVNAME>_WEB` naming convention.
+    Pass 0: match by DBName (parsed live from psappsrv.cfg/psprcs.cfg's
+    [Startup] section — see _domain_dbname) against each environment's
+    Oracle *service* name. This is ground truth, not a guess: confirmed
+    live that DBName reflects the actual database being connected to and
+    can disagree with the domain directory name entirely (a domain
+    literally named "HCMDMO_APP" has DBName=HRDMO, its real environment,
+    following a rename that predates the directory name) — and confirmed
+    it matches `service`, not `name` (those differ for FSCM in this
+    config: service=FSCMDMO, name=FSCM). App Server and Process Scheduler
+    domains carry a `dbname` field (App Server domains always have real
+    psappsrv.cfg since Pass 0-era ports parsing already requires reading
+    it; Process Scheduler only when its config was readable); Web/IB
+    domains have no such config file and always fall through to Pass 1.
 
-    Pass 2: domains that don't match any environment name (e.g. a legacy
-    "demo" domain literally named "HCMDMO_APP"/"HCDMO" that predates the
-    environment being renamed to "HRDMO") are assigned to whichever
-    configured environment in the group has *no* domain matched to it —
-    but only when that's unambiguous (exactly one such environment). If
-    it's ambiguous, the domain keeps a shared group label rather than
-    guessing wrong, the same "don't guess, degrade honestly" principle
-    used throughout this connector.
+    Pass 1: for anything Pass 0 couldn't resolve, match domain name
+    against configured environment names by longest case-insensitive
+    substring (e.g. "HRDEV_APP" -> "HRDEV"). This correctly resolves
+    domains that follow PeopleSoft's usual `<ENVNAME>_APP`/`<ENVNAME>_WEB`
+    naming convention, and is the only signal available at all for
+    Web/IB domains.
+
+    Pass 2: domains that don't match any environment name by DBName or
+    substring are assigned to whichever configured environment in the
+    group has *no* domain matched to it yet — but only when that's
+    unambiguous (exactly one such environment). If it's ambiguous, the
+    domain keeps a shared group label rather than guessing wrong, the
+    same "don't guess, degrade honestly" principle used throughout this
+    connector.
     """
     env_names = [e["name"] for e in envs]
+    service_by_env = {e["name"]: (e.get("service") or "").upper() for e in envs}
+    env_by_service = {v: k for k, v in service_by_env.items() if v}
     pillars = {e.get("pillar") for e in envs}
     group_pillar = next(iter(pillars)) if len(pillars) == 1 and next(iter(pillars)) else None
     group_label = group_pillar or "/".join(env_names)
@@ -411,11 +490,15 @@ def attribute_domains_to_envs(items: list[dict], envs: list[dict]) -> list[dict]
     matched_envs = set()
     unmatched = []
     for item in items:
-        name_upper = item["domain_name"].upper()
-        best = None
-        for en in env_names:
-            if en.upper() in name_upper and (best is None or len(en) > len(best)):
-                best = en
+        dbname = item.get("dbname")
+        best = env_by_service.get(dbname) if dbname else None
+
+        if best is None:
+            name_upper = item["domain_name"].upper()
+            for en in env_names:
+                if en.upper() in name_upper and (best is None or len(en) > len(best)):
+                    best = en
+
         if best:
             item["env"] = best
             item["pillar"] = pillar_by_env.get(best)

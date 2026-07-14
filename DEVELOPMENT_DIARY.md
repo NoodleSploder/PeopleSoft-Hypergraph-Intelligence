@@ -9866,3 +9866,153 @@ string-constructed regexes is exactly the kind of thing that looks
 identical on casual reading but behaves completely differently.
 
 **Files:** `routers/admin/tools.py`, `routers/admin/compflow.py`.
+
+## 2026-07-15 — ROADMAP Cleanup: Added the 4 Fixed Providers to Drift Coverage
+
+**Context:** First item off a "work through the open ROADMAP items" pass.
+Navigation Collections/Related Content/Event Mappings/Drop Zones were
+fixed against real tables in session 51 (see above) but never added to
+`envcompare.py`'s drift `summary()` — they'd been excluded on the old,
+now-disproven belief that they had no backing table at all.
+
+**Fix:** Added four entries to `summary()`'s `queries` list, reusing the
+exact filters already verified live in session 51 (not re-deriving them):
+`PSPRSMDEFN` filtered to the nav-collection subtree, `PSPTCSSRVDEFN`
+filtered on `FIELDNAME`/`PC_EVENT_TYPE` for Related Content/Event
+Mappings, and a `PSPNLGROUP`/`PSPNLFIELD` join against
+`PSOPTIONS.PTSTUBSUBPAGE` for Drop Zones. `summary()` is the single
+source of truth for drift — `scheduler.py`'s `run_drift_now()` calls it
+directly and hands the result to `driftdb` for persistence, so this one
+list is all that needed to change; `impact.py`'s risk-weight table
+defaults any unlisted type to weight 1, which is the right tier for
+these (config/portal plumbing, not security or executable logic), so no
+change needed there either.
+
+**Verification:** live `envcompare.summary('HRDEV','HRTST')` (real
+non-zero counts, e.g. 586 Event Mappings, no warnings); the same through
+the actual `/api/envcompare/summary` HTTP endpoint; and — going one step
+further than the connector/API layers — an actual
+`scheduler.run_drift_now('HRDEV','HRTST')` followed by
+`driftdb.get_latest()`, confirming the real scheduled-snapshot
+persistence path picks up all four new types too, not just the
+synchronous summary call.
+
+**Files:** `connectors/envcompare.py`, `ROADMAP.md`.
+
+## 2026-07-15 — Domain Discovery: DBName-Based Environment Attribution (+ a Real Bug Found Along the Way)
+
+**Context:** Item #2 off the "work through open ROADMAP items" pass.
+Shared-host domains (e.g. HCM's five environments all deployed on one
+physical app-server box) were attributed to a specific environment purely
+by matching the domain directory name as a substring — works for
+standard `<ENVNAME>_APP` naming, degrades to an ambiguous shared-pillar
+label otherwise. The ROADMAP noted `psappsrv.cfg`'s `DBName`/`ServerName`
+fields as a more reliable signal, unverified.
+
+**Verified live before implementing anything**: read a real
+`psappsrv.cfg` for a domain whose name actively disagrees with its
+environment (`HCMDMO_APP`, predating a rename to `HRDMO`) — found
+`DBName=HRDMO` in its `[Startup]` section, confirming this is exactly the
+reliable signal needed. `ServerName` does not exist as a field anywhere
+in the file — only `DBName` is real. Also checked whether `DBName`
+matches the environment's `name` or `service` config field, since those
+differ for FSCM in this config (`name=FSCM`, `service=FSCMDMO`) — live
+check confirmed `DBName=FSCMDMO`, i.e. it matches `service`, not `name`.
+Would have been a real, silent bug if assumed instead of checked.
+
+**Found an unrelated real bug while investigating Process Scheduler
+domains for this**: `appserv/prcs` is a *container* directory with no
+`psappsrv.cfg`/`psprcs.cfg` of its own — the real domain is nested one
+level deeper (`appserv/prcs/HCMDMO_PRCS`, confirmed live). The existing
+code's `_classify_appserv_dir()` correctly classified `"prcs"` as a
+Process Scheduler domain by name, but then tried to read a config file
+that was never there, silently reporting a fake domain with no ports, no
+DBName, no correct name — while the *real* nested domain was never
+discovered at all. This predates this session's work and was never
+previously reported; found purely by trying to parse `DBName` from every
+Process Scheduler domain and noticing the container read came back
+empty.
+
+**Fix:** `_domain_dbname(ssh_host, domain_dir, cfg_filename)` reads
+`[Startup]` → `DBName` from either config file (best-effort, `None` on
+any failure, same discipline as the existing port parsers). The
+App Server/Process Scheduler branch of `discover_domains_by_path()` was
+restructured: Process Scheduler entries now try their own config first,
+and if that read comes back empty, list the container's subdirectories
+as the real domains instead (each gets its own `dbname` lookup).
+`attribute_domains_to_envs()` now matches on `dbname == environment
+service` first (a real dict lookup, not a guess), falling back to the
+old name-substring heuristic only when `dbname` is `None` — which is
+always the case for Web/IB domains (WebLogic's `config.xml` has no
+equivalent field) and only sometimes for App Server/Process Scheduler
+(unreadable config).
+
+**Verification:** live `discover_domains_by_path()` + `attribute_domains
+_to_envs()` calls against both the HCM group (5 environments, previously
+ambiguous `HCMDMO_APP`/`HCMDMO_PRCS` now correctly resolve to `HRDMO` via
+DBName) and FSCM (the `name`≠`service` edge case, confirmed correct);
+`HCMDMO_PRCS` now actually appears in the results at all, where it
+previously didn't. Also verified through the real production endpoint
+`GET /api/runtime/domains/all`, not just the connector functions in
+isolation.
+
+**Files:** `connectors/domaindisc.py`, `ROADMAP.md`.
+
+## 2026-07-15 — Architecture Assistant: In-App Mermaid Rendering
+
+**Context:** Item #3 off the "work through open ROADMAP items" pass.
+The Architecture Assistant (`/admin/architecture`) rendered its reports —
+including Mermaid flowchart code blocks — as raw escaped text inside a
+`<pre>`, fine for the "Copy as Markdown → paste into GitHub/Obsidian"
+workflow but not for viewing the diagram in-app.
+
+**Fix:** loaded `marked` (already used elsewhere in this file for the AI
+Assistant) and `mermaid@10` from CDN. `generate()` now stores the raw
+markdown in `_rawMarkdown` and calls `renderReport()`, which extracts
+` ```mermaid ` fenced blocks via regex *before* calling `marked.parse()`
+and re-inserts them afterward as `<div class="mermaid-wrap"><pre
+class="mermaid">...</pre></div>`, then calls `mermaid.run({querySelector:
+'.mermaid'})` to convert them to real SVG. Deliberately did **not**
+override `marked`'s `renderer.code()` to intercept mermaid blocks inline
+— that function's call signature has changed across `marked` major
+versions (positional args vs. an object), and the CDN URL here isn't
+pinned to one, so placeholder substitution around the parse call is more
+robust than depending on an API surface that could shift under an
+unpinned dependency. Added a "View Raw Markdown" / "View Rendered"
+toggle (`toggleView()`) so both workflows stay available, and kept "Copy
+as Markdown" copying `_rawMarkdown` directly rather than reading it back
+out of the rendered DOM.
+
+**Bug caught before shipping, same class as earlier today**: the mermaid
+fence-matching regex,
+`` _rawMarkdown.replace(/```mermaid\n([\s\S]*?)```/g, ...) ``, is a
+*regex literal*, not a string passed to `new RegExp()` — different bug
+mechanism than this session's two earlier `new RegExp(string)` incidents,
+but the same root mistake: `\n` was written with a single backslash in
+this (non-raw) Python source, so Python's own string-literal parser
+converted it into an actual newline byte embedded directly in the JS
+regex literal — invalid, since a `/regex/` literal can't span a raw
+newline any more than a `'string'` literal can. Caught this time by
+applying the real-execution discipline established earlier today (`repr()`
+of the raw served bytes showed the newline directly) rather than relying
+on read-through review, before it ever reached a browser.
+
+**Verification, with a real embedded V8 (`py_mini_racer`) at every step**,
+not static analysis alone:
+- Confirmed the served regex literal source contains no raw newline byte
+  (`repr()` check) after the fix.
+- Extracted the real rendered `renderReport()`/mermaid-extraction code
+  from a live `TestClient` response and executed it directly: the
+  placeholder-substitution regex correctly captured a real mermaid
+  fenced block and left an intact placeholder token in the surrounding
+  markdown.
+- Executed the full `renderReport()` function with a real (markdown
+  string) → confirmed it produces a `mermaid-wrap` div containing the
+  original diagram source, gracefully doing nothing further when
+  `mermaid` isn't defined (proving the CDN-unavailable fallback path
+  doesn't throw).
+- Executed `toggleView()` and confirmed it flips to the raw view,
+  correctly HTML-escapes the raw markdown, and updates the toggle
+  button's label.
+
+**Files:** `routers/admin/tools.py`, `ROADMAP.md`.

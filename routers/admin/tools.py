@@ -549,6 +549,8 @@ initEnvs();
 @router.get("/architecture", response_class=HTMLResponse)
 def admin_architecture():
     return _shell("Architecture Assistant", "architecture", noscroll=False, content="""\
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <style>
 *{box-sizing:border-box;}
 .ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}
@@ -557,12 +559,24 @@ input[type=text]{width:220px;}
 button{background:#00e5ff;border:none;padding:4px 14px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;}
 button:hover{background:#33eeff;}
 button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;}
+button.sec.on{background:rgba(0,229,255,.15);}
 .section-head{font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:#00e5ff;
               margin:18px 0 8px;border-bottom:1px solid #00e5ff22;padding-bottom:4px;}
 .err-msg{color:#ff6666;font-size:11px;padding:3px 8px;background:#1a0000;border-left:2px solid #ff4444;margin:2px 0;}
 .empty{color:#445;font-style:italic;font-size:12px;padding:10px 0;}
 pre.report{background:#050b12;border:1px solid #00e5ff22;border-radius:3px;padding:14px;font-size:12px;
            overflow-x:auto;color:#d7faff;white-space:pre-wrap;max-height:70vh;overflow-y:auto;}
+.report-rendered{background:#050b12;border:1px solid #00e5ff22;border-radius:3px;padding:14px 18px;font-size:13px;
+           overflow-x:auto;color:#d7faff;max-height:70vh;overflow-y:auto;line-height:1.6;}
+.report-rendered h1,.report-rendered h2,.report-rendered h3{color:#00e5ff;margin:14px 0 6px;}
+.report-rendered h1:first-child,.report-rendered h2:first-child,.report-rendered h3:first-child{margin-top:0;}
+.report-rendered code{background:#0b2030;border:1px solid #00e5ff22;padding:1px 4px;font-size:12px;}
+.report-rendered pre code{background:none;border:none;padding:0;}
+.report-rendered pre:not(.mermaid-wrap){background:#060f18;border:1px solid #00e5ff22;padding:8px;overflow-x:auto;}
+.report-rendered ul,.report-rendered ol{margin:4px 0 10px;padding-left:20px;}
+.report-rendered .mermaid-wrap{background:#0a1520;border:1px solid #00e5ff22;border-radius:3px;padding:14px;margin:8px 0;text-align:center;}
+.report-rendered .mermaid-wrap svg{max-width:100%;height:auto;}
+.report-rendered .mermaid-err{color:#ff8888;font-size:11px;font-style:italic;padding:6px 0;}
 .spinner{display:none;color:#00e5ff;font-size:11px;margin-left:8px;}
 .spinner.on{display:inline;}
 </style>
@@ -595,6 +609,16 @@ pre.report{background:#050b12;border:1px solid #00e5ff22;border-radius:3px;paddi
 const $ = id => document.getElementById(id);
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
+if (typeof mermaid !== 'undefined') {
+  mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+}
+if (typeof marked !== 'undefined') {
+  marked.setOptions({ breaks: true, gfm: true });
+}
+
+let _rawMarkdown = '';
+let _viewMode = 'rendered';
+
 function toggleMode(){
   const mode=$('archMode').value;
   const typeSel=$('archType');
@@ -623,20 +647,78 @@ async function generate(){
     const d=await r.json();
     $('archSpinner').classList.remove('on');
     if(!r.ok){ $('archResult').innerHTML=`<div class="err-msg">${esc(d.detail||'Not found')}</div>`; return; }
+    _rawMarkdown = d.markdown || '';
+    _viewMode = 'rendered';
     $('archResult').innerHTML=`
       <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="sec" id="viewToggleBtn" onclick="toggleView()">View Raw Markdown</button>
         <button class="sec" onclick="copyReport()">Copy as Markdown</button>
       </div>
-      <pre class="report" id="reportText">${esc(d.markdown)}</pre>`;
+      <div id="reportContainer"></div>`;
+    renderReport();
   }catch(e){
     $('archSpinner').classList.remove('on');
     $('archResult').innerHTML=`<div class="err-msg">${esc(String(e))}</div>`;
   }
 }
 
+function renderReport(){
+  const container = $('reportContainer');
+  if (!container) return;
+
+  if (_viewMode === 'raw') {
+    container.className = '';
+    container.innerHTML = `<pre class="report">${esc(_rawMarkdown)}</pre>`;
+    return;
+  }
+
+  // Pull ```mermaid fenced blocks out before markdown parsing and swap them
+  // back in afterward, rather than overriding marked's renderer.code() —
+  // that override's function signature has changed across marked versions,
+  // so plain placeholder substitution is more robust against whatever
+  // version the CDN happens to serve.
+  const mermaidBlocks = [];
+  const withPlaceholders = _rawMarkdown.replace(/```mermaid\\n([\s\S]*?)```/g, (_, code) => {
+    const idx = mermaidBlocks.length;
+    mermaidBlocks.push(code);
+    return `\n\n%%MERMAID_PLACEHOLDER_${idx}%%\n\n`;
+  });
+  let html = (typeof marked !== 'undefined') ? marked.parse(withPlaceholders) : esc(withPlaceholders);
+  mermaidBlocks.forEach((code, idx) => {
+    const wrap = `<div class="mermaid-wrap"><pre class="mermaid">${esc(code)}</pre></div>`;
+    const token = `%%MERMAID_PLACEHOLDER_${idx}%%`;
+    html = html.includes(`<p>${token}</p>`) ? html.replace(`<p>${token}</p>`, wrap) : html.replace(token, wrap);
+  });
+
+  container.className = 'report-rendered';
+  container.innerHTML = html;
+
+  if (typeof mermaid !== 'undefined' && mermaidBlocks.length) {
+    mermaid.run({ querySelector: '.mermaid' }).catch(e => {
+      container.querySelectorAll('pre.mermaid').forEach(el => {
+        if (!el.querySelector('svg') && !el.nextElementSibling?.classList.contains('mermaid-err')) {
+          const err = document.createElement('div');
+          err.className = 'mermaid-err';
+          err.textContent = 'Diagram failed to render: ' + e.message;
+          el.parentNode.appendChild(err);
+        }
+      });
+    });
+  }
+}
+
+function toggleView(){
+  _viewMode = (_viewMode === 'rendered') ? 'raw' : 'rendered';
+  const btn = $('viewToggleBtn');
+  if (btn) {
+    btn.textContent = (_viewMode === 'raw') ? 'View Rendered' : 'View Raw Markdown';
+    btn.classList.toggle('on', _viewMode === 'raw');
+  }
+  renderReport();
+}
+
 function copyReport(){
-  const text=$('reportText').textContent;
-  navigator.clipboard.writeText(text).catch(()=>{});
+  navigator.clipboard.writeText(_rawMarkdown).catch(()=>{});
 }
 
 window.addEventListener('deathstar:envchange', () => {

@@ -220,9 +220,26 @@ snapshots only have the original 17.
   failure rather than raising), so a domain with an unreadable/missing config file still
   shows up with `—` ports instead of failing the whole listing. Process Scheduler domains
   intentionally have no port (no listener) — that's expected, not a gap.
-- **Still open**: no way to attribute a shared-host domain to *one specific* environment
-  without parsing `psappsrv.cfg`'s `DBName`/`ServerName` inside each domain directory —
-  worth doing alongside the port parsing above (same file, same read) as a follow-up.
+- **Done 2026-07-15**: `_domain_dbname()` parses `DBName=` from each domain's
+  `[Startup]` section (`psappsrv.cfg` for App Server, `psprcs.cfg` for Process
+  Scheduler — confirmed live no `ServerName` field exists, only `DBName`).
+  `attribute_domains_to_envs()` now matches on this first (ground truth) before
+  falling back to the old name-substring heuristic, which stays as the only
+  signal for Web/IB domains (no equivalent config file to read). Confirmed live
+  this resolves correctly even where the domain directory name actively
+  disagrees with its environment (`HCMDMO_APP` → `DBName=HRDMO`) and where the
+  environment's display name differs from its Oracle service name (FSCM:
+  `name=FSCM` but `service=FSCMDMO`, and `DBName` matches `service`, not
+  `name` — verified live, not assumed). Also found and fixed a real, unrelated
+  discovery bug while investigating Process Scheduler domains for this: entries
+  like `appserv/prcs` are container directories with no config file of their
+  own, nesting the real domain one level deeper (`appserv/prcs/HCMDMO_PRCS`) —
+  the old code treated the container itself as a fake domain with no ports, no
+  DBName, no correct name, and never discovered the real nested domain at all.
+  Fixed by detecting the missing config file and listing the container's
+  subdirectories as the real domains instead. Verified through the full
+  production path, `GET /api/runtime/domains/all`, not just the connector
+  function directly.
 
 ---
 
@@ -1296,8 +1313,8 @@ all 45 types present in `/api/drift/latest`. At the time of this Phase 5 work,
 Navigation Collections/Event Mappings/Related Content/Drop Zones were believed to
 have no backing table and were left out of drift coverage; that assumption was
 wrong and all four were fixed on 2026-07-14 against real tables (see the "Formerly-
-stub providers" section above) — still not yet added to drift coverage, tracked as
-a follow-up.
+stub providers" section above), and added to drift coverage on 2026-07-15 — drift
+coverage is now 50 types, not 45.
 
 **Deployment/Configuration History.** New `connectors/deploymentdb.py`
 (`data/deployment_events.db`) links what the promotion log already records (*that* a
@@ -1346,16 +1363,33 @@ Mermaid diagram.
 test → 74/74 pages (added `/admin/architecture` to the suite).
 
 ### Remaining (acknowledged, not blocking)
-- Drift coverage is now 45 of ~54 UOM types — the remainder (Navigation Collections,
-  Event Mappings, Related Content, Drop Zones) were excluded on the belief they had
-  no backing table; that was wrong (all four fixed 2026-07-14, see above) and they
-  should be added to drift coverage as a follow-up, now that real tables exist.
+- ~~Drift coverage is now 45 of ~54 UOM types — the remainder (Navigation Collections,
+  Event Mappings, Related Content, Drop Zones) were excluded...~~ **Done 2026-07-15**:
+  all four added to `envcompare.summary()` (drift coverage is now 50 types) —
+  Navigation Collections (`PSPRSMDEFN` filtered to the nav-collection folder subtree),
+  Related Content and Event Mappings (`PSPTCSSRVDEFN`, filtered on `FIELDNAME` and
+  `PC_EVENT_TYPE` respectively), Drop Zones (`PSPNLGROUP`/`PSPNLFIELD` joined to
+  `PSOPTIONS.PTSTUBSUBPAGE`) — verified live with real non-zero counts, through the
+  full HTTP path, and through an actual persisted drift snapshot
+  (`scheduler.run_drift_now()` → `driftdb.get_latest()`).
 - Deployment history correlates config.json + drift snapshots; it does not track
   PeopleTools metadata-level changes beyond what drift already counts (that's Phase
   13's retrofit-compare territory, not this phase's).
-- Architecture Assistant renders diagrams as Mermaid text, not an in-app rendered
-  graphic — sufficient for "paste into a doc" use cases; an in-app Mermaid.js render
-  would be a follow-up if requested, not required for this phase's completion.
+- ~~Architecture Assistant renders diagrams as Mermaid text, not an in-app rendered
+  graphic~~ **Done 2026-07-15**: reports now render as formatted markdown (via
+  `marked`) with `\`\`\`mermaid` code blocks rendered as actual in-app SVG diagrams
+  (via `mermaid.js`), with a "View Raw Markdown" toggle and "Copy as Markdown"
+  preserved for the original paste-into-a-doc workflow. Diagram extraction uses
+  placeholder substitution around `marked.parse()` rather than overriding its
+  `renderer.code()`, since that override's call signature has changed across
+  `marked` versions and the CDN isn't pinned to one. Verified with a real embedded
+  V8 (`py_mini_racer`), not just static review — this session had already shipped
+  two backslash-escaping bugs in `new RegExp(string)` calls that looked correct on
+  read-through, so the same real-execution discipline was applied here too, and
+  caught one: the mermaid fence-matching regex's `\n` was written as a single
+  Python backslash, which Python's string parser (not a raw string) turned into
+  an actual embedded newline byte inside a JS *regex literal* — invalid, since
+  regex literals can't span a raw newline any more than string literals can.
 
 ---
 
