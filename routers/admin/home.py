@@ -111,7 +111,7 @@ h2{color:#00e5ff;font-size:12px;letter-spacing:2px;text-transform:uppercase;
     <div class="ql-row">
       <a class="ql" href="/admin/drift">Drift History</a>
       <a class="ql" href="/admin/envcompare">Env Compare</a>
-      <a class="ql purple" href="/admin/assistant">Ask AI</a>
+      <a class="ql purple" id="askAiLink" href="/admin/assistant">Ask AI</a>
     </div>
   </div>
 
@@ -266,27 +266,60 @@ async function loadLog(env) {
 
 async function loadDriftAndTrends(env) {
   try {
-    // Drift
-    const driftP = api('/api/drift/latest?env1=HCM&env2=FSCM').catch(() => null);
+    // Drift vs every other environment in the same pillar as the selected
+    // env (was hardcoded to HCM vs FSCM regardless of selection — comparing
+    // across unrelated pillars). Also switched from /api/drift/latest,
+    // which has no `alerts` field at all (always silently showed 0), to
+    // /api/drift/alerts, the endpoint that actually returns alerts.
+    const pillarsP = api('/api/runtime/pillars').catch(() => ({pillars:{}}));
     const histP  = api(`/api/runtime/history?env=${encodeURIComponent(env)}&hours=6`).catch(() => ({snapshots:[]}));
-    const [driftD, histD] = await Promise.all([driftP, histP]);
+    const [pillarsD, histD] = await Promise.all([pillarsP, histP]);
 
-    // Drift section
+    let siblings = [];
+    for (const envs of Object.values(pillarsD.pillars || {})) {
+      if (envs.includes(env)) { siblings = envs.filter(e => e !== env); break; }
+    }
+
     let driftHtml = '';
-    if (driftD) {
-      const alerts = (driftD.alerts || []).filter(a => !a.resolved_at);
+    let allAlerts = [];
+    if (siblings.length) {
+      const results = await Promise.all(siblings.map(sib =>
+        api(`/api/drift/alerts?env1=${encodeURIComponent(env)}&env2=${encodeURIComponent(sib)}`).catch(() => null)
+      ));
+      results.forEach((d, i) => {
+        (d?.alerts || []).filter(a => !a.resolved_at).forEach(a => allAlerts.push({...a, sibling: siblings[i]}));
+      });
       driftHtml = `<div style="font-size:12px;color:#9ab">
-        Drift vs FSCM: <span style="color:${alerts.length ? '#ff9f43':'#00cc66'}">${alerts.length} alert${alerts.length===1?'':'s'}</span>
+        Drift vs ${esc(siblings.join(', '))}: <span style="color:${allAlerts.length ? '#ff9f43':'#00cc66'}">${allAlerts.length} alert${allAlerts.length===1?'':'s'}</span>
       </div>`;
-      if (alerts.length) {
-        driftHtml += alerts.slice(0,2).map(a =>
-          `<div style="font-size:11px;color:#ff9f43;margin-top:2px">⚠ ${esc(a.message||a.alert_type||'')}</div>`
+      if (allAlerts.length) {
+        driftHtml += allAlerts.slice(0,3).map(a =>
+          `<div style="font-size:11px;color:#ff9f43;margin-top:2px">⚠ [${esc(a.sibling)}] ${esc(a.message||a.alert_type||'')}</div>`
         ).join('');
       }
     } else {
-      driftHtml = '<div style="font-size:12px;color:#334">Drift data unavailable</div>';
+      driftHtml = '<div style="font-size:12px;color:#334">No other environment in this pillar to compare against.</div>';
     }
     $('driftBody').innerHTML = driftHtml;
+
+    // "Ask AI" deep-links into the assistant with a prefab prompt built
+    // from what's actually on screen, instead of dropping the user on a
+    // blank chat with no context about why they clicked it.
+    const askAiLink = $('askAiLink');
+    if (askAiLink) {
+      let prompt;
+      if (siblings.length && allAlerts.length) {
+        const sampleMsgs = allAlerts.slice(0, 3)
+          .map(a => `- [${a.sibling}] ${a.message || a.alert_type || 'drift alert'}`)
+          .join('\\n');
+        prompt = `I'm looking at ${env}, which has ${allAlerts.length} active drift alert${allAlerts.length===1?'':'s'} vs its sibling environment${siblings.length===1?'':'s'} (${siblings.join(', ')}). Some of the alerts:\n${sampleMsgs}\nCan you help me understand what's causing this drift and whether it needs attention?`;
+      } else if (siblings.length) {
+        prompt = `I'm looking at ${env}. It currently shows no drift alerts vs its sibling environment${siblings.length===1?'':'s'} (${siblings.join(', ')}). Can you give me a quick health summary of ${env} right now?`;
+      } else {
+        prompt = `Can you give me a quick health summary of ${env} right now?`;
+      }
+      askAiLink.href = '/admin/assistant?q=' + encodeURIComponent(prompt);
+    }
 
     // Sparklines from runtime history
     const snaps = (histD.snapshots || []);

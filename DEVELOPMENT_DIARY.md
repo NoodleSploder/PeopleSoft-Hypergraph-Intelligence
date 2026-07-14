@@ -9593,3 +9593,276 @@ Explorer URL.
 **Files:** `routers/admin/portal.py`, `routers/admin/tools.py`,
 `routers/admin/integration.py`, `routers/admin/perf.py`,
 `routers/admin/graph.py`, `routers/admin/platform.py`.
+
+## 2026-07-15 — Home Dashboard: "Environment & Trends" Drift Compared the Wrong Pillar (and Never Showed Real Alerts Either)
+
+**Context:** User reported the Home dashboard's "Environment & Trends" card
+always said "Drift vs FSCM" regardless of which environment was selected
+(e.g. showed "Drift vs FSCM" while HRDEV — an HCM-pillar environment — was
+selected). Asked for it to compare against the other environments in the
+*same* pillar as the selected one instead.
+
+**Two real bugs found, not one:**
+1. `loadDriftAndTrends(env)` hardcoded
+   `/api/drift/latest?env1=HCM&env2=FSCM` — completely ignoring the `env`
+   parameter it was passed, and comparing across two unrelated pillars
+   regardless of selection. Confirmed live via `/api/runtime/pillars`:
+   HRDEV's real pillar is HCM, with siblings HRDMO/HRTST/HRUAT/HRPRD — FSCM
+   isn't even in the same pillar.
+2. Separately, `/api/drift/latest` doesn't return an `alerts` field at all
+   (only `counts`/`snapshot_count`) — the frontend read `driftD.alerts`,
+   always `undefined`, so the alert count silently showed `0` regardless of
+   actual drift. `/api/drift/alerts` is the real endpoint that returns
+   alerts; the dashboard was calling the wrong one.
+
+**Fix:** Rewrote `loadDriftAndTrends()` to call `/api/runtime/pillars`,
+find the selected env's pillar, and compare against every other
+environment in that pillar via `/api/drift/alerts` (the correct endpoint),
+aggregating alerts across all sibling comparisons. Falls back to a clear
+"No other environment in this pillar" message for a pillar with only one
+environment (e.g. FSCM in this config, which currently has just `FSCM`
+itself).
+
+**Verification:** Live `GET /api/runtime/pillars` confirmed real pillar
+membership; live `GET /api/drift/alerts?env1=HRDEV&env2=HRTST` confirmed
+the correct endpoint responds with a real (empty, in this case) `alerts`
+array; `TestClient` round-trip on `/admin/` confirmed the hardcoded
+`env1=HCM&env2=FSCM` string is gone from the rendered page and the new
+`runtime/pillars`/`drift/alerts` calls are present.
+
+**Files:** `routers/admin/home.py`.
+
+## 2026-07-15 (continued) — Home Dashboard: "Ask AI" Now Deep-Links With a Contextual Prompt
+
+**Context:** User requested that the "Ask AI" button in the Environment &
+Trends card, previously a bare link to a blank `/admin/assistant` chat,
+instead take the user straight into a conversation pre-loaded with a
+prompt about what's actually on screen.
+
+**Fix:** `loadDriftAndTrends()` (already computing the selected env's
+pillar, siblings, and drift alerts for the card itself — see the prior
+entry) now also builds a prompt from that same data and sets it as
+`#askAiLink`'s href query string: `/admin/assistant?q=<prompt>`. Three
+tiers depending on what's known: real alert messages quoted if there are
+active drift alerts, a "no drift, general health check" prompt if the
+pillar has siblings but no alerts, and a generic health-check prompt if
+the selected env has no pillar siblings at all (single-environment
+pillar, e.g. this config's FSCM). The AI Assistant page
+(`routers/admin/tools.py`) now reads `?q=` on load, fills the chat input,
+and calls the existing `sendMessage()` immediately — no new backend
+endpoint needed, reuses `/api/assistant/chat` as-is.
+
+**Bug caught before shipping:** first draft declared `allAlerts` with
+`const` inside the `if (siblings.length) {...}` block, then tried to read
+it afterward while building the prompt — out of scope, so `typeof
+allAlerts` was always `'undefined'` and the "has real alerts" branch could
+never fire. Caught on review (not by a test — no automated test covers
+this JS), fixed by hoisting `let allAlerts = []` above the `if`.
+
+**Verification:** `ast.parse()`; `TestClient` GET on `/admin/` confirmed
+`askAiLink` id present, `/admin/assistant` confirmed the new `?q=`
+handling and `sendMessage()` call are both present in the rendered page.
+
+**Files:** `routers/admin/home.py`, `routers/admin/tools.py`.
+
+## 2026-07-15 (correction) — Home Dashboard Broke Entirely: `\n` Inside a Python Triple-Quoted String Isn't Literal
+
+**Context:** User reported the Home dashboard stopped loading anything at
+all after the "Ask AI" change above — every card stuck on "Loading…"
+forever, and the Env selector rendered completely empty (not even the
+`<option value="HCM">HCM</option>` fallback the code has for exactly this
+failure mode). That specific symptom — nothing at all running, not even
+error-path fallbacks — means the page's inline `<script>` block failed to
+parse, so *no* JS on the page executed, not just the new code.
+
+**Root cause, and it's mine:** `admin_home()`'s HTML is a plain (non-raw,
+non-f) Python triple-quoted string. Writing `.join('\n')` in the new "Ask
+AI" prompt-building code, intending a literal two-character JS escape
+sequence, was wrong — Python itself interprets `\n` inside a normal
+`"""..."""` string and replaces it with an actual newline character
+*before* that text ever reaches the browser. The result: a JavaScript
+single-quoted string literal (`'...'`) containing a raw, unescaped
+newline — which is a hard syntax error in JS (unlike backtick template
+literals, which do allow raw newlines). One broken statement anywhere in
+an inline `<script>` block fails the whole block, which is why every
+independent card on the page — alerts, runtime, logs, drift — stopped
+updating simultaneously even though only one small feature was touched.
+
+**Fix:** Changed `.join('\n')` to `.join('\\n')` so Python emits the
+literal two-character escape sequence `\n` into the JS source, which the
+browser then correctly interprets as a newline escape inside the
+single-quoted string. (The `\n` occurrences already used inside backtick
+template literals a few lines below were not broken — backticks permit
+raw embedded newlines in JS — so those were left as-is.)
+
+**How this was actually diagnosed** (worth recording since there's no
+running browser in this environment): rendered the real page via
+`TestClient`, extracted the inline `<script>` block, and fed it to
+`pip install esprima` for a real JS parse rather than guessing from
+static inspection. Hit two rounds of false positives first (optional
+chaining `?.`, nullish coalescing `??`, and bare `catch {}` — all valid
+modern JS that esprima 4.0.1 predates and can't parse) before finding the
+real error. Once found, wrote a small custom scanner that walks the JS
+tracking quote state (respecting escapes and treating backtick literals
+specially) to confirm no *other* single/double-quoted string in the file
+contained a raw newline, rather than trusting a single grep hit.
+
+**Files:** `routers/admin/home.py`.
+
+## 2026-07-15 — AI Assistant: Colorized Status Keywords in Chat Responses
+
+**Context:** User asked for AI Assistant chat responses to be more
+visually scannable, specifically calling out statuses and key details —
+prompted by a real `environment_health` answer (verified working end to
+end, confirming the earlier "Ask AI" dashboard fix) that was a wall of
+uniformly-colored text despite containing a clear UP/DOWN/OK/UNKNOWN
+signal per line.
+
+**Fix:** Added `applyStatusColors(bubble)`, following the exact same
+`TreeWalker`-over-text-nodes pattern already used by `applyLinks()` and
+`applyTokenReveal()` in this file — walks rendered markdown text nodes
+(skipping inside `<a>`/`<code>`/`<pre>`/existing badges/chips) and wraps
+whole-word, **all-caps-only** status keywords in colored `<span
+class="status-badge status-{{ok,bad,warn}}">` badges: green for
+UP/OK/ONLINE/ACTIVE/SUCCESS/RUNNING/etc., red for
+DOWN/OFFLINE/ERROR/CRITICAL/FAILED/etc., orange for
+WARNING/UNKNOWN/PENDING/DEGRADED/etc. All-caps-only matching is
+deliberate — that's how the model actually writes status values (matches
+`toolSummary()`/`renderToolResult()`'s existing conventions elsewhere in
+this file) — and it's what keeps this from false-positive-matching
+ordinary prose like "...is now up to date" or "...the process keeps
+running" (both real substrings in the actual response this was tested
+against). Also brightened `strong` (bold) text in assistant bubbles from
+a fairly inert `#d7faff` to the app's signature cyan `#00e5ff`, matching
+how headers are already styled, so bolded field labels ("**Oracle
+Database**:") stand out more against the surrounding text.
+
+**Verification, informed by the same-day `\n`-in-a-Python-string
+incident:** extracted the real rendered `<script>` block via `TestClient`
+and re-ran it through both the `esprima` parse check and the custom
+quote-state scanner built for that incident — this diff introduces no
+JS string literals with embedded `\n` (the exact bug class from
+earlier today). Also hand-simulated the regex against the literal text
+from the user's screenshot (`UP`/`OK`/`UNKNOWN`/`DOWN`/`OFFLINE` all
+matched correctly; lowercase `active`/`down` inside ordinary sentences
+correctly did not).
+
+**Files:** `routers/admin/tools.py`.
+
+## 2026-07-15 (revision) — Status Coloring Was Too Strict; Added Amber Closing-Callout Box
+
+**Context:** User tested the status-color feature above with a real
+follow-up question and reported it mostly didn't fire — the model's
+actual phrasing that time was "Up and running fine.", "Status unknown;",
+"Down — there are no live processes..." — none of it ALL CAPS, unlike the
+first response that prompted the original feature. Also asked for the
+response's closing statement to be boxed in amber, matching the
+`.alert-box` style already used for real alerts on the Runtime Monitor
+page.
+
+**Root cause:** the original implementation deliberately matched
+ALL-CAPS-only to avoid false-positiving on ordinary prose (documented
+in its own comment). That was too strict in practice — the model doesn't
+reliably write status values in caps; phrasing varies response to
+response.
+
+**Fix:** `STATUS_PATTERN` now matches case-insensitively (`gi` flag),
+looking up the matched text's class via `.toUpperCase()`. Traded a small
+false-positive risk on common short words (a stray "up"/"good" in
+ordinary prose) for actually firing on what the model writes in
+practice — reasonable for an internal ops tool where the benefit
+(status visibility) outweighs occasional over-highlighting. `.status-bad`
+badges also got a subtle box-shadow glow to draw the eye more, per the
+user's "eyes are drawn to them" ask.
+
+Added `applyClosingCallout(bubble)`: if a response contains any
+`.status-bad` badge, its last child element (only if it's a `<p>`, so
+this never mis-wraps a table or list) gets a `.msg-callout` class and a
+▲ icon prepended — styled identically to Runtime Monitor's `.alert-box`
+(`background:#2a0000; border:1px solid #ffaa00; color:#ffaa00`) rather
+than inventing a new visual language for the same concept.
+
+**Verification:** re-ran both the `esprima` parse check and the
+quote-state scanner from the earlier `\n`-string incident (clean). Hand-
+simulated the case-insensitive regex against the user's exact new
+response text — correctly caught `Up`, `Down`, `Status unknown`,
+`critical` this time (all missed by the previous ALL-CAPS-only version),
+and confirmed the closing "To resolve the critical..." paragraph
+contains a bad-status match, so it will receive the amber callout box.
+
+**Files:** `routers/admin/tools.py`.
+
+## 2026-07-15 (real fix) — Status Colors Actually Weren't Working: `\b` in `new RegExp(string)` Is Backspace, Not Word-Boundary
+
+**Context:** User confirmed a genuine service restart and, when the
+feature still didn't fire, tested it in a brand-new incognito window —
+ruling out every form of caching. That forced a harder look than the
+previous "verify by reading the code" pass, since the previous pass's
+confidence was misplaced: it checked the code was syntactically valid
+JS and that the *string* `\b` matched Python's `re` engine correctly,
+but never actually **executed** the real generated JavaScript.
+
+**Root cause:** `STATUS_PATTERN` was built with
+`new RegExp('\\b(' + ... + ')\\b', 'gi')` — a *string* argument to the
+`RegExp` constructor, not a `/regex/` literal. Critically, a string
+argument goes through JavaScript's own string-literal escape processing
+*before* the regex engine ever sees it, and `\b` inside a JS string
+literal means the backspace control character (`\x08`) — exactly the
+same rule as Python. So the regex `RegExp` actually received a pattern
+containing two literal backspace characters instead of two `\b`
+word-boundary metacharacters, and could never match ordinary text. Two
+independent escaping layers were in play (Python's string parsing, then
+JS's), and only one had been accounted for. This is precisely why
+`TOKEN_PATTERN` elsewhere in the same file — written as a `/\\b(...)\\b/g`
+*regex literal*, not a string — was never affected: literal regex syntax
+doesn't go through string-escape rules at all.
+
+**How this was actually proven** (worth recording, since static analysis
+missed it twice): installed `py_mini_racer` (a real embedded V8) and fed
+it the exact JS extracted from a live `TestClient` response.
+`JSON.stringify(STATUS_PATTERN.source)` came back containing a literal
+`\b` JSON-escape (i.e. an actual 0x08 byte in the regex source, not the
+two characters `\` and `b`), and `"...UP...DOWN...".match(STATUS_PATTERN)`
+returned `null`. This is the level of verification that should have been
+used from the start for anything involving nested string-escaping across
+language boundaries — parsing/syntax validity says nothing about
+semantic correctness.
+
+**Fix:** doubled the backslashes again in the Python source
+(`'\\\\b(' ... ')\\\\b'`) so both escaping layers unwind correctly:
+Python's `\\\\` → two literal backslashes in the JS source text; JS's own
+`\\` (now seeing two backslashes in its string literal) → one literal
+backslash; final regex source the engine receives: an actual `\b`
+word-boundary. Re-verified with the same `py_mini_racer` harness:
+`STATUS_PATTERN.source` now round-trips through `JSON.stringify` as
+`\\b` (a real backslash + b, correctly JSON-escaped), and matching
+`"Oracle DB: UP and running smoothly, Process Scheduler is DOWN, Status
+is UNKNOWN."` returns `["UP","running","DOWN","UNKNOWN"]`.
+
+**Found and fixed the identical bug in a second, unrelated file while
+grep'ing for the same pattern**: `routers/admin/compflow.py`'s
+`highlightPC()` (used by the PC Timeline / `/admin/compseq` page, not
+Component Event Flow as the filename suggests) had the exact same
+`new RegExp('\\b' + ... + '\\b', 'g')` construction for PeopleCode
+keyword highlighting — pre-existing, unrelated to this session's work,
+never previously reported. Also dropped an adjacent
+`kw.replace(/-/g,'\\-')` in the same line: hyphens aren't regex-special
+outside character classes so escaping them was unnecessary, and as
+written it didn't even do that — `'\-'` isn't a recognized JS string
+escape, so JS silently drops the backslash and keeps just `-`, meaning
+that escaping call was a no-op stacked on top of the `\b` bug. Verified
+the fix the same way: extracted the real rendered `highlightPC` function
+via `TestClient` and executed it in `py_mini_racer` — `"End-If"` and
+"SQLExec"` in a test string both now come back correctly wrapped in
+`<span>` highlighting.
+
+**Lesson for this session going forward:** when a JS fix involves a
+string later passed to `new RegExp(...)`, verify with a real JS engine,
+not just Python-side reasoning about what the escape sequences "should"
+produce — this file already had a working example of the correct
+pattern (`TOKEN_PATTERN` as a regex literal) sitting a few dozen lines
+above the broken one, and the difference between literal and
+string-constructed regexes is exactly the kind of thing that looks
+identical on casual reading but behaves completely differently.
+
+**Files:** `routers/admin/tools.py`, `routers/admin/compflow.py`.

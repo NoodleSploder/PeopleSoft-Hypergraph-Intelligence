@@ -683,7 +683,16 @@ function highlightPC(src) {{
   h = h.replace(/&amp;[A-Za-z_][A-Za-z0-9_]*/g, m => `<span style="color:#88ddff">${{m}}</span>`);
   h = h.replace(/"[^"]*"/g, m => `<span style="color:#ccbb88">${{m}}</span>`);
   KW.forEach(kw => {{
-    h = h.replace(new RegExp('\\b' + kw.replace(/-/g,'\\-') + '\\b', 'g'),
+    // '\\b' here needs quadrupled backslashes in this Python source: this is
+    // a *string* passed to new RegExp(), not a /regex/ literal, so it goes
+    // through JS's own string-literal escaping first — a bare '\\b' inside a
+    // JS string literal means the backspace control character, not a
+    // literal backslash+b for the regex engine. (Also dropped the earlier
+    // kw.replace(/-/g,'\\-') — hyphens aren't special in regex outside
+    // character classes, so escaping them here was unnecessary, and as
+    // written it silently evaluated to just '-' anyway: '\-' isn't a
+    // recognized JS string escape, so JS drops the backslash.)
+    h = h.replace(new RegExp('\\\\b' + kw + '\\\\b', 'g'),
       `<span style="color:#aa88ff">${{kw}}</span>`);
   }});
   return h;

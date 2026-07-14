@@ -700,11 +700,18 @@ def admin_assistant():
 .msg-assistant .msg-bubble p{{margin:0 0 6px;}}
 .msg-assistant .msg-bubble ul,.msg-assistant .msg-bubble ol{{margin:4px 0 6px;padding-left:18px;}}
 .msg-assistant .msg-bubble li{{margin:2px 0;}}
-.msg-assistant .msg-bubble strong{{color:#d7faff;}}
+.msg-assistant .msg-bubble strong{{color:#00e5ff;}}
 .msg-assistant .msg-bubble code{{background:#0b2030;border:1px solid #00e5ff22;padding:1px 4px;font-size:11px;}}
 .msg-assistant .msg-bubble pre{{background:#060f18;border:1px solid #00e5ff22;padding:8px;overflow-x:auto;}}
 .msg-assistant .msg-bubble pre code{{background:none;border:none;padding:0;}}
 .msg-assistant .msg-bubble h1,.msg-assistant .msg-bubble h2,.msg-assistant .msg-bubble h3{{color:#00e5ff;font-size:12px;margin:8px 0 4px;text-transform:uppercase;letter-spacing:1px;}}
+.status-badge{{font-weight:700;font-size:13px;letter-spacing:.3px;text-transform:uppercase;}}
+.status-ok{{color:#00e090;}}
+.status-bad{{color:#ff6b6b;}}
+.status-warn{{color:#ffbb44;}}
+.msg-assistant .msg-bubble .msg-callout{{background:#2a0000;border:1px solid #ffaa00;color:#ffaa00;
+  padding:8px 12px;border-radius:2px;display:flex;align-items:flex-start;gap:8px;margin:10px 0 0 !important;}}
+.msg-callout-icon{{font-size:14px;line-height:1.4;flex-shrink:0;}}
 .tool-block{{border:1px solid rgba(0,229,255,.12);background:#060f18;margin:4px 0;}}
 .tool-head{{display:flex;align-items:center;gap:8px;padding:5px 10px;cursor:pointer;
   user-select:none;font-size:10px;color:#445;}}
@@ -1359,6 +1366,88 @@ function applyTokenReveal(rootEl) {{
   }}
 }}
 
+// ── Status keyword highlighting ──────────────────────────────────────────────
+// The assistant's own status-check answers (environment_health etc.) read as
+// a wall of same-colored text even though the actual signal is a handful of
+// UP/DOWN/OK/UNKNOWN-style words. Wrap those in colored badges so status is
+// scannable at a glance. Case-insensitive — the model's phrasing varies
+// response to response ("UP.", but also "Up and running fine", "Status
+// unknown"), so requiring ALL CAPS (the first version of this) silently
+// missed most real responses. Traded a small false-positive risk on common
+// short words (a stray "up"/"down"/"good" in ordinary prose) for actually
+// working against what the model writes in practice.
+const STATUS_WORDS = {{
+  ok:   ['UP','OK','ONLINE','ACTIVE','SUCCESS','SUCCESSFUL','RUNNING','HEALTHY','PASS','PASSED','RESOLVED','GOOD','CONNECTED','ENABLED'],
+  bad:  ['DOWN','OFFLINE','ERROR','ERRORS','CRITICAL','FAILED','FAILURE','STOPPED','CANCELLED','CANCELED','BLOCKED','DISCONNECTED','DENIED'],
+  warn: ['WARNING','WARNINGS','UNKNOWN','PENDING','DEGRADED','TIMEOUT','STALE','INACTIVE','DISABLED'],
+}};
+const STATUS_CLASS = {{}};
+for (const [cls, words] of Object.entries(STATUS_WORDS)) {{
+  words.forEach(w => STATUS_CLASS[w] = 'status-' + cls);
+}}
+// NOTE: this is a *string* passed to new RegExp(), not a /regex/ literal, so
+// it goes through JS's own string-literal escaping before the regex engine
+// ever sees it — '\b' inside a JS string literal means the backspace control
+// character (like Python), not a literal backslash+b. Needs '\\\\b' here (in
+// this Python source) so two layers of escaping (Python's, then JS's) both
+// unwind correctly and the regex engine receives an actual \b word-boundary.
+// A /regex/ literal wouldn't have this problem (see TOKEN_PATTERN above,
+// which works precisely because it IS a literal, not a string).
+const STATUS_PATTERN = new RegExp('\\\\b(' + Object.keys(STATUS_CLASS).join('|') + ')\\\\b', 'gi');
+
+function applyStatusColors(rootEl) {{
+  const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, {{
+    acceptNode(node) {{
+      const p = node.parentElement;
+      if (!p) return NodeFilter.FILTER_REJECT;
+      if (p.closest('a,code,pre,.status-badge,.token-chip')) return NodeFilter.FILTER_REJECT;
+      if (!node.textContent.trim()) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }}
+  }});
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+
+  for (const textNode of nodes) {{
+    const text = textNode.textContent;
+    STATUS_PATTERN.lastIndex = 0;
+    if (!STATUS_PATTERN.test(text)) continue;
+    STATUS_PATTERN.lastIndex = 0;
+
+    const frag = document.createDocumentFragment();
+    let last = 0, m;
+    while ((m = STATUS_PATTERN.exec(text)) !== null) {{
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const span = document.createElement('span');
+      span.className = 'status-badge ' + STATUS_CLASS[m[1].toUpperCase()];
+      span.textContent = m[1];
+      frag.appendChild(span);
+      last = m.index + m[1].length;
+    }}
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    textNode.parentNode.replaceChild(frag, textNode);
+  }}
+}}
+
+// If a response flagged any bad/critical status, its closing statement is
+// almost always the "here's what to do about it" takeaway — box it in the
+// same amber alert style used for real alerts on the Runtime Monitor page
+// (.alert-box there) so it reads as an actionable callout, not just more
+// prose to skim past.
+function applyClosingCallout(bubble) {{
+  if (!bubble.querySelector('.status-bad')) return;
+  const children = Array.from(bubble.children);
+  if (!children.length) return;
+  const last = children[children.length - 1];
+  if (last.tagName !== 'P') return;
+  last.classList.add('msg-callout');
+  const icon = document.createElement('span');
+  icon.className = 'msg-callout-icon';
+  icon.innerHTML = '&#9650;';
+  last.prepend(icon);
+}}
+
 async function revealToken(chipEl, token) {{
   if (chipEl.dataset.revealed) {{
     chipEl.classList.toggle('token-chip-open');
@@ -1497,6 +1586,8 @@ function appendMsg(role, content, toolLog) {{
     const linkMap = buildLinkMap(toolLog);
     if (Object.keys(linkMap).length) applyLinks(bubble, linkMap);
     applyTokenReveal(bubble);
+    applyStatusColors(bubble);
+    applyClosingCallout(bubble);
   }} else {{
     bubble.textContent = content;
   }}
@@ -1569,5 +1660,17 @@ chatInput.addEventListener('input', () => {{
 }});
 
 loadConversationList();
+
+// Deep-link support: ?q=<prompt> (e.g. from the Home dashboard's "Ask AI"
+// button) pre-fills and immediately sends a contextual prompt instead of
+// dropping the user on a blank chat.
+(function() {{
+  const q = new URLSearchParams(location.search).get('q');
+  if (q) {{
+    chatInput.value = q;
+    chatInput.dispatchEvent(new Event('input'));
+    sendMessage();
+  }}
+}})();
 </script>""")
 
