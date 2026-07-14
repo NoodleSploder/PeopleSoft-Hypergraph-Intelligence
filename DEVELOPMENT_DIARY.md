@@ -9180,3 +9180,61 @@ frontend to it.
 
 **Files:** `routers/admin/integration.py`, `routers/admin/platform.py`,
 `routers/admin/objects.py`, `routers/admin/security.py`.
+
+## 2026-07-14 (session 51) — Navigation Collections: Fixed Fabricated Table Name (PTNC_COLLECTION Doesn't Exist)
+
+**Context:** User reported the Nav Collections page (`/admin/navcoll`)
+always returned 0 results. Investigated and found the root cause was
+categorically different from every prior bug this session: `psdb.
+search_nav_collections()`/`get_nav_collection()` queried
+`SYSADM.PTNC_COLLECTION` and `SYSADM.PTNC_COLL_LINE` — **neither table
+exists anywhere in the schema**, confirmed via `ALL_TABLES`/
+`ALL_TAB_COLUMNS` (no match for `%COLLECTION%`, `%NAVCOLL%`, or even a
+`COLL_ID` column on any table in SYSADM). This wasn't a missing-grant or
+missing-data situation like every other IB/security bug this session —
+it was a fabricated table name that was never checked against live data
+before shipping.
+
+**Real answer, from the user** (go-faster.co.uk PeopleTools 8.58
+reference for view `PTPPB_SCNAME_VW`, "Navigation Collection Prompt"):
+Navigation Collections are not a dedicated table at all — they're
+ordinary folder-type Content References in the standard portal registry
+(`PSPRSMDEFN`), identified only by
+`PORTAL_REFTYPE = 'F' AND PORTAL_PRNTOBJNAME = 'CO_NAVIGATION_COLLECTIONS'`.
+Verified live against HRTST: 13,728 rows total in `PSPRSMDEFN`; the
+collection query returned real named collections (e.g. "Absence Self
+Service Setup", "Main Menu"). Collection *members* are simply that
+collection's own children in the same tree
+(`PORTAL_PRNTOBJNAME = <collection's PORTAL_OBJNAME>`) — verified live:
+a sample collection's children were a mix of sub-folders and leaf
+Content References with real `PORTAL_URLTEXT` values
+(e.g. `c/DEFINE_PAYROLL_RULES_(GBL).GP_ABS_SS_CNTRY.GBL?pslnkid=...`).
+
+**Fix:** Rewrote `search_nav_collections()` and `get_nav_collection()`
+in `connectors/psdb.py` to query `PSPRSMDEFN` per the confirmed join,
+mapping `PORTAL_OBJNAME`→`coll_id`, `PORTAL_LABEL`→`coll_title` to keep
+every downstream consumer (`uom.nav_collection_object()`,
+`sections_for_nav_collection()`, the `/admin/navcoll` frontend) working
+unchanged. `PSPRSMDEFN` has no active/inactive flag for CREFs, so
+`eff_status`/`eff_status_label` are now always `None` rather than a
+fabricated value — the frontend's `statusChip()` already renders an
+empty string for unmatched status, so this degrades cleanly instead of
+lying about a status that doesn't exist in the data.
+
+**Verification:** Live end-to-end: `search_nav_collections('HRTST',
+portal='EMPLOYEE')` → 10 real collections; `get_nav_collection()` on one
+→ real definition + 3 real lines with working URLs. Also verified through
+the actual HTTP layer (`TestClient` on `/api/peoplesoft/nav-collections`
+and `/api/peoplesoft/object/nav_collection/{id}`) to confirm the fix
+holds through the full request path, not just the connector function in
+isolation.
+
+**Lesson:** this is the first bug this session that wasn't "guessed the
+wrong domain for a real column" (session 44/47/48 pattern) but "guessed
+a table that was never real" — a category the live-verification
+discipline built up this session didn't originally catch because this
+code predated that discipline. Worth keeping in mind for any other
+untouched `search_*`/`get_*` functions in `psdb.py` that haven't been
+re-verified this session.
+
+**Files:** `connectors/psdb.py`.

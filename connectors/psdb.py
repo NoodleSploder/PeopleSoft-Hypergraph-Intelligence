@@ -5465,33 +5465,51 @@ _NC_EFF_STATUS = {
 }
 
 
+_NC_PARENT_OBJNAME = "CO_NAVIGATION_COLLECTIONS"
+
+
 def search_nav_collections(env_name, q="", portal="EMPLOYEE", limit=100):
+    # Navigation Collections are not a dedicated table (PTNC_COLLECTION does
+    # not exist on delivered PeopleTools — confirmed live, no matching table
+    # anywhere in the schema). They are ordinary folder-type Content
+    # References in the portal registry (PSPRSMDEFN), distinguished only by
+    # having PORTAL_PRNTOBJNAME = 'CO_NAVIGATION_COLLECTIONS' (per PeopleTools
+    # reference doc for view PTPPB_SCNAME_VW, confirmed live against HRTST).
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PTNC_COLLECTION"):
-        return {"items": [], "warnings": ["PTNC_COLLECTION not accessible"]}
-    clauses = []
-    params = {"lim": limit}
+    if not ptmetadata.has_table(env_name, "PSPRSMDEFN"):
+        return {"items": [], "warnings": ["PSPRSMDEFN not accessible"]}
+    clauses = ["PORTAL_REFTYPE = 'F'", "PORTAL_PRNTOBJNAME = :parent"]
+    params = {"lim": limit, "parent": _NC_PARENT_OBJNAME}
     if portal:
         clauses.append("PORTAL_NAME = :portal")
         params["portal"] = portal.upper()
     if q:
-        clauses.append("(UPPER(COLL_ID) LIKE UPPER(:q) OR UPPER(COLL_TITLE) LIKE UPPER(:q2))")
+        clauses.append("(UPPER(PORTAL_OBJNAME) LIKE UPPER(:q) OR UPPER(PORTAL_LABEL) LIKE UPPER(:q2))")
         params["q"] = f"%{q}%"
         params["q2"] = f"%{q}%"
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    where = f"WHERE {' AND '.join(clauses)}"
     try:
         rows = query(env_name, f"""
-            SELECT PORTAL_NAME, COLL_ID, COLL_TITLE, EFF_STATUS, OBJECTOWNERID, LASTUPDDTTM
-              FROM SYSADM.PTNC_COLLECTION
+            SELECT PORTAL_NAME, PORTAL_OBJNAME, PORTAL_LABEL, OBJECTOWNERID, LASTUPDDTTM
+              FROM SYSADM.PSPRSMDEFN
              {where}
-             ORDER BY PORTAL_NAME, COLL_ID
+             ORDER BY PORTAL_NAME, PORTAL_OBJNAME
              FETCH FIRST :lim ROWS ONLY
         """, params)
         results = []
         for r in (rows or []):
             row = dict(r)
-            row["eff_status_label"] = _NC_EFF_STATUS.get(str(row.get("eff_status") or ""), row.get("eff_status") or "")
-            results.append(row)
+            results.append({
+                "portal_name": row.get("portal_name"),
+                "coll_id": row.get("portal_objname"),
+                "coll_title": row.get("portal_label"),
+                "objectownerid": row.get("objectownerid"),
+                "lastupddttm": row.get("lastupddttm"),
+                # PSPRSMDEFN carries no active/inactive flag for CREFs —
+                # presence in the registry is the only "status".
+                "eff_status": None,
+                "eff_status_label": None,
+            })
         return {"items": results, "warnings": []}
     except Exception as exc:
         return {"items": [], "warnings": [str(exc)]}
@@ -5499,48 +5517,68 @@ def search_nav_collections(env_name, q="", portal="EMPLOYEE", limit=100):
 
 def get_nav_collection(env_name, coll_id, portal="EMPLOYEE"):
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PTNC_COLLECTION"):
-        return {"error": "not_accessible", "warnings": ["PTNC_COLLECTION not accessible"]}
+    if not ptmetadata.has_table(env_name, "PSPRSMDEFN"):
+        return {"error": "not_accessible", "warnings": ["PSPRSMDEFN not accessible"]}
     warnings = []
-    params = {"id": coll_id.upper()}
+    params = {"id": coll_id.upper(), "parent": _NC_PARENT_OBJNAME}
     if portal:
         params["portal"] = portal.upper()
         portal_clause = "AND PORTAL_NAME = :portal"
     else:
         portal_clause = ""
     rows = query(env_name, f"""
-        SELECT PORTAL_NAME, COLL_ID, COLL_TITLE, EFF_STATUS, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
-          FROM SYSADM.PTNC_COLLECTION
-         WHERE COLL_ID = :id {portal_clause}
+        SELECT PORTAL_NAME, PORTAL_OBJNAME, PORTAL_LABEL, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PSPRSMDEFN
+         WHERE PORTAL_REFTYPE = 'F'
+           AND PORTAL_PRNTOBJNAME = :parent
+           AND PORTAL_OBJNAME = :id {portal_clause}
          ORDER BY PORTAL_NAME
          FETCH FIRST 1 ROWS ONLY
     """, params)
     if not rows:
         return {"error": "not_found", "warnings": [f"Navigation Collection {coll_id!r} not found"]}
-    defn = dict(rows[0])
-    defn["eff_status_label"] = _NC_EFF_STATUS.get(str(defn.get("eff_status") or ""), defn.get("eff_status") or "")
+    row = rows[0]
+    defn = {
+        "portal_name": row.get("portal_name"),
+        "coll_id": row.get("portal_objname"),
+        "coll_title": row.get("portal_label"),
+        "objectownerid": row.get("objectownerid"),
+        "lastupddttm": row.get("lastupddttm"),
+        "lastupdoprid": row.get("lastupdoprid"),
+        "eff_status": None,
+        "eff_status_label": None,
+    }
 
+    # Members of the collection are simply its direct children in the same
+    # portal registry tree (PORTAL_PRNTOBJNAME = this collection's own
+    # PORTAL_OBJNAME) — confirmed live: a sample collection's children were a
+    # mix of sub-folders and leaf Content References with real PORTAL_URLTEXT
+    # values.
     lines = []
-    if ptmetadata.has_table(env_name, "PTNC_COLL_LINE"):
-        try:
-            line_params = {"id": coll_id.upper()}
-            if portal:
-                line_params["portal"] = portal.upper()
-                line_portal_clause = "AND PORTAL_NAME = :portal"
-            else:
-                line_portal_clause = ""
-            line_rows = query(env_name, f"""
-                SELECT LINE_NBR, LINE_TYPE, LABEL, PORTAL_URLTEXT
-                  FROM SYSADM.PTNC_COLL_LINE
-                 WHERE COLL_ID = :id {line_portal_clause}
-                 ORDER BY LINE_NBR
-            """, line_params)
-            for lr in (line_rows or []):
-                line = dict(lr)
-                line["line_type_label"] = _NC_LINE_TYPE.get(str(line.get("line_type") or ""), line.get("line_type") or "")
-                lines.append(line)
-        except Exception as exc:
-            warnings.append(f"PTNC_COLL_LINE: {exc}")
+    try:
+        line_params = {"id": coll_id.upper()}
+        if portal:
+            line_params["portal"] = portal.upper()
+            line_portal_clause = "AND PORTAL_NAME = :portal"
+        else:
+            line_portal_clause = ""
+        line_rows = query(env_name, f"""
+            SELECT PORTAL_SEQ_NUM, PORTAL_REFTYPE, PORTAL_LABEL, PORTAL_URLTEXT
+              FROM SYSADM.PSPRSMDEFN
+             WHERE PORTAL_PRNTOBJNAME = :id {line_portal_clause}
+             ORDER BY PORTAL_SEQ_NUM
+        """, line_params)
+        for lr in (line_rows or []):
+            lt = str(lr.get("portal_reftype") or "")
+            lines.append({
+                "line_nbr": lr.get("portal_seq_num"),
+                "line_type": lt,
+                "line_type_label": _NC_LINE_TYPE.get(lt, lt),
+                "label": lr.get("portal_label"),
+                "portal_urltext": lr.get("portal_urltext"),
+            })
+    except Exception as exc:
+        warnings.append(f"PSPRSMDEFN (lines): {exc}")
 
     return {
         "definition": defn,
