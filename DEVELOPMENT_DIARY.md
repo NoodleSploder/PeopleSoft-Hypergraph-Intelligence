@@ -8345,3 +8345,175 @@ genuinely run from wherever it's checked out.
 4. Full repo syntax check (`scripts/syntax_check.py`, 115 files) — clean
    aside from pre-existing unrelated warnings (embedded JS regex literals
    in other files' template strings, not touched this session).
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 34) — Logs Section: Removed Dead Global ENV Selector
+
+**Context:** User asked whether `/admin/logs`'s top-right ENV selector
+worked, or should be removed. Researched before touching anything, same
+as the IB Explorer question earlier this session.
+
+**Finding:** Every page in the Logs section (`/admin/logs`,
+`/admin/log_errors`, `/admin/log_viewer`, `/admin/log_session`,
+`/admin/igw`, `/admin/prcs-ae`) already has its own **local**, fully
+functional env dropdown wired to that page's own query params
+(`?env=...`) — Error Surface, Log Viewer, IGW Errors, and PRCS AE Logs
+all genuinely filter by it. The shared shell's **global** selector
+(rendered by `_shell(..., env=True)`, the default) was pure dead weight
+on every one of these six pages: none of them define `window.onEnvChange`
+or listen for `deathstar:envchange`, so it visually sat there doing
+nothing, redundant with (and potentially confusing next to) each page's
+own real selector. Unlike IB Explorer (session 32), where the fix was to
+wire the dead selector up, here the right fix was removal — the Log
+Sources overview table (`/admin/logs`) is deliberately a global,
+cross-environment view (mixing every configured environment's sources by
+design), so there's no single "current env" that filtering could even
+mean for it.
+
+**Fix:** Added `env=False` to all six `_shell(...)` calls in
+`routers/admin/logs.py`.
+
+**Noted but not fixed this round**: Session Chain (`/admin/log_session`)
+accepts an `env` param but has no UI to set it and never actually passes
+it to `db.session_chain()` — a separate, smaller dead-parameter issue
+unrelated to the global-selector question asked. Worth a follow-up if
+Session Chain's env-scoping is ever needed.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`; grepped to
+confirm all six `_shell()` call sites were updated. Not yet re-verified
+live — next step: restart + hard-refresh `/admin/logs` and its five
+sibling pages, confirm the global ENV dropdown no longer appears and each
+page's own local selector still works as before.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 35) — config.json: Fixed Mislabeled log_sources Env Fields
+
+**Context:** After removing the dead global ENV selector from the Logs
+pages (previous entry), the user noticed something more fundamental in
+the same screenshot: the Log Sources table showed "HCM" as the env for
+most HRDEV/HRTST/HRUAT/HRPRD-prefixed entries (e.g. `HRDEV_APP_APP`
+listed with `env: HCM`). This was flagged as a data-quality suspicion,
+not a UI complaint, and confirmed correct on inspection.
+
+**Root cause**: `config.json`'s `log_sources[]` array was clearly built
+by copy-pasting the `HCMDMO_*` block as a template for each of
+HRDEV/HRTST/HRUAT/HRPRD, and only the first entry in each new block
+(`*_WEB_ACCESS`) had its `env` field actually updated to match — every
+subsequent entry in that same block (`WEBLOGIC`, `SERVLET`, `STDOUT`,
+`ERROR`, `APP_APP`, `APP_TUX`) was left at the copy-pasted `"HCM"`
+value. 24 of 36 `log_sources` entries were affected. `igw_log_sources`
+(a separate array) was checked and found correctly labeled throughout —
+only `log_sources` had the bug.
+
+**Fix**: corrected all 24 entries' `env` field to match their own name
+prefix (`HRDEV_*` → `env: HRDEV`, etc.), leaving the 8 `HCMDMO_*` entries
+untouched (already correctly labeled `HCM`, consistent with how the rest
+of config.json uses `HCM` as this environment's pillar-style label
+elsewhere).
+
+**Verification**: re-read the corrected `config.json`, re-ran the same
+mismatch-detection script that found the original 24 — zero remaining
+mismatches, valid JSON, total entry count unchanged (36) confirming no
+entries were accidentally dropped or duplicated during the fix.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 36) — SQL Workspace: Schema Browser Didn't Refresh on ENV Change
+
+**Context:** User reported the ENV selector "doesn't work" on
+`/admin/sqlws`. Before assuming a repeat of the IB Explorer/Logs dead-
+selector pattern, verified directly: live `curl` against `/api/sqlws/
+execute` with `env: HRTST` vs `env: HRDEV` confirmed the backend
+correctly connects to each environment's own database and echoes the
+right `env` back — Execute/Validate/Explain/Export all read `env()` →
+`window.dsGetEnv()` live at click-time (not a cached value), so those
+were never actually broken. Rather than guess further, asked the user
+directly which specific symptom they were seeing — confirmed it was the
+**Schema Browser sidebar not refreshing**, not query execution.
+
+**Root cause:** `searchSchema()` (`routers/admin/data.py:550`) already
+reads `env()` live and would return correct results if re-run — but
+nothing re-ran it when the global ENV selector changed. Results already
+on screen (e.g. a table search performed under HRTST) stayed displayed
+unchanged after switching to HRDEV, since there was no
+`window.onEnvChange`/`deathstar:envchange` listener on this page at all
+(same missing-hook shape as the IB Explorer bug from earlier this
+session, but affecting only the Schema Browser panel here, not the whole
+page).
+
+**Fix:** Added `onSchemaEnvChange()` — re-runs `searchSchema()` with
+whatever query is currently in the search box — wired to both
+`window.onEnvChange` and a `deathstar:envchange` listener, mirroring the
+IB Explorer fix's dual-hook pattern.
+
+**Process note**: this session correctly avoided a third instance of the
+"assume it's the same dead-selector bug as last time and patch blindly"
+mistake — live-tested the backend first (ruling out the most obvious
+guess), then asked the user to pinpoint the actual symptom via a
+multiple-choice question rather than guessing among several plausible
+explanations, before writing any fix.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`. Not yet
+re-verified live — next step: restart + hard-refresh `/admin/sqlws`,
+search for a table, switch ENV, confirm the Schema Browser results
+refresh to reflect the newly selected environment without needing to
+manually re-click "Go".
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 37) — Incidents: Removed Redundant Global ENV Selector
+
+**Context:** Same category as the Logs section fix (session 34) — the
+Incidents page already has its own local, functional env dropdown
+(visible in the toolbar next to "All States" / "+ New Incident"), making
+the shared shell's global top-right ENV selector pure redundant clutter.
+User asked for it removed directly this time, having seen the pattern
+before.
+
+**Fix:** Added `env=False` to all three `_shell(...)` calls in
+`routers/admin/incidents.py` — the list page, the "not found" error page,
+and the incident detail page.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`; grepped to
+confirm all three `_shell()` call sites were updated. Not yet
+re-verified live — next step: restart + hard-refresh `/admin/incidents`
+and an incident detail page, confirm the global ENV dropdown no longer
+appears and the page's own local env selector still works.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 38) — PS Query Explorer & Connected Query Explorer: Fixed Frozen ENV Constant
+
+**Context:** User asked to make the ENV selector work on both
+`/admin/query` and `/admin/conqrs`. This turned out to be a worse bug
+than the SQL Workspace one (session 36): both pages captured
+`window.dsGetEnv()` into a **load-time `const ENV`**, not a live-read
+function. Every API call (`doSearch()`, `selectQuery()`/`selectCQ()`,
+`loadFolders()`) referenced that frozen constant — so switching the
+global ENV selector did nothing, and unlike SQL Workspace, even manually
+re-clicking "Search" afterward stayed stuck on whatever environment was
+active at page load. Only a full page reload picked up a new environment.
+
+**Fix**, applied identically to both pages:
+- Replaced `const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage...)`
+  with a live `function env() { return (window.dsGetEnv && window.dsGetEnv()) || 'HCM'; }`
+  (same helper name/shape as the SQL Workspace page, for consistency) and
+  updated every `${ENV}`/bare `ENV` call site to `${env()}`/`env()` — 3
+  sites in PS Query Explorer (`loadFolders`, `doSearch`, the "Open in
+  Object Explorer" link), 3 sites in Connected Query Explorer (`doSearch`,
+  `selectCQ`).
+- Added `window.onEnvChange`/`deathstar:envchange` wiring to both pages'
+  init blocks, re-running `doSearch()` (and resetting the detail panel to
+  its placeholder) when the global selector changes — same dual-hook
+  pattern used for IB Explorer (session 32) and SQL Workspace (session
+  36), so the currently-displayed list/detail actually refreshes instead
+  of requiring the user to trigger a new search manually.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`; grepped for
+remaining bare `ENV` references afterward — only comments remain, no
+code references to the old frozen constant on either page. Not yet
+re-verified live — next step: restart + hard-refresh both pages, switch
+ENV, confirm the query list and any open detail panel refresh
+automatically to the newly selected environment.

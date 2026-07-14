@@ -148,7 +148,7 @@ function reExtract() {{
 }}
 </script>
 """
-    return HTMLResponse(_shell("Logs", "logs", content))
+    return HTMLResponse(_shell("Logs", "logs", content, env=False))
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +293,7 @@ function applyEnv() {{
 }}
 </script>
 """
-    return HTMLResponse(_shell("Log Errors", "log_errors", content))
+    return HTMLResponse(_shell("Log Errors", "log_errors", content, env=False))
 
 
 # ---------------------------------------------------------------------------
@@ -471,7 +471,7 @@ function applyFilter() {{
 }}
 </script>
 """
-    return HTMLResponse(_shell("Log Viewer", "log_viewer", content))
+    return HTMLResponse(_shell("Log Viewer", "log_viewer", content, env=False))
 
 
 # ---------------------------------------------------------------------------
@@ -623,7 +623,7 @@ function applyChain() {{
 }}
 </script>
 """
-    return HTMLResponse(_shell("Session Chain", "log_session", content))
+    return HTMLResponse(_shell("Session Chain", "log_session", content, env=False))
 
 
 # ---------------------------------------------------------------------------
@@ -885,7 +885,7 @@ function applyEnv() {{
 }}
 </script>
 """
-    return HTMLResponse(_shell("IGW Errors", "igw", content))
+    return HTMLResponse(_shell("IGW Errors", "igw", content, env=False))
 
 
 # ---------------------------------------------------------------------------
@@ -1092,4 +1092,4 @@ function applyEnv() {{
 }}
 </script>
 """
-    return HTMLResponse(_shell("PRCS AE Logs", "prcs_ae", content))
+    return HTMLResponse(_shell("PRCS AE Logs", "prcs_ae", content, env=False))

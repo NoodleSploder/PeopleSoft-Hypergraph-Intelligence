@@ -951,6 +951,21 @@ async function deleteHistory(id) {
     _bindDetectTimer = setTimeout(() => _detectBinds($('sqlInput').value), 400);
   });
 })();
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event. Everything
+// that reads env() at click-time (Execute/Validate/Explain/Export/schema
+// column lookups) already picks up a new env correctly on its own — but the
+// Schema Browser results already on screen were fetched under the OLD env
+// and don't refresh themselves, so switching env silently left stale
+// results (e.g. a different environment's table list) displayed with no
+// indication anything changed. Re-run the last schema search when env
+// changes, same as the search box's own "Go" button would.
+function onSchemaEnvChange() {
+  if ($('schemaQ').value.trim()) searchSchema();
+}
+window.onEnvChange = onSchemaEnvChange;
+document.addEventListener('deathstar:envchange', onSchemaEnvChange);
 </script>""")
 
 
@@ -1000,7 +1015,11 @@ button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;font-size:
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+// ENV used to be captured once into a load-time const — meant switching the
+// global ENV selector (or even just re-clicking Search afterward) never
+// picked up the new environment at all, only a full page reload did. Read
+// it live instead, same as the SQL Workspace page's env() helper.
+function env() { return (window.dsGetEnv && window.dsGetEnv()) || 'HCM'; }
 
 async function api(path) {
   const res = await fetch(path);
@@ -1011,7 +1030,7 @@ async function api(path) {
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 async function loadFolders() {
-  const folders = await api(`/api/peoplesoft/query-folders?env=${ENV}`);
+  const folders = await api(`/api/peoplesoft/query-folders?env=${env()}`);
   if (!folders) return;
   const sel = document.getElementById('qFolder');
   folders.forEach(f => {
@@ -1028,7 +1047,7 @@ async function doSearch() {
   list.innerHTML = '<span class="muted">Loading...</span>';
   document.getElementById('detail').innerHTML = '<span class="muted">Select a query.</span>';
 
-  const rows = await api(`/api/peoplesoft/queries?env=${ENV}&q=${encodeURIComponent(q)}&folder=${encodeURIComponent(folder)}&limit=200`);
+  const rows = await api(`/api/peoplesoft/queries?env=${env()}&q=${encodeURIComponent(q)}&folder=${encodeURIComponent(folder)}&limit=200`);
   if (!rows) { list.innerHTML = '<span class="muted">Error loading queries.</span>'; return; }
 
   document.getElementById('stats').textContent = `${rows.length} result${rows.length===1?'':'s'}`;
@@ -1063,7 +1082,7 @@ function selectQuery(r, el) {
     <div style="margin-bottom:12px">
       <span style="font-size:16px;font-family:monospace;color:#d7faff">${esc(r.qryname)}</span>
       ${disabled ? ' <span class="chip chip-warn">DISABLED</span>' : ' <span class="chip chip-ok">ENABLED</span>'}
-      <a href="/admin/object/query/${encodeURIComponent(r.qryname)}?env=${ENV}" style="margin-left:12px;font-size:11px;color:#00e5ff">Open in Object Explorer &#x2197;</a>
+      <a href="/admin/object/query/${encodeURIComponent(r.qryname)}?env=${env()}" style="margin-left:12px;font-size:11px;color:#00e5ff">Open in Object Explorer &#x2197;</a>
     </div>
     ${r.descr ? `<div style="color:#8ab;font-size:12px;margin-bottom:10px">${esc(r.descr)}</div>` : ''}
     <div style="margin-bottom:10px">
@@ -1079,6 +1098,13 @@ function selectQuery(r, el) {
   await loadFolders();
   await doSearch();
 })();
+
+function onQueryEnvChange() {
+  document.getElementById('detail').innerHTML = '<span class="muted">Select a query.</span>';
+  doSearch();
+}
+window.onEnvChange = onQueryEnvChange;
+document.addEventListener('deathstar:envchange', onQueryEnvChange);
 </script>""")
 
 
@@ -1132,7 +1158,11 @@ a{color:#00ccee;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+// env used to be captured once into a load-time const — meant switching the
+// global ENV selector (or even just re-clicking Search afterward) never
+// picked up the new environment at all, only a full page reload did. Read
+// it live instead, same as the SQL Workspace page's env() helper.
+function env() { return (window.dsGetEnv && window.dsGetEnv()) || 'HCM'; }
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function chip(cls, label) { return `<span class="chip ${esc(cls)}">${esc(label)}</span>`; }
@@ -1145,7 +1175,7 @@ async function doSearch() {
   const q = document.getElementById('cqSearch').value.trim();
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 200});
+  const params = new URLSearchParams({env: env(), limit: 200});
   if (q) params.set('q', q);
   const d = await api(`/api/peoplesoft/connected-queries?${params}`);
   if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
@@ -1167,7 +1197,7 @@ async function selectCQ(conqrsname, idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/connected_query/${encodeURIComponent(conqrsname)}?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/object/connected_query/${encodeURIComponent(conqrsname)}?env=${env()}`);
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const ov = d.overview || {};
@@ -1220,6 +1250,13 @@ async function selectCQ(conqrsname, idx) {
 }
 
 doSearch();
+
+function onConqrsEnvChange() {
+  document.getElementById('detail').innerHTML = '<div class="muted">Select a query from the list.</div>';
+  doSearch();
+}
+window.onEnvChange = onConqrsEnvChange;
+document.addEventListener('deathstar:envchange', onConqrsEnvChange);
 </script>""")
 
 

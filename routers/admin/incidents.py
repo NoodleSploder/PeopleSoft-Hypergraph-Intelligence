@@ -18,7 +18,7 @@ _SEV_LABEL = {"P1": "P1 – Critical", "P2": "P2 – High", "P3": "P3 – Medium
 
 @router.get("/incidents", response_class=HTMLResponse)
 def admin_incidents(request: Request):
-    return _shell("Incidents", "incidents", content=f"""
+    return _shell("Incidents", "incidents", env=False, content=f"""
 <style>
 *{{box-sizing:border-box}}
 .toolbar{{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
@@ -245,14 +245,14 @@ def admin_incident_detail(incident_id: int, request: Request):
     from connectors import incidentdb as _idb
     inc = _idb.get_incident(incident_id)
     if not inc:
-        return _shell("Incident Not Found", "incidents", content=
+        return _shell("Incident Not Found", "incidents", env=False, content=
             '<div style="padding:40px;color:#ff4466">Incident not found.</div>')
 
     sev    = inc.get("severity", "P3")
     state  = inc.get("state", "open")
     sev_color = _SEV_COLOR.get(sev, "#ffcc44")
 
-    return _shell(f"Incident #{incident_id}", "incidents", content=f"""
+    return _shell(f"Incident #{incident_id}", "incidents", env=False, content=f"""
 <style>
 *{{box-sizing:border-box}}
 .topbar{{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
