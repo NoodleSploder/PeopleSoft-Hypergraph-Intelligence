@@ -1,0 +1,777 @@
+{
+  "oracle": {
+    "databases": [
+      {
+        "name": "HRDMO",
+        "host": "oracle.example.internal",
+        "port": 1521,
+        "service": "HRDMO",
+        "user": "PHI_READONLY",
+        "password": "replace-me"
+      },
+      {
+        "name": "FSCMDMO",
+        "host": "oracle.example.internal",
+        "port": 1521,
+        "service": "FSCMDMO",
+        "user": "PHI_FSCM_READONLY",
+        "password": "replace-me"
+      },
+      {
+        "name": "HRDEV",
+        "host": "oracle.example.internal",
+        "port": 1521,
+        "service": "HRDEV",
+        "user": "PHI_READONLY",
+        "password": "replace-me"
+      },
+      {
+        "name": "HRTST",
+        "host": "oracle.example.internal",
+        "port": 1521,
+        "service": "HRTST",
+        "user": "PHI_READONLY",
+        "password": "replace-me"
+      },
+      {
+        "name": "HRUAT",
+        "host": "oracle.example.internal",
+        "port": 1521,
+        "service": "HRUAT",
+        "user": "PHI_READONLY",
+        "password": "replace-me"
+      },
+      {
+        "name": "HRPRD",
+        "host": "oracle.example.internal",
+        "port": 1521,
+        "service": "HRPRD",
+        "user": "PHI_READONLY",
+        "password": "replace-me"
+      }
+    ]
+  },
+  "peoplesoft": {
+    "environments": [
+      {
+        "name": "HRDMO",
+        "pillar": "HCM",
+        "db": "HRDMO",
+        "service": "HRDMO",
+        "host": "oracle.example.internal",
+        "port": 1521,
+        "user": "PHI_ADMIN",
+        "password": "replace-me",
+        "ssh_host": "hcm_appserver",
+        "ps_cfg_home": "/opt/psoft/hcm/ps_cfg_home"
+      },
+      {
+        "name": "FSCM",
+        "pillar": "FSCM",
+        "db": "FSCMDMO",
+        "service": "FSCMDMO",
+        "host": "oracle.example.internal",
+        "port": 1521,
+        "user": "PHI_READONLY",
+        "password": "replace-me",
+        "ssh_host": "hcm_appserver",
+        "ps_cfg_home": "/opt/psoft/fin/ps_cfg_home"
+      },
+      {
+        "name": "HRDEV",
+        "pillar": "HCM",
+        "db": "HRDEV",
+        "service": "HRDEV",
+        "host": "oracle.example.internal",
+        "port": 1521,
+        "user": "PHI_ADMIN",
+        "password": "replace-me",
+        "ssh_host": "hcm_appserver",
+        "ps_cfg_home": "/opt/psoft/hcm/ps_cfg_home"
+      },
+      {
+        "name": "HRTST",
+        "pillar": "HCM",
+        "db": "HRTST",
+        "service": "HRTST",
+        "host": "oracle.example.internal",
+        "port": 1521,
+        "user": "PHI_ADMIN",
+        "password": "replace-me",
+        "ssh_host": "hcm_appserver",
+        "ps_cfg_home": "/opt/psoft/hcm/ps_cfg_home"
+      },
+      {
+        "name": "HRUAT",
+        "pillar": "HCM",
+        "db": "HRUAT",
+        "service": "HRUAT",
+        "host": "oracle.example.internal",
+        "port": 1521,
+        "user": "PHI_ADMIN",
+        "password": "replace-me",
+        "ssh_host": "hcm_appserver",
+        "ps_cfg_home": "/opt/psoft/hcm/ps_cfg_home"
+      },
+      {
+        "name": "HRPRD",
+        "pillar": "HCM",
+        "db": "HRPRD",
+        "service": "HRPRD",
+        "host": "oracle.example.internal",
+        "port": 1521,
+        "user": "PHI_ADMIN",
+        "password": "replace-me",
+        "ssh_host": "hcm_appserver",
+        "ps_cfg_home": "/opt/psoft/hcm/ps_cfg_home"
+      }
+    ]
+  },
+  "ssh_hosts": {
+    "_comment": "Reusable SSH connection profiles. Use 'local' as key for localhost file reads (no SSH).",
+    "hcm_webserver": {
+      "host": "appserver.example.internal",
+      "port": 22,
+      "username": "oracle",
+      "key_path": "/home/oracle/.ssh/id_ed25519",
+      "password": null
+    },
+    "hcm_appserver": {
+      "host": "appserver.example.internal",
+      "port": 22,
+      "username": "oracle",
+      "key_path": "/home/oracle/.ssh/id_ed25519",
+      "password": null
+    }
+  },
+  "log_sources": [
+    {
+      "_comment": "add real log sources. type options: pia_access, pia_error, appsrv, tuxedo, apache_access, apache_error, f5_access",
+      "name": "HCMDMO_WEB_ACCESS",
+      "type": "pia_access",
+      "env": "HCMDMO",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HCMDMO_WEB/servers/PIA/logs/PIA_access.log",
+      "enabled": true
+    },
+    {
+      "name": "HCMDMO_WEB_WEBLOGIC",
+      "type": "pia_weblogic",
+      "env": "HCMDMO",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HCMDMO_WEB/servers/PIA/logs/PIA_weblogic.log",
+      "enabled": true
+    },
+    {
+      "name": "HCMDMO_WEB_SERVLET",
+      "type": "pia_servlet",
+      "env": "HCMDMO",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HCMDMO_WEB/servers/PIA/logs/PIA_servlets*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HCMDMO_WEB_STDOUT",
+      "type": "pia_stdout",
+      "env": "HCMDMO",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HCMDMO_WEB/servers/PIA/logs/PIA_stdout*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HCMDMO_WEB_ERROR",
+      "type": "pia_error",
+      "env": "HCMDMO",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HCMDMO_WEB/servers/PIA/logs/PIA_stderr*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HCMDMO_APP_APP",
+      "type": "appsrv",
+      "env": "HCMDMO",
+      "ssh_host": "hcm_appserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/appserv/HCMDMO_APP/LOGS/APPSRV_*.LOG*",
+      "enabled": true
+    },
+    {
+      "name": "HCMDMO_APP_TUX",
+      "type": "tuxedo",
+      "env": "HCMDMO",
+      "ssh_host": "hcm_appserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/appserv/HCMDMO_APP/LOGS/TUXLOG.*",
+      "enabled": true
+    },
+    {
+      "name": "HCMDMO_PRCS_AE",
+      "type": "prcs_ae",
+      "env": "HCMDMO",
+      "ssh_host": "hcm_appserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/appserv/prcs/HCMDMO_PRCS/LOGS/AESRV_*.LOG*",
+      "enabled": true
+    },
+    {
+      "_comment": "add real log sources. type options: pia_access, pia_error, appsrv, tuxedo, apache_access, apache_error, f5_access",
+      "name": "HRDEV_WEB_ACCESS",
+      "type": "pia_access",
+      "env": "HRDEV",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRDEV_WEB/servers/PIA/logs/PIA_access.log",
+      "enabled": true
+    },
+    {
+      "name": "HRDEV_WEB_WEBLOGIC",
+      "type": "pia_weblogic",
+      "env": "HRDEV",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRDEV_WEB/servers/PIA/logs/PIA_weblogic.log",
+      "enabled": true
+    },
+    {
+      "name": "HRDEV_WEB_SERVLET",
+      "type": "pia_servlet",
+      "env": "HRDEV",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRDEV_WEB/servers/PIA/logs/PIA_servlets*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HRDEV_WEB_STDOUT",
+      "type": "pia_stdout",
+      "env": "HRDEV",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRDEV_WEB/servers/PIA/logs/PIA_stdout*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HRDEV_WEB_ERROR",
+      "type": "pia_error",
+      "env": "HRDEV",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRDEV_WEB/servers/PIA/logs/PIA_stderr*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HRDEV_APP_APP",
+      "type": "appsrv",
+      "env": "HRDEV",
+      "ssh_host": "hcm_appserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/appserv/HRDEV_APP/LOGS/APPSRV_*.LOG*",
+      "enabled": true
+    },
+    {
+      "name": "HRDEV_APP_TUX",
+      "type": "tuxedo",
+      "env": "HRDEV",
+      "ssh_host": "hcm_appserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/appserv/HRDEV_APP/LOGS/TUXLOG.*",
+      "enabled": true
+    },
+    {
+      "_comment": "add real log sources. type options: pia_access, pia_error, appsrv, tuxedo, apache_access, apache_error, f5_access",
+      "name": "HRTST_WEB_ACCESS",
+      "type": "pia_access",
+      "env": "HRTST",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRTST_WEB/servers/PIA/logs/PIA_access.log",
+      "enabled": true
+    },
+    {
+      "name": "HRTST_WEB_WEBLOGIC",
+      "type": "pia_weblogic",
+      "env": "HRTST",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRTST_WEB/servers/PIA/logs/PIA_weblogic.log",
+      "enabled": true
+    },
+    {
+      "name": "HRTST_WEB_SERVLET",
+      "type": "pia_servlet",
+      "env": "HRTST",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRTST_WEB/servers/PIA/logs/PIA_servlets*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HRTST_WEB_STDOUT",
+      "type": "pia_stdout",
+      "env": "HRTST",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRTST_WEB/servers/PIA/logs/PIA_stdout*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HRTST_WEB_ERROR",
+      "type": "pia_error",
+      "env": "HRTST",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRTST_WEB/servers/PIA/logs/PIA_stderr*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HRTST_APP_APP",
+      "type": "appsrv",
+      "env": "HRTST",
+      "ssh_host": "hcm_appserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/appserv/HRTST_APP/LOGS/APPSRV_*.LOG*",
+      "enabled": true
+    },
+    {
+      "name": "HRTST_APP_TUX",
+      "type": "tuxedo",
+      "env": "HRTST",
+      "ssh_host": "hcm_appserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/appserv/HRTST_APP/LOGS/TUXLOG.*",
+      "enabled": true
+    },
+    {
+      "_comment": "add real log sources. type options: pia_access, pia_error, appsrv, tuxedo, apache_access, apache_error, f5_access",
+      "name": "HRUAT_WEB_ACCESS",
+      "type": "pia_access",
+      "env": "HRUAT",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRUAT_WEB/servers/PIA/logs/PIA_access.log",
+      "enabled": true
+    },
+    {
+      "name": "HRUAT_WEB_WEBLOGIC",
+      "type": "pia_weblogic",
+      "env": "HRUAT",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRUAT_WEB/servers/PIA/logs/PIA_weblogic.log",
+      "enabled": true
+    },
+    {
+      "name": "HRUAT_WEB_SERVLET",
+      "type": "pia_servlet",
+      "env": "HRUAT",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRUAT_WEB/servers/PIA/logs/PIA_servlets*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HRUAT_WEB_STDOUT",
+      "type": "pia_stdout",
+      "env": "HRUAT",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRUAT_WEB/servers/PIA/logs/PIA_stdout*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HRUAT_WEB_ERROR",
+      "type": "pia_error",
+      "env": "HRUAT",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRUAT_WEB/servers/PIA/logs/PIA_stderr*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HRUAT_APP_APP",
+      "type": "appsrv",
+      "env": "HRUAT",
+      "ssh_host": "hcm_appserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/appserv/HRUAT_APP/LOGS/APPSRV_*.LOG*",
+      "enabled": true
+    },
+    {
+      "name": "HRUAT_APP_TUX",
+      "type": "tuxedo",
+      "env": "HRUAT",
+      "ssh_host": "hcm_appserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/appserv/HRUAT_APP/LOGS/TUXLOG.*",
+      "enabled": true
+    },
+    {
+      "_comment": "add real log sources. type options: pia_access, pia_error, appsrv, tuxedo, apache_access, apache_error, f5_access",
+      "name": "HRPRD_WEB_ACCESS",
+      "type": "pia_access",
+      "env": "HRPRD",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRPRD_WEB/servers/PIA/logs/PIA_access.log",
+      "enabled": true
+    },
+    {
+      "name": "HRPRD_WEB_WEBLOGIC",
+      "type": "pia_weblogic",
+      "env": "HRPRD",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRPRD_WEB/servers/PIA/logs/PIA_weblogic.log",
+      "enabled": true
+    },
+    {
+      "name": "HRPRD_WEB_SERVLET",
+      "type": "pia_servlet",
+      "env": "HRPRD",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRPRD_WEB/servers/PIA/logs/PIA_servlets*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HRPRD_WEB_STDOUT",
+      "type": "pia_stdout",
+      "env": "HRPRD",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRPRD_WEB/servers/PIA/logs/PIA_stdout*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HRPRD_WEB_ERROR",
+      "type": "pia_error",
+      "env": "HRPRD",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRPRD_WEB/servers/PIA/logs/PIA_stderr*.log*",
+      "enabled": true
+    },
+    {
+      "name": "HRPRD_APP_APP",
+      "type": "appsrv",
+      "env": "HRPRD",
+      "ssh_host": "hcm_appserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/appserv/HRPRD_APP/LOGS/APPSRV_*.LOG*",
+      "enabled": true
+    },
+    {
+      "name": "HRPRD_APP_TUX",
+      "type": "tuxedo",
+      "env": "HRPRD",
+      "ssh_host": "hcm_appserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/appserv/HRPRD_APP/LOGS/TUXLOG.*",
+      "enabled": true
+    }
+  ],
+  "ai": {
+    "provider": "openai",
+    "claude": {
+      "api_key": "",
+      "model": "claude-sonnet-4-6"
+    },
+    "openai": {
+      "api_key": "",
+      "model": "gpt-4o"
+    },
+    "ollama": {
+      "base_url": "http://localhost:11434",
+      "model": "llama3.1"
+    }
+  },
+  "igw_log_sources": [
+    {
+      "_comment": "Integration Gateway error log \u2014 HTML block format",
+      "name": "HCMDMO_IGW_ERROR",
+      "type": "igw_error_log",
+      "env": "HCMDMO",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HCMDMO_WEB/applications/peoplesoft/PSIGW.war/WEB-INF/errorLog*.html",
+      "enabled": true
+    },
+    {
+      "_comment": "Integration Gateway error log \u2014 HTML block format",
+      "name": "HRDEV_IGW_ERROR",
+      "type": "igw_error_log",
+      "env": "HRDEV",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRDEV_WEB/applications/peoplesoft/PSIGW.war/WEB-INF/errorLog*.html",
+      "enabled": true
+    },
+    {
+      "_comment": "Integration Gateway error log \u2014 HTML block format",
+      "name": "HRTST_IGW_ERROR",
+      "type": "igw_error_log",
+      "env": "HRTST",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRTST_WEB/applications/peoplesoft/PSIGW.war/WEB-INF/errorLog*.html",
+      "enabled": true
+    },
+    {
+      "_comment": "Integration Gateway error log \u2014 HTML block format",
+      "name": "HRUAT_IGW_ERROR",
+      "type": "igw_error_log",
+      "env": "HRUAT",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRUAT_WEB/applications/peoplesoft/PSIGW.war/WEB-INF/errorLog*.html",
+      "enabled": true
+    },
+    {
+      "_comment": "Integration Gateway error log \u2014 HTML block format",
+      "name": "HRPRD_IGW_ERROR",
+      "type": "igw_error_log",
+      "env": "HRPRD",
+      "ssh_host": "hcm_webserver",
+      "path": "/opt/psoft/hcm/ps_cfg_home/webserv/HRPRD_WEB/applications/peoplesoft/PSIGW.war/WEB-INF/errorLog*.html",
+      "enabled": true
+    }
+  ],
+  "sqr_sources": [
+    {
+      "env": "FSCMDMO",
+      "key": "fscm_sqr_delivered",
+      "source_type": "delivered",
+      "ssh_host": "hcm_appserver",
+      "label": "FSCMDMO SQR Library - Delivered",
+      "sqr_dir": "/opt/psoft/fin/ps_app_home/ps_home8.62.07/sqr"
+    },
+    {
+      "env": "FSCMDMO",
+      "key": "fscm_sqr_custom",
+      "source_type": "custom",
+      "ssh_host": "hcm_appserver",
+      "label": "FSCMDMO SQR Library - Custom",
+      "sqr_dir": "/opt/psoft/fin/ps_cust_home/sqr"
+    },
+    {
+      "env": "HCMDMO",
+      "key": "hcm_sqr_delivered",
+      "source_type": "delivered",
+      "ssh_host": "hcm_appserver",
+      "label": "HCMDMO SQR Library - Delivered",
+      "sqr_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/sqr"
+    },
+    {
+      "env": "HCMDMO",
+      "key": "hcm_sqr_custom",
+      "source_type": "custom",
+      "ssh_host": "hcm_appserver",
+      "label": "HCMDMO SQR Library - Custom",
+      "sqr_dir": "/opt/psoft/hcm/ps_cust_home/sqr"
+    },
+    {
+      "env": "HRDEV",
+      "key": "hrdev_sqr_delivered",
+      "source_type": "delivered",
+      "ssh_host": "hcm_appserver",
+      "label": "HRDEV SQR Library - Delivered",
+      "sqr_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/sqr"
+    },
+    {
+      "env": "HRDEV",
+      "key": "hrdev_sqr_custom",
+      "source_type": "custom",
+      "ssh_host": "hcm_appserver",
+      "label": "HRDEV SQR Library - Custom",
+      "sqr_dir": "/opt/psoft/hcm/ps_cust_home/sqr"
+    },
+    {
+      "env": "HRTST",
+      "key": "HRTST_sqr_delivered",
+      "source_type": "delivered",
+      "ssh_host": "hcm_appserver",
+      "label": "HRTST SQR Library - Delivered",
+      "sqr_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/sqr"
+    },
+    {
+      "env": "HRTST",
+      "key": "HRTST_sqr_custom",
+      "source_type": "custom",
+      "ssh_host": "hcm_appserver",
+      "label": "HRTST SQR Library - Custom",
+      "sqr_dir": "/opt/psoft/hcm/ps_cust_home/sqr"
+    },
+    {
+      "env": "HRUAT",
+      "key": "HRUAT_sqr_delivered",
+      "source_type": "delivered",
+      "ssh_host": "hcm_appserver",
+      "label": "HRUAT SQR Library - Delivered",
+      "sqr_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/sqr"
+    },
+    {
+      "env": "HRUAT",
+      "key": "HRUAT_sqr_custom",
+      "source_type": "custom",
+      "ssh_host": "hcm_appserver",
+      "label": "HRUAT SQR Library - Custom",
+      "sqr_dir": "/opt/psoft/hcm/ps_cust_home/sqr"
+    },
+    {
+      "env": "HRPRD",
+      "key": "HRPRD_sqr_delivered",
+      "source_type": "delivered",
+      "ssh_host": "hcm_appserver",
+      "label": "HRPRD SQR Library - Delivered",
+      "sqr_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/sqr"
+    },
+    {
+      "env": "HRPRD",
+      "key": "HRPRD_sqr_custom",
+      "source_type": "custom",
+      "ssh_host": "hcm_appserver",
+      "label": "HRPRD SQR Library - Custom",
+      "sqr_dir": "/opt/psoft/hcm/ps_cust_home/sqr"
+    }
+  ],
+  "cobol_sources": [
+    {
+      "env": "HCMDMO",
+      "key": "hcmdmo_cobol_delivered",
+      "source_type": "delivered",
+      "ssh_host": "hcm_appserver",
+      "label": "HCMDMO COBOL Library - Delivered",
+      "cbl_src_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/src/cbl",
+      "cbl_compiled_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/cblbin"
+    },
+    {
+      "env": "HCMDMO",
+      "key": "hcm_cobol_src_custom",
+      "source_type": "custom",
+      "ssh_host": "hcm_appserver",
+      "label": "HCM COBOL Library - Custom",
+      "cbl_src_dir": "/opt/psoft/hcm/ps_cust_home/src/cbl",
+      "cbl_compiled_dir": "/opt/psoft/hcm/ps_cust_home/cblbin"
+    },
+    {
+      "env": "FSCM",
+      "key": "fscm_cobol_delivered",
+      "source_type": "delivered",
+      "ssh_host": "hcm_appserver",
+      "label": "FSCM COBOL Library - Delivered",
+      "cbl_src_dir": "/opt/psoft/fin/ps_app_home/ps_home8.62.07/src/cbl",
+      "cbl_compiled_dir": "/opt/psoft/fin/ps_app_home/ps_home8.62.07/cblbin"
+    },
+    {
+      "env": "FSCM",
+      "key": "fscm_cobol_src_custom",
+      "source_type": "custom",
+      "ssh_host": "hcm_appserver",
+      "label": "FSCM COBOL Library - Custom",
+      "cbl_src_dir": "/opt/psoft/fin/ps_cust_home/src/cbl",
+      "cbl_compiled_dir": "/opt/psoft/fin/ps_cust_home/cblbin"
+    },
+    {
+      "env": "HRDEV",
+      "key": "hrdev_cobol_delivered",
+      "source_type": "delivered",
+      "ssh_host": "hcm_appserver",
+      "label": "HRDEV COBOL Library - Delivered",
+      "cbl_src_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/src/cbl",
+      "cbl_compiled_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/cblbin"
+    },
+    {
+      "env": "HRDEV",
+      "key": "hrdev_cobol_src_custom",
+      "source_type": "custom",
+      "ssh_host": "hcm_appserver",
+      "label": "HRDEV COBOL Library - Custom",
+      "cbl_src_dir": "/opt/psoft/hcm/ps_cust_home/src/cbl",
+      "cbl_compiled_dir": "/opt/psoft/hcm/ps_cust_home/cblbin"
+    },
+    {
+      "env": "HRTST",
+      "key": "HRTST_cobol_delivered",
+      "source_type": "delivered",
+      "ssh_host": "hcm_appserver",
+      "label": "HRTST COBOL Library - Delivered",
+      "cbl_src_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/src/cbl",
+      "cbl_compiled_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/cblbin"
+    },
+    {
+      "env": "HRTST",
+      "key": "HRTST_cobol_src_custom",
+      "source_type": "custom",
+      "ssh_host": "hcm_appserver",
+      "label": "HRTST COBOL Library - Custom",
+      "cbl_src_dir": "/opt/psoft/hcm/ps_cust_home/src/cbl",
+      "cbl_compiled_dir": "/opt/psoft/hcm/ps_cust_home/cblbin"
+    },
+    {
+      "env": "HRUAT",
+      "key": "HRUAT_cobol_delivered",
+      "source_type": "delivered",
+      "ssh_host": "hcm_appserver",
+      "label": "HRUAT COBOL Library - Delivered",
+      "cbl_src_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/src/cbl",
+      "cbl_compiled_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/cblbin"
+    },
+    {
+      "env": "HRUAT",
+      "key": "HRUAT_cobol_src_custom",
+      "source_type": "custom",
+      "ssh_host": "hcm_appserver",
+      "label": "HRUAT COBOL Library - Custom",
+      "cbl_src_dir": "/opt/psoft/hcm/ps_cust_home/src/cbl",
+      "cbl_compiled_dir": "/opt/psoft/hcm/ps_cust_home/cblbin"
+    },
+    {
+      "env": "HRPRD",
+      "key": "HRPRD_cobol_delivered",
+      "source_type": "delivered",
+      "ssh_host": "hcm_appserver",
+      "label": "HRPRD COBOL Library - Delivered",
+      "cbl_src_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/src/cbl",
+      "cbl_compiled_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/cblbin"
+    },
+    {
+      "env": "HRPRD",
+      "key": "HRPRD_cobol_src_custom",
+      "source_type": "custom",
+      "ssh_host": "hcm_appserver",
+      "label": "HRPRD COBOL Library - Custom",
+      "cbl_src_dir": "/opt/psoft/hcm/ps_cust_home/src/cbl",
+      "cbl_compiled_dir": "/opt/psoft/hcm/ps_cust_home/cblbin"
+    }
+  ],
+  "sql_proxy": {
+    "salt": "replace-me-generate-a-random-32-byte-hex-salt",
+    "sensitive_columns": {
+      "EMPLID": "EMP",
+      "OPRID": "USER",
+      "USERID": "USER",
+      "NAME": "PERSON",
+      "FIRST_NAME": "PERSON",
+      "LAST_NAME": "PERSON",
+      "NAME1": "PERSON",
+      "EMAIL_ADDR": "EMAIL",
+      "EMAILID": "EMAIL",
+      "PHONE": "PHONE",
+      "EXTENSION": "PHONE",
+      "ADDRESS1": "ADDR",
+      "ADDRESS2": "ADDR",
+      "ADDRESS3": "ADDR",
+      "ADDRESS4": "ADDR",
+      "NATIONAL_ID": "SSN",
+      "SSN": "SSN",
+      "BIRTHDATE": "DOB",
+      "BANK_ACCOUNT": "ACCT",
+      "ACCOUNT_NUM": "ACCT",
+      "DEPTID": "DEPT",
+      "VENDOR_ID": "VENDOR"
+    }
+  },
+  "trace_sources": [
+    {
+      "env": "HCMDMO",
+      "ssh_host": "hcm_appserver",
+      "trace_dir": "/opt/psoft/hcm/ps_cfg_home/appserv/HCMDMO_APP/LOGS",
+      "cfg_path": "/opt/psoft/hcm/ps_cfg_home/appserv/HCMDMO_APP/psappsrv.cfg"
+    },
+    {
+      "env": "HRDEV",
+      "ssh_host": "hcm_appserver",
+      "trace_dir": "/opt/psoft/hcm/ps_cfg_home/appserv/HRDEV_APP/LOGS",
+      "cfg_path": "/opt/psoft/hcm/ps_cfg_home/appserv/HRDEV_APP/psappsrv.cfg"
+    },
+    {
+      "env": "HRTST",
+      "ssh_host": "hcm_appserver",
+      "trace_dir": "/opt/psoft/hcm/ps_cfg_home/appserv/HRTST_APP/LOGS",
+      "cfg_path": "/opt/psoft/hcm/ps_cfg_home/appserv/HRTST_APP/psappsrv.cfg"
+    },
+    {
+      "env": "HRUAT",
+      "ssh_host": "hcm_appserver",
+      "trace_dir": "/opt/psoft/hcm/ps_cfg_home/appserv/HRUAT_APP/LOGS",
+      "cfg_path": "/opt/psoft/hcm/ps_cfg_home/appserv/HRUAT_APP/psappsrv.cfg"
+    },
+    {
+      "env": "HRPRD",
+      "ssh_host": "hcm_appserver",
+      "trace_dir": "/opt/psoft/hcm/ps_cfg_home/appserv/HRPRD_APP/LOGS",
+      "cfg_path": "/opt/psoft/hcm/ps_cfg_home/appserv/HRPRD_APP/psappsrv.cfg"
+    },
+    {
+      "env": "FSCM",
+      "ssh_host": "hcm_appserver",
+      "trace_dir": "/opt/psoft/fin/ps_cfg_home/appserv/FSCMDMO_APP/LOGS",
+      "cfg_path": "/opt/psoft/fin/ps_cfg_home/appserv/FSCMDMO_APP/psappsrv.cfg"
+    }
+  ]
+}

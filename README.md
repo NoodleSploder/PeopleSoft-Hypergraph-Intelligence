@@ -327,6 +327,13 @@ The file has five top-level sections:
 | `ssh_hosts` | Reusable SSH connection profiles for remote log access |
 | `log_sources` | Log files to ingest (web/app server logs per environment) |
 
+[`config/config.example.json`](config/config.example.json) is a minimal
+starting point (one environment, no SSH/log ingestion). For a fuller
+reference showing multiple environments/pillars, `ssh_hosts`,
+`log_sources`, `sqr_sources`, `cobol_sources`, `trace_sources`, and
+`sql_proxy`, see
+[`config/config.example.advanced.json`](config/config.example.advanced.json).
+
 ---
 
 ### oracle
@@ -1134,6 +1141,8 @@ Always keep the following synchronized:
 
 ## Troubleshooting
 
+### Manual installation (systemd)
+
 View service logs:
 
 ``` bash
@@ -1144,6 +1153,50 @@ Run manually:
 
 ``` bash
 uvicorn main:app --reload
+```
+
+### Container
+
+Container exited immediately after starting, or keeps restarting — check
+the logs first, most startup failures (missing dependency, bad
+`config.json`) show up here:
+
+``` bash
+docker compose logs -f phi        # or: podman-compose logs -f phi
+```
+
+`FileNotFoundError` / `[Errno 2] No such file or directory` mentioning
+`config.json` on startup — the config mount isn't reaching the container.
+Confirm `./config/config.json` exists on the host next to your
+`compose.yml` and that `PHI_CONFIG_FILE=/config/config.json` is set (it
+already is by default in `compose.yml` — only relevant if you've
+customized it).
+
+Container is up but the UI/API can't reach Oracle or an SSH host — these
+are network reachability issues from *inside* the container, not a
+Python/config problem. If Oracle or your app/web servers run on the
+Docker/Podman host itself (not a separate machine), use
+`host.docker.internal` (already added to `compose.yml`'s `extra_hosts`)
+as the `host` value in `config.json` instead of `localhost`/`127.0.0.1`,
+which refers to the container itself.
+
+Shell into the running container to poke around directly:
+
+``` bash
+docker compose exec phi sh        # or: podman-compose exec phi sh
+```
+
+Inspect what's actually in the data/log volumes:
+
+``` bash
+docker compose exec phi ls -la /app/data /app/logs
+```
+
+Rebuilding after pulling a new image doesn't pick up changes — recreate
+the container, don't just restart it:
+
+``` bash
+docker compose up -d --force-recreate
 ```
 
 ------------------------------------------------------------------------
