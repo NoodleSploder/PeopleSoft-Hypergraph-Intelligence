@@ -9238,3 +9238,202 @@ untouched `search_*`/`get_*` functions in `psdb.py` that haven't been
 re-verified this session.
 
 **Files:** `connectors/psdb.py`.
+
+## 2026-07-14 (session 51 continued) — Related Content Explorer: Same Fabricated-Table Bug Pattern
+
+**Context:** User reported `/admin/relcontent` also always returned 0
+results, immediately after the Nav Collections fix. Same root cause
+class: `search_related_content()`/`get_related_content()` queried
+`SYSADM.PSRELCONDEFN`, which does not exist anywhere in the schema
+(confirmed live, no match for `%RELCON%` on any table or column).
+
+**Real answer, found via live investigation (no user input needed this
+time):** Related Content Services aren't a dedicated definition table
+either — they're ordinary rows in `PSPTCSSRVDEFN` (the same Content
+Service Provider table the working Content Services explorer already
+uses), specifically the subset with `FIELDNAME`/`PORTAL_RECNAME`
+populated — PeopleTools' field-level "Related Content Service" / Related
+Action attachment mechanism. Confirmed live: of 1016 total
+`PSPTCSSRVDEFN` rows in HRTST, 28 have `FIELDNAME` populated, and their
+`DESCR254` values are literally things like *"Related action used in
+Document status pivot chart placed in Manager Dash Board."* — strong
+corroborating evidence, not just a schema-shape guess.
+
+**Fix:** Rewrote both `psdb.py` functions to query `PSPTCSSRVDEFN`
+filtered to `FIELDNAME` populated, keeping `defn` dict keys
+(`relconid`/`descr`/`servicetype`/`servicetype_label`/`objectownerid`)
+compatible with `uom.py`'s existing `related_content_object()` /
+`sections_for_related_content()` so nothing downstream needed
+restructuring — only additive changes (surfaced `Record`/`Field` in the
+Definition section, since that's the actual substantive data explaining
+*what* the related content is attached to).
+
+**Also fixed a second fabricated domain in the same feature:** both the
+old `_RC_SERVICE_TYPE` map in `psdb.py` (`U/C/S/A/P/I/R` → URL/Component/
+Script/etc.) and the frontend's `SVC_LABELS` in `routers/admin/portal.py`
+assumed a 7-value domain that was never real. `PTCS_SERVICETYPE`'s
+actual domain (confirmed live and already correctly documented elsewhere
+in this codebase, in `uom.py`'s `_PTCS_SVC_TYPE_LABEL` for the Content
+Services page) is just three values: `S`=Service, `C`=Custom, `G`=Group.
+Fixed both to match.
+
+**`status` field:** `PSPTCSSRVDEFN` has no active/inactive column at
+all, so `status` is now always `None`/`null` rather than a fabricated
+value — the existing `statusChip()` JS already renders nothing for an
+unmatched status, so this degrades cleanly.
+
+**Verification:** Live `psdb.search_related_content()`/
+`get_related_content()` against HRTST; full HTTP round-trip via
+`TestClient` on `/api/peoplesoft/related-content` and
+`/api/peoplesoft/object/related_content/{id}` confirming the Definition
+section now includes real Record/Field/Service Type values.
+
+**Files:** `connectors/psdb.py`, `connectors/uom.py`,
+`routers/admin/portal.py`.
+
+## 2026-07-14 (session 51 continued again) — Event Mapping Explorer: Third Instance of the Fabricated-Table Bug
+
+**Context:** Immediately after the Related Content fix, user reported
+`/admin/efmapping` also always returned 0 results. Same root cause
+class again: `search_event_mappings()`/`get_event_mapping()` queried
+`SYSADM.PSEFMAPPINGDEFN`/`PSEFMAPPINGCTXT`, neither of which exist
+anywhere in the schema (confirmed live).
+
+**Investigation (fully self-directed this time — no user input needed):**
+Queried `PSPRSMDEFN` for portal registry entries with `PORTAL_LABEL LIKE
+'%Event Map%'` and found "Configure Event Mapping" / "Event Mapping
+Services" both target component `PTCSSERVICES` (page
+`PT_EVMAPPING_FL`) — the *same* component that owns Content Services
+and Related Content. This meant Event Mapping definitions were almost
+certainly in `PSPTCSSRVDEFN` too, distinguished by some column. Checked
+that table's full column list from earlier work and noticed
+`PC_EVENT_TYPE`/`PC_FUNCTION_NAME` (PeopleCode event type/function).
+Confirmed live: 586 of 1016 `PSPTCSSRVDEFN` rows in HRTST have
+`PC_EVENT_TYPE` populated (all sampled as `FieldFormula`), each with a
+real service name/description and `PC_FUNCTION_NAME`/`PACKAGEROOT`/
+`APPCLASSID` identifying the handler (e.g. a plain iScript function, or
+an Application Class method when `PACKAGEROOT`+`APPCLASSID` are both
+populated).
+
+**Fix:** Rewrote both `psdb.py` functions to query `PSPTCSSRVDEFN`
+filtered to `PC_EVENT_TYPE` populated. Since there's no separate
+context/child table (no `PSEFMAPPINGCTXT` equivalent found), the
+event+handler are just columns on the same row — synthesized a
+single-item "context" list from them to keep the existing `uom.py`
+sections shape (`Contexts` section, event → handler display) working
+unchanged for the frontend. Handler string is
+`{PACKAGEROOT}:{APPCLASSID}.{PC_FUNCTION_NAME}` when both package/class
+are populated, else just `PC_FUNCTION_NAME` (matches the two real
+patterns observed live). `status` is always `None` — no active/inactive
+column exists on this table; the frontend's `statusChip()` already
+degrades cleanly for that.
+
+**Pattern now confirmed across three features this session (Nav
+Collections, Related Content, Event Mapping):** all three were built
+against dedicated tables (`PTNC_COLLECTION`, `PSRELCONDEFN`,
+`PSEFMAPPINGDEFN`) that don't exist on real PeopleTools — the actual
+data for all three lives in the standard portal registry
+(`PSPRSMDEFN`) or the Content Service Provider table
+(`PSPTCSSRVDEFN`), filtered by a distinguishing column/parent rather
+than housed in its own table. Worth checking any other untouched
+Portal-menu features (`_core.py`'s nav group) against live data before
+they surface as the next bug report.
+
+**Verification:** Live `psdb.search_event_mappings()`/
+`get_event_mapping()` against HRTST; full HTTP round-trip via
+`TestClient` on `/api/peoplesoft/event-mappings` and
+`/api/peoplesoft/object/event_mapping/{id}` confirming the Contexts
+section renders a real event → handler mapping
+(`BN_WORKCENTER_FL:ACA_ELIGIBILITY.IScript_`).
+
+**Files:** `connectors/psdb.py`.
+
+## 2026-07-14 (session 51 continued a third time) — Drop Zone Explorer: Fourth Fabricated Table, But No Live Data To Confirm Semantics
+
+**Context:** Fourth report in a row of the same bug class:
+`search_drop_zones()`/`get_drop_zone()` queried
+`PSPTDZDEFN`/`PSPTDZCOMP`/`PSPTDZPNL`/`PSPTDZITEM`, none of which exist
+(confirmed live).
+
+**Investigation:** `PSPRSMDEFN` lookup for `PORTAL_LABEL LIKE '%Drop
+Zone%'` found "Configure Drop Zones" targeting component
+`PORTAL_ADMIN.PTCS_SUBPAGE_COMP`. Table search for `%SUBPAGE%` found
+nothing, but `%PTCS_SUB%` found `PS_PTCS_SUBPNL_INF` — note the
+underscore after `PS`, unlike this table's siblings
+(`PSPTCSSRVDEFN` etc.) — this record's generated table name apparently
+didn't follow the usual `PS<RECNAME>` pattern (querying it as
+`PSPTCS_SUBPNL_INF` throws `ORA-00942`; the real name has the
+underscore). Its columns
+(`PNLGRPNAME`/`PNLNAME`/`PTCS_PNLFLDNAME`/`SUBPNLNAME`) line up
+semantically with "which subpage is placed in which field of which
+page/component" — the actual definition of a Drop Zone.
+
+**Caveat — lower confidence than the three prior fixes:** unlike Nav
+Collections/Related Content/Event Mapping, this table has **zero rows in
+every environment** (checked HRDEV, HRTST, HRUAT, HRPRD, HRDMO — all 0).
+That means the schema match is structural/contextual only; there was no
+real row content available to corroborate the column semantics the way
+the 28-row Related Content sample or 586-row Event Mapping sample did.
+The fix is still very likely correct (real table, real portal-registry
+link to the right admin component, sensible column names), but it hasn't
+been proven against real data the way the others were — flagging this
+distinction explicitly rather than presenting it with the same
+confidence.
+
+**Fix:** Rewrote both functions against `PS_PTCS_SUBPNL_INF`. A "Drop
+Zone" is now represented as a distinct `SUBPNLNAME` value; the detail
+view groups its placements into `components`/`pages` lists (matching the
+existing `uom.py` sections shape). No behavior to test with real content
+yet — this environment set has none configured. Verified only that the
+code path is correct (no crash, `has_table()` succeeds, query executes
+cleanly returning 0 rows) via direct connector calls and the full HTTP
+round-trip (`TestClient` on `/api/peoplesoft/drop-zones` and
+`/admin/dropzone`).
+
+**Files:** `connectors/psdb.py`.
+
+## 2026-07-14 (session 51 continued a fourth time) — Drop Zone Explorer: Correction — the `PS_PTCS_SUBPNL_INF` Guess Was Wrong
+
+**Context:** The previous fix (this same session) shipped with an
+explicitly flagged lower-confidence guess: `PS_PTCS_SUBPNL_INF` was a
+real table, structurally plausible, but had zero rows in every
+environment, so its column semantics were never actually corroborated.
+User confirmed the page still returned nothing and supplied the correct
+answer directly: a go-faster.co.uk PeopleTools reference explaining that
+PeopleTools 8.57+ Drop Zones are field-level, not a named/reusable
+definition at all.
+
+**Real answer:** A Drop Zone is a `PSPNLFIELD` row with
+`FIELDTYPE IN (11, 18)` whose `SUBPNLNAME` matches the single
+system-wide stub subpage configured in `PSOPTIONS.PTSTUBSUBPAGE` — every
+Drop Zone in an install shares that one stub subpage; there's no
+independent "Drop Zone Definition" table at all (confirming why
+`PSPTDZDEFN` and every guess at a definition table were dead ends —
+there's genuinely nothing to define beyond the field placement).
+Confirmed live: `PSOPTIONS.PTSTUBSUBPAGE = 'PT_ERCSUBPAGE_STUB'` in
+HRTST, and the join finds 2163 real `PSPNLFIELD` rows resolving to real
+components in both Classic and Fluid mode (e.g. `EP_EMAIL_NOTIFY_FL`
+Fluid, `GP_ED_ELEM` Classic).
+
+**Fix:** Rewrote `search_drop_zones()`/`get_drop_zone()` again — this
+time against `PSPNLFIELD`/`PSPNLGROUP`/`PSPNLGRPDEFN`/`PSOPTIONS`
+per the confirmed query. A "Drop Zone" is now represented by the
+Component (`PNLGRPNAME`) that contains a drop-zone field, labeled with
+its Classic/Fluid mode (`FLUIDMODE`); the detail view lists the specific
+page(s) within that component carrying the field. `PS_PTCS_SUBPNL_INF`
+(the previous guess) is unrelated and no longer referenced.
+
+**Lesson reinforced:** the "structurally plausible but zero live rows"
+caveat flagged in the prior entry was the right call — it turned out to
+be wrong, and having flagged the uncertainty explicitly made it easy for
+the user to know a correction was still needed rather than assuming the
+feature was done. Worth continuing to flag confidence level explicitly
+whenever a fix can't be corroborated against real row content.
+
+**Verification:** Live `psdb.search_drop_zones()`/`get_drop_zone()`
+against HRTST (5 sample results including both Classic and Fluid
+components); full HTTP round-trip via `TestClient` on
+`/api/peoplesoft/drop-zones` and `/api/peoplesoft/object/drop_zone/{id}`
+confirming real Overview/Components/Pages sections render.
+
+**Files:** `connectors/psdb.py`.

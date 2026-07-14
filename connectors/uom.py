@@ -5162,6 +5162,10 @@ def sections_for_related_content(obj):
     svc_type = str(defn.get("servicetype") or "").strip()
     if svc_type:
         overview["Service Type"] = defn.get("servicetype_label") or svc_type
+    if defn.get("portal_recname"):
+        overview["Record"] = str(defn["portal_recname"]).strip()
+    if defn.get("fieldname"):
+        overview["Field"] = str(defn["fieldname"]).strip()
     if defn.get("objectownerid"):
         overview["Owner"] = str(defn["objectownerid"]).strip()
     if defn.get("lastupdoprid"):

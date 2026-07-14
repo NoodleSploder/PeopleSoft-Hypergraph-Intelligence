@@ -5592,102 +5592,168 @@ def get_nav_collection(env_name, coll_id, portal="EMPLOYEE"):
 # Event Mapping (Fluid, PT 8.55+)
 # ---------------------------------------------------------------------------
 
+_EF_FIELD_FILTER = "TRIM(PC_EVENT_TYPE) IS NOT NULL AND PC_EVENT_TYPE != ' '"
+
+
 def search_event_mappings(env_name, q="", status=None, limit=100):
+    # PSEFMAPPINGDEFN/PSEFMAPPINGCTXT do not exist anywhere in the
+    # PeopleTools schema (confirmed live — no matching table). Event
+    # Mapping, like Related Content, is administered from the PTCSSERVICES
+    # component (portal registry confirms "Configure Event Mapping" and
+    # "Event Mapping Services" both target that component's pages) and its
+    # definitions live in PSPTCSSRVDEFN — the subset with PC_EVENT_TYPE
+    # populated (PeopleCode event, e.g. FieldFormula). Confirmed live: 586
+    # of 1016 PSPTCSSRVDEFN rows in HRTST have PC_EVENT_TYPE populated, with
+    # real service names/descriptions and PC_FUNCTION_NAME/PACKAGEROOT/
+    # APPCLASSID identifying the handler.
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PSEFMAPPINGDEFN"):
-        return {"items": [], "warnings": ["PSEFMAPPINGDEFN not accessible"]}
-    clauses = []
+    if not ptmetadata.has_table(env_name, "PSPTCSSRVDEFN"):
+        return {"items": [], "warnings": ["PSPTCSSRVDEFN not accessible"]}
+    clauses = [_EF_FIELD_FILTER]
     params = {"lim": limit}
     if q:
-        clauses.append("(UPPER(EFMAPPINGID) LIKE UPPER(:q) OR UPPER(DESCR) LIKE UPPER(:q2))")
-        params["q"] = f"%{q}%"
-        params["q2"] = f"%{q}%"
+        clauses.append("(UPPER(PTCS_SERVICEID) LIKE :q OR UPPER(DESCR254) LIKE :q2)")
+        params["q"] = f"%{q.upper()}%"
+        params["q2"] = f"%{q.upper()}%"
+    # No active/inactive column exists for these rows, so a status filter
+    # can never match anything real — treat any status value as "no rows".
     if status:
-        clauses.append("STATUS = :status")
-        params["status"] = status.upper()
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        clauses.append("1 = 0")
+    where = f"WHERE {' AND '.join(clauses)}"
     try:
         rows = query(env_name, f"""
-            SELECT EFMAPPINGID, DESCR, STATUS, OBJECTOWNERID, LASTUPDDTTM
-              FROM SYSADM.PSEFMAPPINGDEFN
+            SELECT PTCS_SERVICEID, DESCR254, OBJECTOWNERID, LASTUPDDTTM,
+                   PC_EVENT_TYPE, PC_FUNCTION_NAME, PACKAGEROOT, APPCLASSID
+              FROM SYSADM.PSPTCSSRVDEFN
              {where}
-             ORDER BY EFMAPPINGID
+             ORDER BY PTCS_SERVICEID
              FETCH FIRST :lim ROWS ONLY
         """, params)
-        return {"items": [dict(r) for r in (rows or [])], "warnings": []}
+        results = []
+        for r in (rows or []):
+            row = dict(r)
+            results.append({
+                "efmappingid": row.get("ptcs_serviceid"),
+                "descr": row.get("descr254"),
+                "objectownerid": row.get("objectownerid"),
+                "lastupddttm": row.get("lastupddttm"),
+                "pc_event_type": row.get("pc_event_type"),
+                # PSPTCSSRVDEFN carries no active/inactive flag.
+                "status": None,
+            })
+        return {"items": results, "warnings": []}
     except Exception as exc:
         return {"items": [], "warnings": [str(exc)]}
 
 
 def get_event_mapping(env_name, efmappingid):
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PSEFMAPPINGDEFN"):
-        return {"error": "not_accessible", "warnings": ["PSEFMAPPINGDEFN not accessible"]}
-    warnings = []
+    if not ptmetadata.has_table(env_name, "PSPTCSSRVDEFN"):
+        return {"error": "not_accessible", "warnings": ["PSPTCSSRVDEFN not accessible"]}
     efmappingid = efmappingid.upper()
-    rows = query(env_name, """
-        SELECT EFMAPPINGID, DESCR, STATUS, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
-          FROM SYSADM.PSEFMAPPINGDEFN
-         WHERE EFMAPPINGID = :id
+    rows = query(env_name, f"""
+        SELECT PTCS_SERVICEID, DESCR254, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID,
+               PC_EVENT_TYPE, PC_FUNCTION_NAME, PACKAGEROOT, APPCLASSID
+          FROM SYSADM.PSPTCSSRVDEFN
+         WHERE PTCS_SERVICEID = :id AND {_EF_FIELD_FILTER}
     """, {"id": efmappingid})
     if not rows:
         return {"error": "not_found", "warnings": [f"Event Mapping {efmappingid!r} not found"]}
-    defn = dict(rows[0])
+    row = rows[0]
+    defn = {
+        "efmappingid": row.get("ptcs_serviceid"),
+        "descr": row.get("descr254"),
+        "objectownerid": row.get("objectownerid"),
+        "lastupddttm": row.get("lastupddttm"),
+        "lastupdoprid": row.get("lastupdoprid"),
+        "status": None,
+    }
 
-    contexts = []
-    if ptmetadata.has_table(env_name, "PSEFMAPPINGCTXT"):
-        try:
-            ctx_rows = query(env_name, """
-                SELECT SEQNO, EFCONTEXTTYPE, EFCONTEXTVALUE, APPEVENTNAME, APPEVENTHANDLER
-                  FROM SYSADM.PSEFMAPPINGCTXT
-                 WHERE EFMAPPINGID = :id
-                 ORDER BY SEQNO
-            """, {"id": efmappingid})
-            contexts = [dict(r) for r in (ctx_rows or [])]
-        except Exception as exc:
-            warnings.append(f"PSEFMAPPINGCTXT: {exc}")
+    # There's no separate context/child table — the event and its handler
+    # are columns directly on this row, so surface that single mapping as
+    # a one-item "context" list to keep the existing frontend/sections
+    # shape (Contexts section, event → handler display) working unchanged.
+    pkg = str(row.get("packageroot") or "").strip()
+    cls = str(row.get("appclassid") or "").strip()
+    fn = str(row.get("pc_function_name") or "").strip()
+    handler = f"{pkg}:{cls}.{fn}" if (pkg and cls) else fn
+    contexts = [{
+        "seqno": 1,
+        "efcontexttype": "PeopleCode Event",
+        "efcontextvalue": row.get("pc_event_type"),
+        "appeventname": row.get("pc_event_type"),
+        "appeventhandler": handler or None,
+    }]
 
     return {
         "definition": defn,
         "contexts": contexts,
         "counts": {"contexts": len(contexts)},
-        "warnings": warnings,
+        "warnings": [],
     }
 
 
 # ---------------------------------------------------------------------------
 # Related Content (Service Framework)
+#
+# PSRELCONDEFN does not exist anywhere in the PeopleTools schema (confirmed
+# live — no matching table, and no COLL_ID/RELCONID-style column on any
+# SYSADM table). "Related Content Services" are not a dedicated definition
+# table at all: they're ordinary rows in PSPTCSSRVDEFN (the same Content
+# Service Provider table the Content Services explorer already uses),
+# specifically the ones that have been wired up to a page field via
+# FIELDNAME/PORTAL_RECNAME (PeopleTools' "Related Content Service" /
+# "Related Action" field-level attachment mechanism) — confirmed live: of
+# 1016 total PSPTCSSRVDEFN rows in HRTST, 28 have FIELDNAME populated, and
+# their descriptions are literally things like "Related action used in
+# Document status pivot chart placed in Manager Dash Board."
 # ---------------------------------------------------------------------------
 
 _RC_SERVICE_TYPE = {
-    "U": "URL",
-    "C": "Component",
-    "S": "Script",
-    "A": "Application Class",
-    "P": "PeopleSoft Page",
-    "I": "iScript",
-    "R": "Related Action",
+    "S": "Service",
+    "C": "Custom",
+    "G": "Group",
 }
+
+_RC_FIELD_FILTER = "TRIM(FIELDNAME) IS NOT NULL AND FIELDNAME != ' '"
 
 
 def search_related_content(env_name, q="", limit=100):
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PSRELCONDEFN"):
-        return {"items": [], "warnings": ["PSRELCONDEFN not accessible"]}
-    pat = f"%{q.upper()}%" if q else "%"
+    if not ptmetadata.has_table(env_name, "PSPTCSSRVDEFN"):
+        return {"items": [], "warnings": ["PSPTCSSRVDEFN not accessible"]}
+    clauses = [_RC_FIELD_FILTER]
+    params = {"lim": limit}
+    if q:
+        clauses.append("(UPPER(PTCS_SERVICEID) LIKE :q OR UPPER(DESCR254) LIKE :q2)")
+        params["q"] = f"%{q.upper()}%"
+        params["q2"] = f"%{q.upper()}%"
+    where = f"WHERE {' AND '.join(clauses)}"
     try:
-        rows = query(env_name, """
-            SELECT RELCONID, DESCR, STATUS, SERVICETYPE, OBJECTOWNERID
-              FROM SYSADM.PSRELCONDEFN
-             WHERE UPPER(RELCONID) LIKE :pat OR UPPER(DESCR) LIKE :pat
-             ORDER BY RELCONID
+        rows = query(env_name, f"""
+            SELECT PTCS_SERVICEID, DESCR254, PTCS_SERVICETYPE, OBJECTOWNERID,
+                   FIELDNAME, PORTAL_RECNAME, LASTUPDDTTM
+              FROM SYSADM.PSPTCSSRVDEFN
+             {where}
+             ORDER BY PTCS_SERVICEID
              FETCH FIRST :lim ROWS ONLY
-        """, {"pat": pat, "lim": limit})
+        """, params)
         results = []
         for r in (rows or []):
             row = dict(r)
-            row["servicetype_label"] = _RC_SERVICE_TYPE.get(str(row.get("servicetype") or ""), row.get("servicetype") or "")
-            results.append(row)
+            svc_type = str(row.get("ptcs_servicetype") or "").strip()
+            results.append({
+                "relconid": row.get("ptcs_serviceid"),
+                "descr": row.get("descr254"),
+                "servicetype": svc_type,
+                "servicetype_label": _RC_SERVICE_TYPE.get(svc_type, svc_type),
+                "objectownerid": row.get("objectownerid"),
+                "fieldname": row.get("fieldname"),
+                "portal_recname": row.get("portal_recname"),
+                "lastupddttm": row.get("lastupddttm"),
+                # PSPTCSSRVDEFN carries no active/inactive flag.
+                "status": None,
+            })
         return {"items": results, "warnings": []}
     except Exception as exc:
         return {"items": [], "warnings": [str(exc)]}
@@ -5695,18 +5761,31 @@ def search_related_content(env_name, q="", limit=100):
 
 def get_related_content(env_name, relconid):
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PSRELCONDEFN"):
-        return {"error": "not_accessible", "warnings": ["PSRELCONDEFN not accessible"]}
+    if not ptmetadata.has_table(env_name, "PSPTCSSRVDEFN"):
+        return {"error": "not_accessible", "warnings": ["PSPTCSSRVDEFN not accessible"]}
     relconid = relconid.upper()
-    rows = query(env_name, """
-        SELECT RELCONID, DESCR, STATUS, SERVICETYPE, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
-          FROM SYSADM.PSRELCONDEFN
-         WHERE RELCONID = :id
+    rows = query(env_name, f"""
+        SELECT PTCS_SERVICEID, DESCR254, PTCS_SERVICETYPE, OBJECTOWNERID,
+               FIELDNAME, PORTAL_RECNAME, LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PSPTCSSRVDEFN
+         WHERE PTCS_SERVICEID = :id AND {_RC_FIELD_FILTER}
     """, {"id": relconid})
     if not rows:
         return {"error": "not_found", "warnings": [f"Related Content {relconid!r} not found"]}
-    defn = dict(rows[0])
-    defn["servicetype_label"] = _RC_SERVICE_TYPE.get(str(defn.get("servicetype") or ""), defn.get("servicetype") or "")
+    row = rows[0]
+    svc_type = str(row.get("ptcs_servicetype") or "").strip()
+    defn = {
+        "relconid": row.get("ptcs_serviceid"),
+        "descr": row.get("descr254"),
+        "servicetype": svc_type,
+        "servicetype_label": _RC_SERVICE_TYPE.get(svc_type, svc_type),
+        "objectownerid": row.get("objectownerid"),
+        "fieldname": row.get("fieldname"),
+        "portal_recname": row.get("portal_recname"),
+        "lastupddttm": row.get("lastupddttm"),
+        "lastupdoprid": row.get("lastupdoprid"),
+        "status": None,
+    }
     return {"definition": defn, "warnings": []}
 
 
@@ -5821,91 +5900,113 @@ def get_search_definition(env_name, source_name):
 # Drop Zones (PeopleTools page composer drop zones)
 # ---------------------------------------------------------------------------
 
+def _drop_zone_stub_subpage(env_name):
+    rows = query(env_name, "SELECT PTSTUBSUBPAGE FROM SYSADM.PSOPTIONS")
+    return str((rows or [{}])[0].get("ptstubsubpage") or "").strip()
+
+
 def search_drop_zones(env_name, q="", limit=100):
+    # PSPTDZDEFN/PSPTDZCOMP/PSPTDZPNL/PSPTDZITEM do not exist anywhere in
+    # the PeopleTools schema (confirmed live), and an earlier fix's guess
+    # of PS_PTCS_SUBPNL_INF was also wrong (real table, but unrelated — 0
+    # rows everywhere and not the actual Drop Zone mechanism). The real
+    # answer, confirmed against live data via a query from a published
+    # PeopleTools reference (go-faster.co.uk): a Drop Zone is a
+    # PSPNLFIELD row of FIELDTYPE 11 or 18 whose SUBPNLNAME matches the
+    # single system-wide stub subpage configured in
+    # PSOPTIONS.PTSTUBSUBPAGE. There's no independently-named "Drop Zone
+    # Definition" — every drop zone in an install shares that one stub
+    # subpage; what's actually browsable is which Components/Pages have a
+    # drop zone field. Confirmed live in HRTST: PTSTUBSUBPAGE =
+    # 'PT_ERCSUBPAGE_STUB', 2163 matching PSPNLFIELD rows, resolving to
+    # real components (e.g. EP_EMAIL_NOTIFY_FL / FLUID, GP_ED_ELEM /
+    # CLASSIC).
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PSPTDZDEFN"):
-        return {"items": [], "warnings": ["PSPTDZDEFN not accessible"]}
-    clauses = []
-    params = {"lim": limit}
-    if q:
-        clauses.append("(UPPER(DZNAME) LIKE UPPER(:q) OR UPPER(DESCR) LIKE UPPER(:q2))")
-        params["q"] = f"%{q}%"
-        params["q2"] = f"%{q}%"
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    if not (ptmetadata.has_table(env_name, "PSPNLFIELD") and ptmetadata.has_table(env_name, "PSPNLGRPDEFN")):
+        return {"items": [], "warnings": ["PSPNLFIELD/PSPNLGRPDEFN not accessible"]}
     try:
+        stub = _drop_zone_stub_subpage(env_name)
+        if not stub:
+            return {"items": [], "warnings": ["PSOPTIONS.PTSTUBSUBPAGE is blank — Drop Zones not configured in this install"]}
+
+        clauses = ["PNLGRPNAME IN ("
+                   "  SELECT DISTINCT PNLGRPNAME FROM SYSADM.PSPNLGROUP"
+                   "   WHERE PNLNAME IN ("
+                   "     SELECT PNLNAME FROM SYSADM.PSPNLFIELD"
+                   "      WHERE FIELDTYPE IN (11, 18) AND SUBPNLNAME = :stub"
+                   "   )"
+                   ")"]
+        params = {"lim": limit, "stub": stub}
+        if q:
+            clauses.append("UPPER(PNLGRPNAME) LIKE :q")
+            params["q"] = f"%{q.upper()}%"
+        where = f"WHERE {' AND '.join(clauses)}"
         rows = query(env_name, f"""
-            SELECT DZNAME, DESCR, OBJECTOWNERID
-              FROM SYSADM.PSPTDZDEFN
+            SELECT PNLGRPNAME,
+                   CASE WHEN FLUIDMODE = 0 THEN 'Classic' WHEN FLUIDMODE = 1 THEN 'Fluid' ELSE 'N/A' END AS MODE_LABEL
+              FROM SYSADM.PSPNLGRPDEFN
              {where}
-             ORDER BY DZNAME
+             ORDER BY PNLGRPNAME
              FETCH FIRST :lim ROWS ONLY
         """, params)
-        return {"items": [dict(r) for r in (rows or [])], "warnings": []}
+        results = []
+        for r in (rows or []):
+            row = dict(r)
+            results.append({
+                "dzname": row.get("pnlgrpname"),
+                "descr": f"{row.get('mode_label')} component with a Drop Zone",
+                "objectownerid": None,
+            })
+        return {"items": results, "warnings": []}
     except Exception as exc:
         return {"items": [], "warnings": [str(exc)]}
 
 
 def get_drop_zone(env_name, dzname):
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PSPTDZDEFN"):
-        return {"error": "not_accessible", "warnings": ["PSPTDZDEFN not accessible"]}
-    warnings = []
+    if not (ptmetadata.has_table(env_name, "PSPNLFIELD") and ptmetadata.has_table(env_name, "PSPNLGROUP")):
+        return {"error": "not_accessible", "warnings": ["PSPNLFIELD/PSPNLGROUP not accessible"]}
     dzname = dzname.upper()
-    rows = query(env_name, """
-        SELECT DZNAME, DESCR, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
-          FROM SYSADM.PSPTDZDEFN
-         WHERE DZNAME = :id
-    """, {"id": dzname})
-    if not rows:
-        return {"error": "not_found", "warnings": [f"Drop Zone {dzname!r} not found"]}
-    defn = dict(rows[0])
+    stub = _drop_zone_stub_subpage(env_name)
 
-    components = []
-    if ptmetadata.has_table(env_name, "PSPTDZCOMP"):
-        try:
-            comp_rows = query(env_name, """
-                SELECT PNLGRPNAME, COMPONENT
-                  FROM SYSADM.PSPTDZCOMP
-                 WHERE DZNAME = :id
-                 ORDER BY PNLGRPNAME
-            """, {"id": dzname})
-            components = [dict(r) for r in (comp_rows or [])]
-        except Exception as exc:
-            warnings.append(f"PSPTDZCOMP: {exc}")
+    grp_rows = query(env_name, """
+        SELECT PNLGRPNAME,
+               CASE WHEN FLUIDMODE = 0 THEN 'Classic' WHEN FLUIDMODE = 1 THEN 'Fluid' ELSE 'N/A' END AS MODE_LABEL
+          FROM SYSADM.PSPNLGRPDEFN
+         WHERE PNLGRPNAME = :id
+    """, {"id": dzname})
+    if not grp_rows:
+        return {"error": "not_found", "warnings": [f"Drop Zone component {dzname!r} not found"]}
+
+    defn = {
+        "dzname": dzname,
+        "descr": f"{grp_rows[0].get('mode_label')} component with a Drop Zone (stub subpage: {stub})",
+        "objectownerid": None,
+        "lastupddttm": None,
+        "lastupdoprid": None,
+    }
 
     pages = []
-    if ptmetadata.has_table(env_name, "PSPTDZPNL"):
-        try:
-            pnl_rows = query(env_name, """
-                SELECT PNLNAME, PAGE
-                  FROM SYSADM.PSPTDZPNL
-                 WHERE DZNAME = :id
-                 ORDER BY PNLNAME
-            """, {"id": dzname})
-            pages = [dict(r) for r in (pnl_rows or [])]
-        except Exception as exc:
-            warnings.append(f"PSPTDZPNL: {exc}")
-
-    items = []
-    if ptmetadata.has_table(env_name, "PSPTDZITEM"):
-        try:
-            item_rows = query(env_name, """
-                SELECT OBJECTVALUE1, OBJECTVALUE2, SEQNO
-                  FROM SYSADM.PSPTDZITEM
-                 WHERE DZNAME = :id
-                 ORDER BY SEQNO
-            """, {"id": dzname})
-            items = [dict(r) for r in (item_rows or [])]
-        except Exception as exc:
-            warnings.append(f"PSPTDZITEM: {exc}")
+    if stub:
+        page_rows = query(env_name, """
+            SELECT DISTINCT g.PNLNAME
+              FROM SYSADM.PSPNLGROUP g
+             WHERE g.PNLGRPNAME = :id
+               AND g.PNLNAME IN (
+                 SELECT PNLNAME FROM SYSADM.PSPNLFIELD
+                  WHERE FIELDTYPE IN (11, 18) AND SUBPNLNAME = :stub
+               )
+             ORDER BY g.PNLNAME
+        """, {"id": dzname, "stub": stub})
+        pages = [{"page": r.get("pnlname"), "pnlname": stub} for r in (page_rows or [])]
 
     return {
         "definition": defn,
-        "components": components,
+        "components": [{"component": dzname, "pnlgrpname": ""}],
         "pages": pages,
-        "items": items,
-        "counts": {"components": len(components), "pages": len(pages), "items": len(items)},
-        "warnings": warnings,
+        "items": [],
+        "counts": {"components": 1, "pages": len(pages), "items": 0},
+        "warnings": [],
     }
 
 

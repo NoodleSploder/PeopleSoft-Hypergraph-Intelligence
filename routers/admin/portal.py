@@ -179,7 +179,7 @@ a{color:#9944ff;text-decoration:none} a:hover{text-decoration:underline}
 </div>
 <script>
 const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
-const SVC_LABELS = {U:'URL',C:'Component',S:'Script',A:'App Class',P:'PS Page',I:'iScript',R:'Related Action'};
+const SVC_LABELS = {S:'Service', C:'Custom', G:'Group'};
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function statusChip(s) {
