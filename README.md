@@ -173,6 +173,9 @@ PeopleSoft-Hypergraph-Intelligence/
 
 ## Container installation
 
+Prefer running without a container? Skip to [Manual
+Installation](#manual-installation).
+
 Prebuilt images are published to GHCR on every tagged release:
 `ghcr.io/noodlesploder/peoplesoft-hypergraph-intelligence`. Both
 [Docker](https://docs.docker.com/engine/install/) (with the Compose
@@ -302,12 +305,11 @@ pip install openai      # OpenAI / Azure OpenAI
 
 ## Oracle Client Setup
 
-Install Oracle Instant Client.
-
-``` bash
-export LD_LIBRARY_PATH=/opt/oracle/instantclient_19_28:$LD_LIBRARY_PATH
-export PATH=/opt/oracle/instantclient_19_28:$PATH
-```
+No separate Oracle Instant Client install is required. All Oracle
+connections use [`python-oracledb`](https://oracle.github.io/python-oracledb/)
+in its pure-Python "thin mode" (the default — `init_oracle_client()` is
+never called anywhere in this codebase), so `pip install -r
+requirements.txt` is sufficient on its own.
 
 ------------------------------------------------------------------------
 
@@ -604,7 +606,7 @@ GRANT SELECT_CATALOG_ROLE TO deathstar_mon;
 
 ------------------------------------------------------------------------
 
-## Installation
+## Manual Installation
 
 ``` bash
 git clone https://github.com/NoodleSploder/peoplesoft-explorer.git deathstar-api
