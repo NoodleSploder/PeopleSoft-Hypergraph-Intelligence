@@ -27,7 +27,7 @@ def listener_status(host="192.168.122.206", port=1521):
 def query_db(db, sql):
     conn = oracledb.connect(
         user=db["user"],
-        password=db["password"],
+        password=paths.resolve_secret(db["password"]),
         dsn=dsn(db)
     )
     cur = conn.cursor()

@@ -57,7 +57,7 @@ def _clean_value(v):
 def query_env(env, sql, params=None):
     conn = oracledb.connect(
         user=env["user"],
-        password=env["password"],
+        password=paths.resolve_secret(env["password"]),
         dsn=dsn(env),
         tcp_connect_timeout=8,
     )

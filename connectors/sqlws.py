@@ -295,7 +295,7 @@ def _load_env(env_name: str) -> dict:
 def _connect(env_name: str):
     env = _load_env(env_name)
     dsn = f'{env["host"]}:{env["port"]}/{env["service"]}'
-    return oracledb.connect(user=env["user"], password=env["password"], dsn=dsn)
+    return oracledb.connect(user=env["user"], password=paths.resolve_secret(env["password"]), dsn=dsn)
 
 
 def list_envs() -> list:

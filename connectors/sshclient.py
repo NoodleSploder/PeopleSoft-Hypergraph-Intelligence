@@ -64,7 +64,7 @@ def _connect(alias: str):
         expanded = os.path.expanduser(key_path)
         connect_kwargs["key_filename"] = expanded
     if password:
-        connect_kwargs["password"] = password
+        connect_kwargs["password"] = paths.resolve_secret(password)
 
     client.connect(**connect_kwargs)
     return client

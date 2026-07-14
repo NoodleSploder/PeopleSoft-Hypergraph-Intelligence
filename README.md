@@ -343,6 +343,37 @@ reference showing multiple environments/pillars, `ssh_hosts`,
 
 ---
 
+### Storing secrets outside config.json
+
+Every `password` field (`oracle.databases[].password`,
+`peoplesoft.environments[].password`, `ssh_hosts.<alias>.password`) accepts
+either a literal string (the original behavior — nothing changes if you
+keep doing this) or a reference to an environment variable, written as
+`"env:VAR_NAME"`:
+
+``` json
+"password": "env:ORACLE_HRDMO_PW"
+```
+
+At connection time this is resolved from `os.environ["ORACLE_HRDMO_PW"]`
+instead of being read from the file — so `config.json` itself never
+contains the actual credential, only a pointer to where it lives. This
+matters even though `config.json` is gitignored and not committed: it's
+still a plaintext file that can end up in backups, log bundles, or be
+read by another process on the same host. Missing the referenced
+variable fails fast with a clear error at connection time rather than
+silently trying an empty password.
+
+Combine with `chmod 600 config.json` and, for the container deployment,
+`compose.yml`'s existing `env_file`/`environment` support to inject the
+real values without ever writing them to disk inside the container.
+AI provider API keys already have this same override built in natively
+(`CLAUDE_API_KEY`/`OPENAI_API_KEY` env vars take precedence over
+`ai.claude.api_key`/`ai.openai.api_key` in config.json) — see
+[ai](#ai) below.
+
+---
+
 ### oracle
 
 Low-level Oracle connections. Used for queries that do not require a PS environment context.

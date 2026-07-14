@@ -43,3 +43,26 @@ APP_ROOT = Path(os.environ.get("DEATHSTAR_HOME", Path(__file__).resolve().parent
 CONFIG_FILE = Path(os.environ.get("PHI_CONFIG_FILE", APP_ROOT / "config.json"))
 DATA_DIR = Path(os.environ.get("PHI_DATA_DIR", APP_ROOT / "data"))
 LOG_DIR = Path(os.environ.get("PHI_LOG_DIR", APP_ROOT / "logs"))
+
+
+def resolve_secret(value):
+    """Resolve a config.json secret value that may be an env-var reference.
+
+    A password/credential field written as "env:VAR_NAME" in config.json is
+    looked up from the process environment instead of being stored on disk
+    — so config.json (and any backup, log, or accidental commit of it)
+    never contains the actual secret, only a pointer to where it lives. A
+    plain literal string (existing configs, or values not meant to be
+    secret) passes through unchanged, so this is safe to call unconditionally
+    at every point a password is read from config.
+    """
+    if isinstance(value, str) and value.startswith("env:"):
+        var_name = value[4:]
+        resolved = os.environ.get(var_name)
+        if resolved is None:
+            raise RuntimeError(
+                f"config.json references environment variable '{var_name}' "
+                f"for a secret, but it is not set in this process's environment."
+            )
+        return resolved
+    return value
