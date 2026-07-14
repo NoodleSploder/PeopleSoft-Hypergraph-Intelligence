@@ -1612,7 +1612,7 @@ button{background:#cc8833;border:none;padding:5px 12px;cursor:pointer;font-size:
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 let _rows = [];
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -1631,7 +1631,7 @@ async function doSearch() {
   const rtype = document.getElementById('rtype').value;
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading\u2026</div>';
-  const params = new URLSearchParams({env: ENV, limit: 100});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 100});
   if (q) params.set('q', q);
   if (rtype) params.set('rtype', rtype);
   const d = await api('/api/peoplesoft/ib-operations?' + params);
@@ -1664,7 +1664,7 @@ async function selectOp(idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading\u2026</div>';
 
-  const d = await api('/api/peoplesoft/object/ib_operation/' + encodeURIComponent(r.ib_operationname) + '?env=' + ENV);
+  const d = await api('/api/peoplesoft/object/ib_operation/' + encodeURIComponent(r.ib_operationname) + '?env=' + ENV_VAL());
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const sections = d.sections || [];
@@ -1708,6 +1708,13 @@ async function selectOp(idx) {
   if (rtnSec) html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">' + esc(rtnSec.title) + '</h3>' + routingList(rtnSec);
   detail.innerHTML = html;
 }
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
 
 doSearch();
 </script>""")

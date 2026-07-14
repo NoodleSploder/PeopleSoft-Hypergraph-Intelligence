@@ -531,6 +531,8 @@ async function api(path, options = {}) {
     return res.json();
 }
 
+function ENVVAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
+
 async function loadGroups() {
     const groups = await api('/authelia/groups');
     const box = document.getElementById('groupCheckboxes');
@@ -555,7 +557,7 @@ function selectedGroups() {
 async function loadUsers() {
     const [users, statuses, mfaStatuses] = await Promise.all([
         api('/authelia/users'),
-        api('/api/identity/status?env=HCM'),
+        api('/api/identity/status?env=' + ENVVAL()),
         api('/authelia/mfa/status').catch(() => []),
     ]);
 
@@ -704,14 +706,14 @@ function selectOprid(r) {
 }
 
 async function compareIdentity(username) {
-    const data = await api(`/api/identity/compare/${username}?env=HCM`);
+    const data = await api(`/api/identity/compare/${username}?env=${ENVVAL()}`);
     alert(JSON.stringify(data, null, 2));
 }
 
 async function syncIdentity(username) {
     if (!confirm(`Sync ${username} from PeopleSoft roles?`)) return;
 
-    const data = await api(`/api/identity/sync/${username}?env=HCM`, {
+    const data = await api(`/api/identity/sync/${username}?env=${ENVVAL()}`, {
         method: 'POST'
     });
 
@@ -727,7 +729,7 @@ async function provisionIdentity(oprid) {
     const password = prompt(`Initial password for ${oprid}:`);
     if (!password) return;
 
-    const data = await api(`/api/identity/provision/${oprid}?env=HCM`, {
+    const data = await api(`/api/identity/provision/${oprid}?env=${ENVVAL()}`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({password})
@@ -744,7 +746,7 @@ async function provisionIdentity(oprid) {
 
 async function searchOprids() {
     const q = document.getElementById('opridSearch').value;
-    const rows = await api(`/api/peoplesoft/oprids?env=HCM&q=${encodeURIComponent(q)}`);
+    const rows = await api(`/api/peoplesoft/oprids?env=${ENVVAL()}&q=${encodeURIComponent(q)}`);
 
     const div = document.getElementById('opridResults');
     div.innerHTML = '';
@@ -839,7 +841,7 @@ async function bulkProvisionSelected() {
 
     if (!confirm(`Provision ${oprids.length} PeopleSoft user(s) into Authelia?\n\n${oprids.join(', ')}`)) return;
 
-    const data = await api('/api/identity/bulk-provision?env=HCM', {
+    const data = await api('/api/identity/bulk-provision?env=' + ENVVAL(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ oprids })
@@ -863,7 +865,7 @@ async function requestProvision(oprid) {
     const reason = prompt(`Request provisioning for ${oprid}?\n\nReason (optional):`);
     if (reason === null) return;  // cancelled
 
-    const data = await api('/api/identity/requests?env=HCM', {
+    const data = await api('/api/identity/requests?env=' + ENVVAL(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ oprid, reason, requested_by: 'admin' })
@@ -930,7 +932,7 @@ async function loadProvisionRequests() {
 
 async function approveRequest(reqId) {
     if (!confirm('Approve this provision request? The user will be provisioned into Authelia.')) return;
-    const data = await api(`/api/identity/requests/${reqId}/approve?env=HCM`, { method: 'POST' });
+    const data = await api(`/api/identity/requests/${reqId}/approve?env=${ENVVAL()}`, { method: 'POST' });
     if (data.temp_password) {
         alert(`Approved and provisioned.\nOPRID: ${data.oprid}\nTemp password: ${data.temp_password}\nGroups: ${(data.groups || []).join(', ')}`);
     } else {
@@ -959,7 +961,7 @@ async function cancelRequest(reqId) {
 async function syncAllIdentities() {
     if (!confirm('Sync all Authelia users from PeopleSoft?')) return;
 
-    const data = await api('/api/identity/sync-all?env=HCM', {
+    const data = await api('/api/identity/sync-all?env=' + ENVVAL(), {
         method: 'POST'
     });
 
@@ -984,6 +986,14 @@ async function loadAudit() {
     });
 }
 
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — every
+// identity/oprid call on this page previously hardcoded env=HCM (see
+// ENVVAL() above), so nothing reacted to the selector at all. Re-run the
+// env-scoped loads on change now that they read it live.
+window.onEnvChange = init;
+document.addEventListener('deathstar:envchange', init);
 
 init();
 </script>

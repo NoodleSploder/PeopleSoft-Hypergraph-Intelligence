@@ -903,7 +903,16 @@ GET /api/ib/routings/{rtngname}?env=HCM
 GET /api/ib/nodes?env=HCM&q=
 GET /api/ib/nodes/{nodename}?env=HCM
 GET /api/ib/queues?env=HCM&q=
+GET /api/ib/queues/{queuename}?env=HCM
+GET /api/ib/groups?env=HCM&q=
+GET /api/ib/domain?env=HCM
+GET /api/ib/transactions?env=HCM&q=
+GET /api/ib/transactions/{txid}?env=HCM
 ```
+
+The transaction detail endpoint returns the full Operation Instance →
+Publication Transaction(s) → Subscription Transaction(s) model, decompressed
+Request Message Body, and any IB Errors for that transaction.
 
 ### Identity and Provisioning
 

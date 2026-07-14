@@ -58,7 +58,7 @@ a{color:#ddcc00;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function statusChip(s) {
@@ -72,7 +72,7 @@ async function doSearch() {
   const status = document.getElementById('efStatus').value;
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 200});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 200});
   if (q) params.set('q', q);
   if (status) params.set('status', status);
   const d = await api(`/api/peoplesoft/event-mappings?${params}`);
@@ -95,7 +95,7 @@ async function selectMapping(efmappingid, idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/event_mapping/${encodeURIComponent(efmappingid)}?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/object/event_mapping/${encodeURIComponent(efmappingid)}?env=${ENV_VAL()}`);
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const ov = d.overview || {};
@@ -127,6 +127,13 @@ async function selectMapping(efmappingid, idx) {
 
   detail.innerHTML = html;
 }
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
 
 doSearch();
 </script>""")
@@ -178,7 +185,7 @@ a{color:#9944ff;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 const SVC_LABELS = {S:'Service', C:'Custom', G:'Group'};
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -196,7 +203,7 @@ async function doSearch() {
   const q = document.getElementById('rcSearch').value.trim();
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 200});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 200});
   if (q) params.set('q', q);
   const d = await api(`/api/peoplesoft/related-content?${params}`);
   if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
@@ -218,7 +225,7 @@ async function selectService(relconid, idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/related_content/${encodeURIComponent(relconid)}?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/object/related_content/${encodeURIComponent(relconid)}?env=${ENV_VAL()}`);
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const ov = d.overview || {};
@@ -242,6 +249,13 @@ async function selectService(relconid, idx) {
   html += `</div>`;
   detail.innerHTML = html;
 }
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
 
 doSearch();
 </script>""")
@@ -302,7 +316,7 @@ a{color:#00bb66;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 const LINE_TYPE_CHIP = {
   C: ['chip-info',  'Content Ref'],
   F: ['chip-muted', 'Folder'],
@@ -327,7 +341,7 @@ async function doSearch() {
   const portal = document.getElementById('ncPortal').value;
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 200});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 200});
   if (q) params.set('q', q);
   if (portal) params.set('portal', portal);
   const d = await api(`/api/peoplesoft/nav-collections?${params}`);
@@ -352,7 +366,7 @@ async function selectCollection(collId, idx) {
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
   const portal = document.getElementById('ncPortal').value || 'EMPLOYEE';
-  const d = await api(`/api/peoplesoft/object/nav_collection/${encodeURIComponent(collId)}?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/object/nav_collection/${encodeURIComponent(collId)}?env=${ENV_VAL()}`);
   if (!d) { detail.innerHTML = '<div class="muted">Error loading collection.</div>'; return; }
 
   const ov = d.overview || {};
@@ -386,6 +400,13 @@ async function selectCollection(collId, idx) {
 
   detail.innerHTML = html;
 }
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
 
 doSearch();
 </script>""")
@@ -449,7 +470,7 @@ a{color:#cc44aa;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 let _mode = 'reports';
 
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
@@ -476,7 +497,7 @@ async function doSearch() {
   const q = document.getElementById('xpubSearch').value.trim();
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 200});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 200});
   if (q) params.set('q', q);
   const url = _mode === 'reports'
     ? `/api/peoplesoft/xpub/reports?${params}`
@@ -511,7 +532,7 @@ async function selectReport(reportDefnId, idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/xml_publisher_report/${encodeURIComponent(reportDefnId)}?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/object/xml_publisher_report/${encodeURIComponent(reportDefnId)}?env=${ENV_VAL()}`);
   if (!d) { detail.innerHTML = '<div class="muted">Error loading report.</div>'; return; }
 
   const ov = d.overview || {};
@@ -589,6 +610,13 @@ async function selectDatasource(dsId, idx) {
     </div>`;
 }
 
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
+
 doSearch();
 </script>""")
 
@@ -645,7 +673,7 @@ pre{background:#030d14;border:1px solid #1e3040;padding:12px;font-family:monospa
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 const PC_KW=['If','Then','Else','End-If','For','End-For','While','End-While','Repeat','Until','Return','Break','Continue','Local','Global','Component','Function','End-Function','Method','End-Method','class','Extends','Implements','import','Array','String','Integer','Number','Date','DateTime','Boolean','Object','Any','Exception','Try','Catch','End-Try','Throw','CreateObject','GetLevel0','GetRecord','GetField','GetPage','GetGrid','GetRow','GetComponent','Step','DoWhile','DoUntil'];
 const PC_BUILTIN=['MessageBox','SQLExec','CreateSQL','Close','Fetch','Insert','Update','Delete','IsNull','None','Null','True','False','All','And','Or','Not','As','Of','Property','Get','Set','Value','Name','Type','CreateRecord','CreateMessage','CreateRowset','CreateArray','GetRowset','GetMessage','%This','%Super','%CurrentTimeIn','%Date','%DateTime','%Time','%EmployeeId','%OperatorId','%MenuName','%Component','%Page','%Action','%Mode','%Panel','%PanelGroup','%UpdateStats','%SelectAll','%Insert','%Update','%Delete','%SelectByKey','%SelectByKeyEffdt','%DateAdd','%DateTimeAdd','%DateTimeDiff','%DateDiff','%Substring','%NumToChar','%CharToNum','%DateOut','%TimeOut','%Round','%Truncate','%Abs','%Sign','%Mod','%Upper','%Lower','%Rtrim','%Ltrim','%Replace','%Len','%Value','%like','%contains','%starts'];
 
@@ -679,7 +707,7 @@ async function doSearch(){
   list.innerHTML='<span class="muted">Searching...</span>';
   document.getElementById('detail').innerHTML='<span class="muted">Select a result.</span>';
   document.getElementById('stats').textContent='';
-  const data=await api('/api/peoplesoft/peoplecode/source-search?q='+encodeURIComponent(q)+'&env='+ENV+'&limit='+lim);
+  const data=await api('/api/peoplesoft/peoplecode/source-search?q='+encodeURIComponent(q)+'&env='+ENV_VAL()+'&limit='+lim);
   if(!data){list.innerHTML='<span class="muted">Error.</span>';return;}
   _results=data.items||[];
   document.getElementById('stats').textContent=_results.length+(data.warnings&&data.warnings.length?' ('+data.warnings[0].message+')':' programs matched');
@@ -704,13 +732,25 @@ function showSource(r,q,el){
   const ptype=r.parent_type||'';const pname=r.parent_name||'';
   d.innerHTML='<div style="margin-bottom:10px">'
     +'<span style="font-family:monospace;font-size:13px;color:#d7faff">'+esc(ref)+'</span>'
-    +' <a href="/admin/object/peoplecode/'+encodeURIComponent(r.encoded_reference||ref)+'?env='+ENV+'" style="font-size:11px;color:#00e5ff;margin-left:10px">Open in PC Explorer &#x2197;</a>'
-    +(ptype&&pname?' <a href="/admin/object/'+encodeURIComponent(ptype)+'/'+encodeURIComponent(pname)+'?env='+ENV+'" style="font-size:11px;color:#00e5ff;margin-left:10px">&#x2192; '+esc(pname)+' &#x2197;</a>':'')
+    +' <a href="/admin/object/peoplecode/'+encodeURIComponent(r.encoded_reference||ref)+'?env='+ENV_VAL()+'" style="font-size:11px;color:#00e5ff;margin-left:10px">Open in PC Explorer &#x2197;</a>'
+    +(ptype&&pname?' <a href="/admin/object/'+encodeURIComponent(ptype)+'/'+encodeURIComponent(pname)+'?env='+ENV_VAL()+'" style="font-size:11px;color:#00e5ff;margin-left:10px">&#x2192; '+esc(pname)+' &#x2197;</a>':'')
     +'</div>'
     +'<pre>'+highlightPC(src,q)+'</pre>';
   // scroll first match into view
   setTimeout(()=>{const hit=d.querySelector('.hit');if(hit)hit.scrollIntoView({block:'center',behavior:'smooth'});},50);
 }
+// This page only searches on explicit user action (no auto-load), and
+// ENV_VAL() is now read live at search time, so a new search after
+// switching environments is already correct. Still clear stale results
+// on env change so a leftover list/detail from the old env isn't
+// mistaken for current data.
+function reload() {
+  document.getElementById('list').innerHTML = '<span class="muted">Enter a search term and press Search.</span>';
+  document.getElementById('detail').innerHTML = '<span class="muted">Select a program to view source with matches highlighted.</span>';
+  _results = [];
+}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
 </script>""")
 
 
@@ -764,7 +804,7 @@ a{color:#2299ee;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function typeChip(s) {
@@ -775,7 +815,7 @@ async function doSearch() {
   const q = document.getElementById('sdSearch').value.trim();
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 200});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 200});
   if (q) params.set('q', q);
   const d = await api(`/api/peoplesoft/search-definitions?${params}`);
   if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
@@ -797,7 +837,7 @@ async function selectDef(sourceName, idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/search_definition/${encodeURIComponent(sourceName)}?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/object/search_definition/${encodeURIComponent(sourceName)}?env=${ENV_VAL()}`);
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const ov = d.overview || {};
@@ -858,6 +898,13 @@ async function selectDef(sourceName, idx) {
   detail.innerHTML = html;
 }
 
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
+
 doSearch();
 </script>""")
 
@@ -911,7 +958,7 @@ a{color:#7744ee;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -923,7 +970,7 @@ async function doSearch() {
   const q = document.getElementById('scSearch').value.trim();
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 200});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 200});
   if (q) params.set('q', q);
   const d = await api(`/api/peoplesoft/search-categories?${params}`);
   if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
@@ -945,7 +992,7 @@ async function selectCat(srccatName, idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/search_category/${encodeURIComponent(srccatName)}?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/object/search_category/${encodeURIComponent(srccatName)}?env=${ENV_VAL()}`);
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const adminUrl = `/admin/object/search_category/${esc(srccatName)}`;
@@ -999,6 +1046,13 @@ async function selectCat(srccatName, idx) {
   detail.innerHTML = html;
 }
 
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
+
 doSearch();
 </script>""")
 
@@ -1048,7 +1102,7 @@ a{color:#ee8800;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -1056,7 +1110,7 @@ async function doSearch() {
   const q = document.getElementById('dzSearch').value.trim();
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 200});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 200});
   if (q) params.set('q', q);
   const d = await api(`/api/peoplesoft/drop-zones?${params}`);
   if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
@@ -1078,7 +1132,7 @@ async function selectDz(dzname, idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/drop_zone/${encodeURIComponent(dzname)}?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/object/drop_zone/${encodeURIComponent(dzname)}?env=${ENV_VAL()}`);
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const adminUrl = `/admin/object/drop_zone/${esc(dzname)}`;
@@ -1123,6 +1177,13 @@ async function selectDz(dzname, idx) {
 
   detail.innerHTML = html;
 }
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
 
 doSearch();
 </script>""")
@@ -1177,7 +1238,7 @@ a{color:#22cc66;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function chip(cls, label) { return `<span class="chip ${esc(cls)}">${esc(label)}</span>`; }
@@ -1187,7 +1248,7 @@ async function doSearch() {
   const q = document.getElementById('pgSearch').value.trim();
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 200});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 200});
   if (q) params.set('q', q);
   const d = await api(`/api/peoplesoft/pivot-grids?${params}`);
   if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
@@ -1209,7 +1270,7 @@ async function selectPG(pgridname, idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/pivot_grid/${encodeURIComponent(pgridname)}?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/object/pivot_grid/${encodeURIComponent(pgridname)}?env=${ENV_VAL()}`);
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const ov = d.overview || {};
@@ -1257,20 +1318,35 @@ async function selectPG(pgridname, idx) {
   detail.innerHTML = html;
 }
 
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
+
 doSearch();
 </script>""")
 
 @router.get("/stylesheet", response_class=HTMLResponse)
 def admin_stylesheet(request: Request):
-    nav = _nav_html("stylesheet", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("stylesheet")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Style Sheets</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
-<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">Style Sheets</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 90px)">
 <div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
   <div style="margin-bottom:6px;display:flex;gap:6px">
     <input id="q" placeholder="Search stylesheet name or description…" oninput="doSearch()"
@@ -1360,6 +1436,18 @@ async function loadDetail(name) {{
     ${{chips ? `<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">${{esc(chipSec?.title||'CSS Classes')}}</h3><div style="line-height:1.8">${{chips}}</div>` : ''}}
   `;
 }}
+
+// The global shell's ENV_VAL() selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only read ENVVAL() lazily per-request but never re-ran the search, so
+// switching environments silently left the prior env's list on screen.
+function reload() {{
+  selected = null;
+  document.getElementById('detail').innerHTML = '<div class="muted">Select a Style Sheet to view its CSS class inventory.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
 
 doSearch();
 </script>

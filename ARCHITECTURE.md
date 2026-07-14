@@ -173,6 +173,7 @@ The platform serves every persona in a PeopleSoft organization:
      │                         Connector Layer                            │
      │   psdb · ptmetadata · ae · peoplecode · ib · execution · oracle    │
      │   sqlws · envcompare · graphdb · uom · identity · nginx · system   │
+     │   paths (config/data/log path resolution, container-aware)        │
      │   Grant-aware SQL, version-adaptive queries, structured warnings   │
      └─────────────────────────────────┬──────────────────────────────────┘
                                        │
@@ -883,9 +884,13 @@ not crash.
 FSCM → `FSCMDMO` (deathstar_mon, narrower grants). Environment name is always
 a first-class parameter in connector functions.
 
-**Port 8088 is sacred.** The FastAPI app runs on `127.0.0.1:8088` and is proxied
-through nginx at `https://admin.deathstar.chickenkiller.com:10443/admin/`. Never change
-the port.
+**Port defaults to 8088, but is configurable.** The bare-metal deployment runs
+the FastAPI app on `127.0.0.1:8088`, proxied through nginx at
+`https://admin.deathstar.chickenkiller.com:10443/admin/` — don't change that
+deployment's port casually. The containerized deployment (see Deployment Model,
+below) reads `PHI_PORT` for both the host-published and in-container port, so
+the port is a legitimate per-deployment configuration knob, not a hardcoded
+constant — code must not assume 8088 is the only valid value.
 
 **No breaking changes.** Existing URLs, API response shapes, and connector function
 signatures are preserved. New fields may be added; existing fields are never removed
@@ -893,3 +898,30 @@ or renamed without a deliberate versioning decision.
 
 **SQL in connectors, not routers.** All Oracle SQL lives in `connectors/`. Routers
 are thin delegation layers. This keeps SQL testable and auditable.
+
+---
+
+## Deployment Model
+
+PeopleSoft Hypergraph Intelligence ships two supported deployment paths that run
+the same codebase:
+
+**Manual (bare-metal / venv).** The traditional path — a Python virtualenv running
+`uvicorn main:app`, config/data/log paths resolved relative to the repo location
+(`connectors/paths.py`'s `APP_ROOT`, from `__file__`, unless overridden).
+
+**Container (Docker or Podman).** `Dockerfile` builds a `python:3.12-slim-bookworm`
+image running as a non-root user under `tini`, with a healthcheck against
+`/api/health`. `compose.yml` wires up config/data/log volumes and environment
+variables. Every path `connectors/paths.py` resolves — `CONFIG_FILE`, `DATA_DIR`,
+`LOG_DIR` — is overridable via `PHI_CONFIG_FILE`/`PHI_DATA_DIR`/`PHI_LOG_DIR`, and
+the listen port is overridable via `PHI_PORT` (drives both the container's
+`uvicorn --port` and the compose host-port mapping). This is what makes the same
+image usable both as a quick `docker run` against a mounted `config.json` and as a
+managed compose deployment. See the README's Container Installation section for
+concrete commands; CI (`.github/workflows/container-check.yml`,
+`publish-container.yml`) builds and publishes the image on every relevant change.
+
+Both paths are read-only against PeopleSoft/Oracle regardless of deployment model —
+containerization changes how the app is packaged and configured, not what it's
+allowed to do.

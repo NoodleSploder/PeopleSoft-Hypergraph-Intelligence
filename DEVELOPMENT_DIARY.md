@@ -9437,3 +9437,159 @@ components); full HTTP round-trip via `TestClient` on
 confirming real Overview/Components/Pages sections render.
 
 **Files:** `connectors/psdb.py`.
+
+## 2026-07-14 (session 51 continued a fifth time) — Change Risk Analyzer: Project Search + Fixed SQL Injection
+
+**Context:** User wanted the ability to search for a project name rather
+than having to already know the exact PeopleSoft project name to type
+into the Risk Analyzer.
+
+**Added:** debounced search-as-you-type against `PSPROJECTDEFN`
+(`PROJECTNAME`/`PROJECTDESCR`, confirmed live — note `PROJECTDESCR`, not
+`DESCR`, which doesn't exist on this table) with a dropdown of matches,
+arrow-key navigation, and click/Enter to select and immediately run the
+analysis.
+
+**Also fixed while in this code — real SQL injection, not just a
+domain-guessing bug:** the two existing queries in this page built SQL
+by directly interpolating the user-typed project name into a string
+(`` `...WHERE PROJECTNAME='${proj}'` ``) and POSTing that string to
+`/api/sqlws/execute`. That endpoint already accepts a separate `binds`
+dict specifically to avoid this (used correctly elsewhere in the
+codebase), so this wasn't a case of the API lacking the capability —
+this call site just wasn't using it. A project name containing a single
+quote could break out of the string literal. Converted both queries (and
+the new search query) to bind parameters (`:proj`, `:q`) throughout.
+
+**Verification:** Live query against HRTST confirmed `PATCH862` /
+"Application Updates" resolves correctly via the new bind-parameterized
+search; full HTTP round-trip via `TestClient` on `/api/sqlws/execute`
+with the bind-parameterized SQL and a real match.
+
+**Files:** `routers/admin/platform.py`.
+
+## 2026-07-14 (session 51 continued a sixth time) — Impact Forecasting: Real 500 Crash Root-Caused, Project Search Added
+
+**Context:** Previous turn added a `fetchJson()` helper on this page that
+surfaces real HTTP status/body instead of crashing on `JSON.parse` —
+intended as a diagnostic aid since the plain-text "Internal Server
+Error" the user saw couldn't be reproduced via this codebase's own
+error paths. User confirmed the improved error message on the very next
+report: `HTTP 500: Internal Server Error`, firing automatically on page
+load (the page auto-runs a risk assessment with default envs on load)
+with env1=HRDMO, env2=FSCM.
+
+**Root cause found and fixed:** `impact.env_risk()`'s per-type loop did
+`delta = item.get("delta", 0)` — but `.get(key, default)` only
+substitutes the default when the *key is missing*, not when the stored
+value is `None`. A drift snapshot comparing two different pillars
+(HRDMO/HCM vs FSCM) has object types with no real basis for comparison,
+so `delta` is stored as `NULL`/`None` for some rows — which then hit
+`abs(delta)` in `_delta_level()` and threw
+`TypeError: bad operand type for abs(): 'NoneType'`. Reproduced directly
+(`GET /api/impact/risk?env1=HRDMO&env2=FSCM` crashed with exactly this
+traceback), fixed by normalizing `None` to `0` for `delta`,
+`env1_count`, and `env2_count` before use, verified the same request
+now returns 200 with real risk data.
+
+**Also removed the redundant top-right global Env selector** (previous
+turn) since this page already has its own explicit Env 1/Env 2/Env
+controls per section — the global one wasn't wired to anything on this
+page and just added visual clutter (`_shell(..., env=False)`).
+
+**Also added:** Project Impact Analysis search-as-you-type against
+`PSPROJECTDEFN`, matching the same UX added earlier this session to the
+Risk Analyzer's project field — debounced query via
+`/api/sqlws/execute` with bind parameters, dropdown of matches, arrow
+keys + Enter/click to select and immediately run the analysis. Verified
+live: searching "GPIT" resolves to the real `GPIT_HR92_OBJECTS` project
+from the page's own placeholder text.
+
+**Verification:** Reproduced the exact crash via `TestClient` before the
+fix (full traceback confirmed line/cause), confirmed 200 after; verified
+the new project-search endpoint call directly with a live match.
+
+**Files:** `connectors/impact.py`, `routers/admin/tools.py`.
+
+## 2026-07-14 (session 51 continued a seventh time) — Full Sweep: Every Page With an ENV Selector
+
+**Context:** User asked for one final pass: check every admin page with
+an Env selector and confirm it actually works, rather than waiting for
+each to surface as an individual bug report (the pattern for most of
+this session).
+
+**Method:** Two-stage grep-based audit across all of `routers/admin/*.py`:
+1. Pages built as raw `HTMLResponse` (not via `_shell()`) — found via
+   literal `globalEnv`/`ds-env-sel` string search. All of these had
+   already been fixed earlier this session (IB Explorer sub-pages,
+   Security pages, Objects pages, Platform pages).
+2. Pages built via the shared `_shell()` helper, which injects the Env
+   selector centrally — these don't contain the literal `globalEnv`
+   string in their own source, so the first grep completely missed
+   them. Found by locating every `_shell(...)` call site without an
+   explicit `env=False`, then checking whether that function's script
+   block reads a live env value (`ENVVAL()`/`dsGetEnv()`) at all (if
+   not, the selector is present but inert — already covered by the
+   Impact Forecasting fix) and whether it registers an
+   `onEnvChange`/`deathstar:envchange` listener.
+
+**Found: the identical `const ENV = window.dsGetEnv() || 'X'` capture-
+once bug (already fixed piecemeal in `objects.py` and `platform.py`
+earlier this session) was still present, unfixed, in 22 more page
+functions** across `portal.py` (9: Event Mapping, Related Content, Nav
+Collections, XML Publisher, PeopleCode Search, Search Definitions,
+Search Categories, Drop Zones, PivotGrid), `tools.py` (Reports),
+`integration.py` (IB Service Operations), `perf.py` (3: PM Metrics/
+Transactions/Events), `graph.py` (5: Graph Explorer, Object Explorer,
+Portal Explorer, Metadata Explorer, Graph DB Admin), and `platform.py`
+(4: Message Catalog, Timezone Explorer, Locale Explorer, and the
+"What Changed" TS/TYPES query builder). None of these had ever had a
+working env selector — the const was captured once at page load and
+never re-read, so switching environments silently kept showing whatever
+env happened to be selected when the page first loaded.
+
+**Fix, scripted across all 22 at once** (then verified per-file with
+`ast.parse` and manually reviewed): converted every `const ENV = ...`
+to `function ENV_VAL() { ... }`, rewrote every use site
+(`${ENV}`/`+ENV+`/`env: ENV`/etc.) to call `ENV_VAL()` instead. One
+instance (`platform.py`'s "What Changed" page) lives inside an f-string
+context requiring doubled `{{ }}` braces around the inserted function
+body — the scripted pass initially broke this (caught immediately by
+`ast.parse` raising `SyntaxError: f-string: expecting a valid expression
+after '{'`), fixed manually by doubling the braces for that one site.
+
+**Reload wiring**, also scripted: for each of the 22, located the page's
+terminal `<function>();\n</script>` call (almost always `doSearch()`,
+a few named `loadCatalog`/`loadMetadata`/`loadSnapshots`/`runAll`) and
+registered it as `window.onEnvChange`/`deathstar:envchange` listener,
+matching the pattern established earlier this session. Four pages didn't
+fit that automatic pattern and were reviewed and wired by hand:
+  - **PeopleCode Search** (`portal.py`): search is entirely user-
+    triggered (no auto-load), so `ENV_VAL()` alone was sufficient for
+    correctness — added a lighter listener that just clears stale
+    results/detail on env change rather than re-running a search with no
+    query.
+  - **Graph Explorer** (`graph.py`, `admin_graph`): same — fully
+    button-driven (Load/Analyze), no auto-load, no listener needed once
+    `ENV_VAL()` reads live.
+  - **Object Explorer** (`graph.py`, `object_explorer_page`): eagerly
+    loads the object named in the URL (`INITIAL_TYPE`/`INITIAL_NAME`) on
+    open — wired to re-run `loadObject()` with the same type/name on env
+    change.
+  - **Portal Explorer** (`graph.py`, `admin_portal`): eagerly loads the
+    portal tree and optionally a specific portal/subtree on open — wired
+    to re-run `initPortalTree()`, `loadPortal(currentPortal)`, and
+    `renderTree()` (not `toggleTreeMode()`, which would have just
+    flipped the panel visibility rather than reloading data — caught
+    this before it shipped) on env change.
+
+**Verification:** `ast.parse()` on all six files after the scripted
+pass (one f-string breakage caught and fixed); grepped for any leftover
+unconverted `${ENV}`/`+ENV+` usage or double-`_VAL()` corruption from
+the regex pass (none found); `TestClient` GET on all 23 affected routes
+confirming 200 and `ENV_VAL` presence, including a deep-linked Object
+Explorer URL.
+
+**Files:** `routers/admin/portal.py`, `routers/admin/tools.py`,
+`routers/admin/integration.py`, `routers/admin/perf.py`,
+`routers/admin/graph.py`, `routers/admin/platform.py`.

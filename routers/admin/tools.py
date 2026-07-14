@@ -177,7 +177,7 @@ button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;paddi
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 let _key=null,_allRows=[],_cols=[];
 async function api(p){const r=await fetch(p);return r.ok?r.json():null;}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -186,7 +186,7 @@ const LINKS={rolename:n=>'/admin/role/'+n,roleuser:n=>'/admin/operator/'+n,
   pnlgrpname:n=>'/admin/component?name='+encodeURIComponent(n),recname:n=>'/admin/record/'+n,
   ae_applid:n=>'/admin/ae?q='+encodeURIComponent(n),menuname:n=>'/admin/object/menu/'+n};
 async function loadCatalog(){
-  const cat=await api('/api/peoplesoft/reports/catalog?env='+ENV);
+  const cat=await api('/api/peoplesoft/reports/catalog?env='+ENV_VAL());
   if(!cat){document.getElementById('catalog').textContent='Failed.';return;}
   const by={};cat.forEach(r=>{by[r.category]=by[r.category]||[];by[r.category].push(r);});
   let h='';['security','objects','system'].forEach(c=>{
@@ -201,10 +201,10 @@ async function runReport(key,title){
   const btn=document.getElementById('rb_'+key);if(btn)btn.classList.add('active');
   document.getElementById('reportPanel').style.display='';
   document.getElementById('emptyState').style.display='none';
-  document.getElementById('reportTitle').textContent=title+' — '+ENV;
+  document.getElementById('reportTitle').textContent=title+' — '+ENV_VAL();
   document.getElementById('reportTable').innerHTML='<span class="muted">Running...</span>';
   document.getElementById('rowFilter').value='';_key=key;
-  const data=await api('/api/peoplesoft/reports?report='+encodeURIComponent(key)+'&env='+ENV+'&limit=500');
+  const data=await api('/api/peoplesoft/reports?report='+encodeURIComponent(key)+'&env='+ENV_VAL()+'&limit=500');
   if(!data){document.getElementById('reportTable').innerHTML='<span class="muted">Error.</span>';return;}
   document.getElementById('reportNote').textContent=data.note||'';
   _allRows=data.rows||[];_cols=data.columns||[];
@@ -214,18 +214,25 @@ async function runReport(key,title){
 function renderTable(rows){
   if(!rows.length){document.getElementById('reportTable').innerHTML='<span class="muted">No rows returned.</span>';return;}
   let h='<table><thead><tr>'+_cols.map(c=>'<th>'+esc(c.toUpperCase().replace(/_/g,' '))+'</th>').join('')+'</tr></thead><tbody>';
-  rows.forEach(r=>{h+='<tr>'+_cols.map(c=>{const v=r[c],s=v===null||v===undefined?'':String(v);const lf=LINKS[c];return'<td>'+(lf&&s.trim()?'<a href="'+esc(lf(s.trim()))+'?env='+ENV+'">'+esc(s)+'</a>':esc(s))+'</td>';}).join('')+'</tr>';});
+  rows.forEach(r=>{h+='<tr>'+_cols.map(c=>{const v=r[c],s=v===null||v===undefined?'':String(v);const lf=LINKS[c];return'<td>'+(lf&&s.trim()?'<a href="'+esc(lf(s.trim()))+'?env='+ENV_VAL()+'">'+esc(s)+'</a>':esc(s))+'</td>';}).join('')+'</tr>';});
   h+='</tbody></table>';document.getElementById('reportTable').innerHTML=h;
 }
 function filterRows(){const q=document.getElementById('rowFilter').value.toLowerCase();const f=q?_allRows.filter(r=>_cols.some(c=>String(r[c]||'').toLowerCase().includes(q))):_allRows;document.getElementById('rowCount').textContent=f.length+'/'+_allRows.length+' rows';renderTable(f);}
-function exportCsv(){if(!_allRows.length)return;const q=document.getElementById('rowFilter').value.toLowerCase();const rows=q?_allRows.filter(r=>_cols.some(c=>String(r[c]||'').toLowerCase().includes(q))):_allRows;const lines=[_cols.join(',')].concat(rows.map(r=>_cols.map(c=>JSON.stringify(r[c]??'')).join(',')));const blob=new Blob([lines.join('\\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(_key||'report')+'_'+ENV+'.csv';a.click();}
+function exportCsv(){if(!_allRows.length)return;const q=document.getElementById('rowFilter').value.toLowerCase();const rows=q?_allRows.filter(r=>_cols.some(c=>String(r[c]||'').toLowerCase().includes(q))):_allRows;const lines=[_cols.join(',')].concat(rows.map(r=>_cols.map(c=>JSON.stringify(r[c]??'')).join(',')));const blob=new Blob([lines.join('\\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(_key||'report')+'_'+ENV_VAL()+'.csv';a.click();}
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = loadCatalog;
+document.addEventListener('deathstar:envchange', loadCatalog);
+
 loadCatalog();
 </script>""")
 
 
 @router.get("/impact", response_class=HTMLResponse)
 def admin_impact():
-    return _shell("Impact Forecasting", "impact", noscroll=False, content="""\
+    return _shell("Impact Forecasting", "impact", noscroll=False, env=False, content="""\
 <style>
 *{box-sizing:border-box;}
 .ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}
@@ -256,6 +263,15 @@ tr:hover td{background:rgba(0,229,255,.04);}
 .bar-fill{height:100%;background:#00e5ff;border-radius:2px;}
 .spinner{display:none;color:#00e5ff;font-size:11px;margin-left:8px;}
 .spinner.on{display:inline;}
+.imp-search-wrap{position:relative;display:inline-block}
+.imp-suggest{position:absolute;top:100%;left:0;right:0;z-index:20;margin-top:2px;
+  background:#0b1b24;border:1px solid #00e5ff44;border-radius:4px;max-height:260px;overflow-y:auto;
+  box-shadow:0 6px 18px rgba(0,0,0,.4)}
+.imp-suggest-item{padding:6px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #0e2030}
+.imp-suggest-item:last-child{border-bottom:none}
+.imp-suggest-item:hover,.imp-suggest-item.hi{background:rgba(0,229,255,.1)}
+.imp-suggest-name{font-family:monospace;color:#d7faff}
+.imp-suggest-descr{color:#7faab2;font-size:10px;margin-top:1px}
 </style>
 <div style="padding:16px;">
 
@@ -275,8 +291,12 @@ tr:hover td{background:rgba(0,229,255,.04);}
 <div class="section-head">Project Impact Analysis (KG-based)</div>
 <div class="ctrl">
   <label style="font-size:11px;color:#7faab2">Env</label>
-  <select id="impEnv"></select>
-  <input id="impProject" type="text" placeholder="Project name (e.g. GPIT_HR92_OBJECTS)" onkeydown="if(event.key==='Enter')runImpact()">
+  <select id="impEnv" onchange="onImpEnvChange()"></select>
+  <div class="imp-search-wrap">
+    <input id="impProject" type="text" placeholder="Search project name…" autocomplete="off"
+      oninput="onImpProjInput()" onkeydown="onImpProjKeydown(event)" onblur="setTimeout(hideImpSuggest,150)">
+    <div id="impSuggest" class="imp-suggest" style="display:none"></div>
+  </div>
   <button onclick="runImpact()">Analyze Impact</button>
   <span class="spinner" id="impSpinner">&#9679;&#9679;&#9679;</span>
 </div>
@@ -285,6 +305,22 @@ tr:hover td{background:rgba(0,229,255,.04);}
 <script>
 const $ = id => document.getElementById(id);
 function esc(s){return String(s==null?'\u2014':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// A non-2xx response isn't guaranteed to be JSON (a reverse proxy or an
+// unhandled server crash can return a plain-text "Internal Server Error"
+// page instead), so guard the parse instead of letting JSON.parse throw a
+// SyntaxError that hides the real status/body from the user.
+async function fetchJson(url){
+  const r=await fetch(url);
+  const text=await r.text();
+  if(!r.ok){
+    let msg=text;
+    try{ const j=JSON.parse(text); msg=j.error||j.detail||text; }catch(_){/* not JSON */}
+    throw new Error(`HTTP ${r.status}: ${msg.slice(0,300)}`);
+  }
+  try{ return JSON.parse(text); }
+  catch(_){ throw new Error(`Server returned non-JSON response: ${text.slice(0,300)}`); }
+}
 
 function riskCls(label){
   const m={None:'risk-low',Low:'risk-low',Medium:'risk-medium',High:'risk-high',Critical:'risk-critical'};
@@ -297,8 +333,7 @@ async function runRisk(){
   $('riskSpinner').classList.add('on');
   $('riskResult').innerHTML='';
   try{
-    const r=await fetch(`/api/impact/risk?env1=${e1}&env2=${e2}`);
-    const d=await r.json();
+    const d=await fetchJson(`/api/impact/risk?env1=${encodeURIComponent(e1)}&env2=${encodeURIComponent(e2)}`);
     $('riskSpinner').classList.remove('on');
     renderRisk(d);
   }catch(e){
@@ -340,16 +375,86 @@ function renderRisk(d){
   $('riskResult').innerHTML=h;
 }
 
-// --- Project Impact ---
+// --- Project Impact: search-as-you-type against PSPROJECTDEFN ---
+let _impSuggestTimer=null, _impSuggestIdx=-1, _impSuggestItems=[];
+
+function hideImpSuggest(){
+  $('impSuggest').style.display='none';
+  _impSuggestItems=[]; _impSuggestIdx=-1;
+}
+
+function onImpEnvChange(){
+  $('impProject').value='';
+  hideImpSuggest();
+}
+
+function onImpProjInput(){
+  clearTimeout(_impSuggestTimer);
+  const q=($('impProject').value||'').trim();
+  if(!q){hideImpSuggest();return;}
+  _impSuggestTimer=setTimeout(()=>loadImpSuggestions(q),200);
+}
+
+async function loadImpSuggestions(q){
+  const env=$('impEnv').value;
+  let rows=[];
+  try{
+    const r=await fetch('/api/sqlws/execute',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        sql:"SELECT PROJECTNAME, PROJECTDESCR FROM SYSADM.PSPROJECTDEFN WHERE UPPER(PROJECTNAME) LIKE UPPER(:q)||'%' ORDER BY PROJECTNAME FETCH FIRST 20 ROWS ONLY",
+        env, binds:{q}, max_rows:20})});
+    const d=await r.json();
+    rows=d.rows||[];
+  }catch(_){rows=[];}
+  _impSuggestItems=rows.map(row=>({
+    name: row.PROJECTNAME??row.projectname??'',
+    descr: row.PROJECTDESCR??row.projectdescr??'',
+  }));
+  _impSuggestIdx=-1;
+  const box=$('impSuggest');
+  if(!_impSuggestItems.length){box.style.display='none';return;}
+  box.innerHTML=_impSuggestItems.map((it,i)=>
+    `<div class="imp-suggest-item" data-i="${i}" onmousedown="pickImpSuggestion(${i})">
+       <div class="imp-suggest-name">${esc(it.name)}</div>
+       ${it.descr&&it.descr.trim()?`<div class="imp-suggest-descr">${esc(it.descr.trim())}</div>`:''}
+     </div>`).join('');
+  box.style.display='block';
+}
+
+function pickImpSuggestion(i){
+  const it=_impSuggestItems[i];
+  if(!it)return;
+  $('impProject').value=it.name;
+  hideImpSuggest();
+  runImpact();
+}
+
+function onImpProjKeydown(event){
+  if(event.key==='Enter'){
+    if(_impSuggestIdx>=0&&_impSuggestItems[_impSuggestIdx]){pickImpSuggestion(_impSuggestIdx);}
+    else{hideImpSuggest();runImpact();}
+    return;
+  }
+  if(!_impSuggestItems.length)return;
+  if(event.key==='ArrowDown'){event.preventDefault();_impSuggestIdx=Math.min(_impSuggestIdx+1,_impSuggestItems.length-1);highlightImpSuggest();}
+  else if(event.key==='ArrowUp'){event.preventDefault();_impSuggestIdx=Math.max(_impSuggestIdx-1,0);highlightImpSuggest();}
+  else if(event.key==='Escape'){hideImpSuggest();}
+}
+
+function highlightImpSuggest(){
+  document.querySelectorAll('.imp-suggest-item').forEach((el,i)=>el.classList.toggle('hi',i===_impSuggestIdx));
+}
+
 async function runImpact(){
   const env=$('impEnv').value;
   const proj=($('impProject').value||'').trim().toUpperCase();
   if(!proj)return;
+  hideImpSuggest();
   $('impSpinner').classList.add('on');
   $('impResult').innerHTML='';
   try{
-    const r=await fetch(`/api/impact/project?env=${env}&project=${encodeURIComponent(proj)}`);
-    const d=await r.json();
+    const d=await fetchJson(`/api/impact/project?env=${encodeURIComponent(env)}&project=${encodeURIComponent(proj)}`);
     $('impSpinner').classList.remove('on');
     renderImpact(d);
   }catch(e){

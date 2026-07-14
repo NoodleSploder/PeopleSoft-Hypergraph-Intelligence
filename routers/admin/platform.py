@@ -62,7 +62,7 @@ a{color:#00e5ff;text-decoration:none} a:hover{text-decoration:underline}
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 const SEV_CHIP = {'0':['chip-info','Message'],'1':['chip-warn','Warning'],'2':['chip-error','Error'],'3':['chip-crit','Cancel']};
 
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
@@ -74,7 +74,7 @@ function sevChip(sev) {
 }
 
 async function loadSets() {
-  const d = await api(`/api/peoplesoft/message-sets?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/message-sets?env=${ENV_VAL()}`);
   if (!d) return;
   const sel = document.getElementById('mcSet');
   (d.items || []).forEach(s => {
@@ -93,7 +93,7 @@ async function doSearch() {
   const sev = document.getElementById('mcSeverity').value;
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 200});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 200});
   if (q) params.set('q', q);
   if (setNbr) params.set('set_nbr', setNbr);
   if (sev !== '') params.set('severity', sev);
@@ -136,15 +136,23 @@ function selectMsg(idx) {
 }
 
 loadSets();
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
+
 doSearch();
 </script>""")
 
 
 @router.get("/prcsdefn")
 def admin_prcsdefn(request: Request):
-    nav = _nav_html("prcsdefn", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("prcsdefn")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script><title>Process Definitions</title>
 {_NAV_CSS}
 <style>
@@ -179,6 +187,13 @@ h2{{color:#aa66ff;font-size:12px;font-weight:700;letter-spacing:.08em;text-trans
 </style></head>
 <body>
 {nav}
+<div class="ds-page-hdr">
+  <span class="ds-page-title">Process Definitions</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
 <div class="shell">
   <div class="sidebar">
     <div class="filters">
@@ -300,6 +315,18 @@ async function selectItem(idx, key) {{
   detail.innerHTML = html;
 }}
 
+// The global shell's ENV_VAL() selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only read ENVVAL() lazily per-request but never re-ran the search, so
+// switching environments silently left the prior env's list on screen.
+function reload() {{
+  _sel = -1;
+  document.getElementById('detail').innerHTML = '<div class="muted">Select a process definition.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
+
 doSearch();
 </script>
 </body></html>""")
@@ -307,9 +334,10 @@ doSearch();
 
 @router.get("/filelayout")
 def admin_filelayout(request: Request):
-    nav = _nav_html("filelayout", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("filelayout")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script><title>File Layouts</title>
 {_NAV_CSS}
 <style>
@@ -345,6 +373,13 @@ h2{{color:#44aaff;font-size:12px;font-weight:700;letter-spacing:.08em;text-trans
 </style></head>
 <body>
 {nav}
+<div class="ds-page-hdr">
+  <span class="ds-page-title">File Layouts</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
 <div class="shell">
   <div class="sidebar">
     <div class="filters">
@@ -456,6 +491,17 @@ async function selectItem(idx, name) {{
   detail.innerHTML = html;
 }}
 
+// The global shell's ENV_VAL() selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only read ENVVAL() lazily per-request but never re-ran the search, so
+// switching environments silently left the prior env's list on screen.
+function reload() {{
+  document.getElementById('detail').innerHTML = '<div class="muted">Select a file layout.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
+
 doSearch();
 </script>
 </body></html>""")
@@ -463,9 +509,10 @@ doSearch();
 
 @router.get("/xlat")
 def admin_xlat(request: Request):
-    nav = _nav_html("xlat", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("xlat")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script><title>Translate Values</title>
 {_NAV_CSS}
 <style>
@@ -497,6 +544,13 @@ h2{{color:#ddcc00;font-size:12px;font-weight:700;letter-spacing:.08em;text-trans
 </style></head>
 <body>
 {nav}
+<div class="ds-page-hdr">
+  <span class="ds-page-title">Translate Values</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
 <div class="shell">
   <div class="sidebar">
     <div class="filters">
@@ -578,6 +632,17 @@ async function selectItem(idx, name) {{
   detail.innerHTML = html;
 }}
 
+// The global shell's ENV_VAL() selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only read ENVVAL() lazily per-request but never re-ran the search, so
+// switching environments silently left the prior env's list on screen.
+function reload() {{
+  document.getElementById('detail').innerHTML = '<div class="muted">Select a field to see its translate values.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
+
 doSearch();
 </script>
 </body></html>""")
@@ -585,9 +650,10 @@ doSearch();
 
 @router.get("/project")
 def admin_project(request: Request):
-    nav = _nav_html("project", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("project")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script><title>App Designer Projects</title>
 {_NAV_CSS}
 <style>
@@ -622,6 +688,13 @@ h2{{color:#55ee55;font-size:12px;font-weight:700;letter-spacing:.08em;text-trans
 </style></head>
 <body>
 {nav}
+<div class="ds-page-hdr">
+  <span class="ds-page-title">App Designer Projects</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
 <div class="shell">
   <div class="sidebar">
     <div class="filters">
@@ -725,6 +798,17 @@ async function selectItem(idx, name) {{
   detail.innerHTML = html;
 }}
 
+// The global shell's ENV_VAL() selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only read ENVVAL() lazily per-request but never re-ran the search, so
+// switching environments silently left the prior env's list on screen.
+function reload() {{
+  document.getElementById('detail').innerHTML = '<div class="muted">Select a project.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
+
 doSearch();
 </script>
 </body></html>""")
@@ -732,15 +816,23 @@ doSearch();
 
 @router.get("/ptftest", response_class=HTMLResponse)
 def admin_ptftest(request: Request):
-    nav = _nav_html("ptftest", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("ptftest")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>PTF Tests</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
-<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">PTF Tests</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 90px)">
 <div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
   <div style="margin-bottom:6px;display:flex;gap:6px">
     <input id="q" placeholder="Search test name or description…" oninput="doSearch()"
@@ -853,6 +945,18 @@ async function loadDetail(name) {{
   detail.innerHTML = html;
 }}
 
+// The global shell's ENV_VAL() selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only read ENVVAL() lazily per-request but never re-ran the search, so
+// switching environments silently left the prior env's list on screen.
+function reload() {{
+  selected = null;
+  document.getElementById('detail').innerHTML = '<div class="muted">Select a PTF test to view its cases and commands.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
+
 doSearch();
 </script>
 </body></html>""")
@@ -860,15 +964,23 @@ doSearch();
 
 @router.get("/archobj", response_class=HTMLResponse)
 def admin_archobj(request: Request):
-    nav = _nav_html("archobj", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("archobj")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>Archive Objects</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 </head><body class="ds-body">
 {nav}
-<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 48px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">Archive Objects</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div class="ds-main" style="display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 90px)">
 <div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:12px 8px">
   <div style="margin-bottom:6px;display:flex;gap:6px">
     <input id="q" placeholder="Search archive object name or description…" oninput="doSearch()"
@@ -954,6 +1066,18 @@ async function loadDetail(name) {{
   `;
 }}
 
+// The global shell's ENV_VAL() selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only read ENVVAL() lazily per-request but never re-ran the search, so
+// switching environments silently left the prior env's list on screen.
+function reload() {{
+  selected = null;
+  document.getElementById('detail').innerHTML = '<div class="muted">Select a Data Archive Object to view its source and history record mapping.</div>';
+  doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
+
 doSearch();
 </script>
 </body></html>""")
@@ -1004,7 +1128,7 @@ button{background:#4499ee;border:none;padding:5px 12px;cursor:pointer;font-size:
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 let _rows = [];
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -1021,7 +1145,7 @@ async function doSearch() {
   const q = document.getElementById('q').value.trim();
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 200});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 200});
   if (q) params.set('q', q);
   const d = await api('/api/peoplesoft/timezones?' + params);
   if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
@@ -1050,7 +1174,7 @@ async function selectTz(idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api('/api/peoplesoft/object/timezone/' + encodeURIComponent(r.timezone) + '?env=' + ENV);
+  const d = await api('/api/peoplesoft/object/timezone/' + encodeURIComponent(r.timezone) + '?env=' + ENV_VAL());
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const sections = d.sections || [];
@@ -1087,6 +1211,13 @@ async function selectTz(idx) {
   if (ianaSec) html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">' + esc(ianaSec.title) + '</h3>' + chipList(ianaSec);
   detail.innerHTML = html;
 }
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
 
 doSearch();
 </script>""")
@@ -1130,7 +1261,7 @@ button{background:#55cc55;border:none;padding:5px 12px;cursor:pointer;font-size:
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 let _rows = [];
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -1139,7 +1270,7 @@ async function doSearch() {
   const q = document.getElementById('q').value.trim();
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 250});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 250});
   if (q) params.set('q', q);
   const d = await api('/api/peoplesoft/locales?' + params);
   if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
@@ -1166,7 +1297,7 @@ async function selectLocale(idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api('/api/peoplesoft/object/locale/' + encodeURIComponent(r.localecd) + '?env=' + ENV);
+  const d = await api('/api/peoplesoft/object/locale/' + encodeURIComponent(r.localecd) + '?env=' + ENV_VAL());
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const sections = d.sections || [];
@@ -1192,16 +1323,24 @@ async function selectLocale(idx) {
   detail.innerHTML = html;
 }
 
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
+
 doSearch();
 </script>""")
 
 
 @router.get("/ae", response_class=HTMLResponse)
 def admin_ae(request: Request):
-    nav = _nav_html("ae", '<select class="ds-env-sel" id="globalEnv" style="background:transparent;color:#00e5ff;border:1px solid rgba(0,229,255,.3);border-radius:3px;font-size:11px;padding:2px 6px"></select>')
+    nav = _nav_html("ae")
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><head><title>AE Programs</title>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/static/app.css?v=2">
 <script src="/static/app.js?v=2"></script>
 {_NAV_CSS}
 <style>
@@ -1241,7 +1380,14 @@ table.plain tr:hover td{{background:#0a1520}}
 </style>
 </head><body class="ds-body">
 {nav}
-<div style="display:grid;grid-template-columns:360px 1fr;gap:0;height:calc(100vh - 48px)">
+<div class="ds-page-hdr">
+  <span class="ds-page-title">AE Programs</span>
+  <div class="ds-env">
+    <span class="ds-env-lbl">Env</span>
+    <select class="ds-env-sel" id="globalEnv"></select>
+  </div>
+</div>
+<div style="display:grid;grid-template-columns:360px 1fr;gap:0;height:calc(100vh - 90px)">
 <div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:10px 8px;display:flex;flex-direction:column;gap:6px">
   <input id="q" placeholder="Search AE program or description…" oninput="doSearch()"
     style="background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 10px;border-radius:4px;font-size:13px;width:100%">
@@ -1486,6 +1632,17 @@ function setTab(name, el) {{
   const q = params.get('q');
   if (q) {{ document.getElementById('q').value = q; doSearch(); }}
 }})();
+
+// The global shell's ENV_VAL() selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// only read ENVVAL() lazily per-request but never re-ran the search, so
+// switching environments silently left the prior env's results on screen.
+function reload() {{
+  document.getElementById('detail').innerHTML = '<div class="muted">Select an Application Engine program.</div>';
+  if (document.getElementById('q').value.trim()) doSearch();
+}}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
 </script>
 </body></html>""")
 
@@ -1899,9 +2056,9 @@ function setTab(name, el) {{
   }}
 }})();
 
-// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// The global shell's ENV_VAL() selector (app.js) calls window.onEnvChange(v) when
 // present and always dispatches a 'deathstar:envchange' event — this page
-// only captured ENV once at load into a const, so switching environments
+// only captured ENV_VAL() once at load into a const, so switching environments
 // silently left the prior env's rail list and detail panel on screen.
 function reload() {{
   document.getElementById('detail-panel').innerHTML =
@@ -2215,9 +2372,9 @@ function setTab(name, el, pageName) {{
   }}
 }})();
 
-// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// The global shell's ENV_VAL() selector (app.js) calls window.onEnvChange(v) when
 // present and always dispatches a 'deathstar:envchange' event — this page
-// only captured ENV once at load into a const, so switching environments
+// only captured ENV_VAL() once at load into a const, so switching environments
 // silently left the prior env's rail list and detail panel on screen.
 function reload() {{
   document.getElementById('detail-panel').innerHTML =
@@ -2298,32 +2455,32 @@ tr:hover td{{background:rgba(0,229,255,.03)}}
 </div>
 <script>
 {_ESC_JS}
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO');
-document.getElementById('envLbl').textContent = ENV;
+function ENV_VAL() {{ return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HRDMO'); }}
+document.getElementById('envLbl').textContent = ENV_VAL();
 window.addEventListener('deathstar:envchange', e => {{ document.getElementById('envLbl').textContent = e.detail.env; }});
 
 // Object type config — sql aliases must be N/D/DT/OP (Oracle uppercases them)
 const TS = `TO_TIMESTAMP(:since, 'YYYY-MM-DD HH24:MI:SS')`;
 const TYPES = [
-  {{ id:'record',     label:'Records',     color:'#00e5ff', sql:`SELECT recname n, recdescr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSRECDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                               link: n => `/admin/record/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
-  {{ id:'component',  label:'Components',  color:'#44aaff', sql:`SELECT pnlgrpname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPNLGRPDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                          link: n => `/admin/component?name=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
-  {{ id:'page',       label:'Pages',       color:'#8888ff', sql:`SELECT pnlname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPNLDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                link: n => `/admin/page?name=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
-  {{ id:'ae',         label:'AE Programs', color:'#22cc88', sql:`SELECT ae_applid n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSAEAPPLDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                           link: n => `/admin/ae?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
-  {{ id:'field',      label:'Fields',      color:'#22ddcc', sql:`SELECT fieldname n, '' d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSDBFIELD WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                  link: n => `/admin/field/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
-  {{ id:'peoplecode', label:'PeopleCode',  color:'#aa66ff', sql:`SELECT objectvalue1||'.'||objectvalue2||'.'||objectvalue3||'.'||objectvalue4||'.'||objectvalue5 n, '' d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPCMPROG WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`, link: n => `/admin/peoplecode/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
-  {{ id:'sql',        label:'SQL Defs',    color:'#4488ff', sql:`SELECT sqlid n, '' d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSSQLDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                      link: n => `/admin/object/sql_definition/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
-  {{ id:'permlist',   label:'Perm Lists',  color:'#ff9900', sql:`SELECT classid n, classdefndesc d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSCLASSDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                       link: n => `/admin/permissionlist/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
-  {{ id:'role',       label:'Roles',       color:'#ffaa22', sql:`SELECT rolename n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSROLEDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                               link: n => `/admin/role/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
-  {{ id:'menu',       label:'Menus',       color:'#cc8800', sql:`SELECT menuname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSMENUDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                link: n => `/admin/menu?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
-  {{ id:'query',      label:'Queries',     color:'#00bbdd', sql:`SELECT qryname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSQRYDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                  link: n => `/admin/query?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
-  {{ id:'project',    label:'Projects',    color:'#55ee55', sql:`SELECT projectname n, descrlong d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPROJECTDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                     link: n => `/admin/object/project/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
-  {{ id:'prcsdefn',   label:'Processes',   color:'#bb77ff', sql:`SELECT prcsname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PS_PRCSDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                               link: n => `/admin/prcsdefn?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
-  {{ id:'package',    label:'App Packages',color:'#cc44ee', sql:`SELECT packageroot n, '' d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPACKAGEDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                             link: n => `/admin/object/application_package/${{encodeURIComponent(n)}}?env=${{ENV}}` }},
-  {{ id:'ibmsg',      label:'IB Messages', color:'#dd44aa', sql:`SELECT msgname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSMSGDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                  link: n => `/admin/ibmessage?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
-  {{ id:'ibrtng',     label:'IB Routings', color:'#00aabb', sql:`SELECT routingdefnname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSIBRTNGDEFN WHERE routingdefnname NOT LIKE '~%' AND lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                    link: n => `/admin/ibrtng?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
-  {{ id:'tree',       label:'Trees',       color:'#00bb66', sql:`SELECT tree_name n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSTREEDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                               link: n => `/admin/tree?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
-  {{ id:'xlat',       label:'Translate',   color:'#ddcc00', sql:`SELECT fieldname n, MAX(xlatlongname) d, MAX(lastupddttm) dt, MAX(lastupdoprid) op FROM SYSADM.PSXLATITEM WHERE lastupddttm >= ${{TS}} GROUP BY fieldname ORDER BY MAX(lastupddttm) DESC`,                link: n => `/admin/xlat?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
-  {{ id:'ci',         label:'Comp Intfs',  color:'#00cccc', sql:`SELECT bcname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSBCDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                    link: n => `/admin/ci?q=${{encodeURIComponent(n)}}&env=${{ENV}}` }},
+  {{ id:'record',     label:'Records',     color:'#00e5ff', sql:`SELECT recname n, recdescr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSRECDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                               link: n => `/admin/record/${{encodeURIComponent(n)}}?env=${{ENV_VAL()}}` }},
+  {{ id:'component',  label:'Components',  color:'#44aaff', sql:`SELECT pnlgrpname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPNLGRPDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                          link: n => `/admin/component?name=${{encodeURIComponent(n)}}&env=${{ENV_VAL()}}` }},
+  {{ id:'page',       label:'Pages',       color:'#8888ff', sql:`SELECT pnlname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPNLDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                link: n => `/admin/page?name=${{encodeURIComponent(n)}}&env=${{ENV_VAL()}}` }},
+  {{ id:'ae',         label:'AE Programs', color:'#22cc88', sql:`SELECT ae_applid n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSAEAPPLDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                           link: n => `/admin/ae?q=${{encodeURIComponent(n)}}&env=${{ENV_VAL()}}` }},
+  {{ id:'field',      label:'Fields',      color:'#22ddcc', sql:`SELECT fieldname n, '' d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSDBFIELD WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                  link: n => `/admin/field/${{encodeURIComponent(n)}}?env=${{ENV_VAL()}}` }},
+  {{ id:'peoplecode', label:'PeopleCode',  color:'#aa66ff', sql:`SELECT objectvalue1||'.'||objectvalue2||'.'||objectvalue3||'.'||objectvalue4||'.'||objectvalue5 n, '' d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPCMPROG WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`, link: n => `/admin/peoplecode/${{encodeURIComponent(n)}}?env=${{ENV_VAL()}}` }},
+  {{ id:'sql',        label:'SQL Defs',    color:'#4488ff', sql:`SELECT sqlid n, '' d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSSQLDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                      link: n => `/admin/object/sql_definition/${{encodeURIComponent(n)}}?env=${{ENV_VAL()}}` }},
+  {{ id:'permlist',   label:'Perm Lists',  color:'#ff9900', sql:`SELECT classid n, classdefndesc d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSCLASSDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                       link: n => `/admin/permissionlist/${{encodeURIComponent(n)}}?env=${{ENV_VAL()}}` }},
+  {{ id:'role',       label:'Roles',       color:'#ffaa22', sql:`SELECT rolename n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSROLEDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                               link: n => `/admin/role/${{encodeURIComponent(n)}}?env=${{ENV_VAL()}}` }},
+  {{ id:'menu',       label:'Menus',       color:'#cc8800', sql:`SELECT menuname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSMENUDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                link: n => `/admin/menu?q=${{encodeURIComponent(n)}}&env=${{ENV_VAL()}}` }},
+  {{ id:'query',      label:'Queries',     color:'#00bbdd', sql:`SELECT qryname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSQRYDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                  link: n => `/admin/query?q=${{encodeURIComponent(n)}}&env=${{ENV_VAL()}}` }},
+  {{ id:'project',    label:'Projects',    color:'#55ee55', sql:`SELECT projectname n, descrlong d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPROJECTDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                     link: n => `/admin/object/project/${{encodeURIComponent(n)}}?env=${{ENV_VAL()}}` }},
+  {{ id:'prcsdefn',   label:'Processes',   color:'#bb77ff', sql:`SELECT prcsname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PS_PRCSDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                               link: n => `/admin/prcsdefn?q=${{encodeURIComponent(n)}}&env=${{ENV_VAL()}}` }},
+  {{ id:'package',    label:'App Packages',color:'#cc44ee', sql:`SELECT packageroot n, '' d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSPACKAGEDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                             link: n => `/admin/object/application_package/${{encodeURIComponent(n)}}?env=${{ENV_VAL()}}` }},
+  {{ id:'ibmsg',      label:'IB Messages', color:'#dd44aa', sql:`SELECT msgname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSMSGDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                  link: n => `/admin/ibmessage?q=${{encodeURIComponent(n)}}&env=${{ENV_VAL()}}` }},
+  {{ id:'ibrtng',     label:'IB Routings', color:'#00aabb', sql:`SELECT routingdefnname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSIBRTNGDEFN WHERE routingdefnname NOT LIKE '~%' AND lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                    link: n => `/admin/ibrtng?q=${{encodeURIComponent(n)}}&env=${{ENV_VAL()}}` }},
+  {{ id:'tree',       label:'Trees',       color:'#00bb66', sql:`SELECT tree_name n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSTREEDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                               link: n => `/admin/tree?q=${{encodeURIComponent(n)}}&env=${{ENV_VAL()}}` }},
+  {{ id:'xlat',       label:'Translate',   color:'#ddcc00', sql:`SELECT fieldname n, MAX(xlatlongname) d, MAX(lastupddttm) dt, MAX(lastupdoprid) op FROM SYSADM.PSXLATITEM WHERE lastupddttm >= ${{TS}} GROUP BY fieldname ORDER BY MAX(lastupddttm) DESC`,                link: n => `/admin/xlat?q=${{encodeURIComponent(n)}}&env=${{ENV_VAL()}}` }},
+  {{ id:'ci',         label:'Comp Intfs',  color:'#00cccc', sql:`SELECT bcname n, descr d, lastupddttm dt, lastupdoprid op FROM SYSADM.PSBCDEFN WHERE lastupddttm >= ${{TS}} ORDER BY lastupddttm DESC`,                                                                    link: n => `/admin/ci?q=${{encodeURIComponent(n)}}&env=${{ENV_VAL()}}` }},
 ];
 
 let activeTypes = new Set(TYPES.map(t => t.id));
@@ -2361,7 +2518,7 @@ async function execSQL(sql, since) {{
       method: 'POST',
       headers: {{'Content-Type': 'application/json'}},
       body: JSON.stringify({{
-        env: ENV,
+        env: ENV_VAL(),
         sql: sql,
         binds: {{since: since + ' 00:00:00'}},
         max_rows: 500,
@@ -2502,6 +2659,13 @@ function toggleSec(id) {{
 document.getElementById('sinceDate').value = isoDate(7);
 
 // Auto-run on load
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = runAll;
+document.addEventListener('deathstar:envchange', runAll);
+
 runAll();
 </script>
 </body></html>""")
@@ -2550,11 +2714,23 @@ def admin_riskanalysis():
 .ra-warn{background:rgba(255,180,0,.1);border:1px solid #ffc00040;border-radius:4px;
   color:#ffc44d;font-size:11px;padding:8px 12px;margin-bottom:10px}
 .ra-progress{font-size:11px;color:#7faab2}
+.ra-search-wrap{position:relative}
+.ra-suggest{position:absolute;top:100%;left:0;right:0;z-index:20;margin-top:2px;
+  background:#0a1520;border:1px solid #1a3a5a;border-radius:4px;max-height:260px;overflow-y:auto;
+  box-shadow:0 6px 18px rgba(0,0,0,.4)}
+.ra-suggest-item{padding:6px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #10202e}
+.ra-suggest-item:last-child{border-bottom:none}
+.ra-suggest-item:hover,.ra-suggest-item.hi{background:rgba(0,229,255,.1)}
+.ra-suggest-name{font-family:monospace;color:#c8d8e8}
+.ra-suggest-descr{color:#7faab2;font-size:10px;margin-top:1px}
 </style>
 
 <div class="ra-toolbar">
-  <input class="ra-inp" id="projInput" placeholder="Project name e.g. PATCH862"
-    onkeydown="if(event.key==='Enter')analyze()">
+  <div class="ra-search-wrap">
+    <input class="ra-inp" id="projInput" placeholder="Search project name e.g. PATCH862" autocomplete="off"
+      oninput="onProjInput()" onkeydown="onProjKeydown(event)" onblur="setTimeout(hideSuggest,150)">
+    <div id="projSuggest" class="ra-suggest" style="display:none"></div>
+  </div>
   <button class="ra-btn" onclick="analyze()">Analyze Risk</button>
   <span id="raStatus" class="ra-progress"></span>
 </div>
@@ -2577,31 +2753,88 @@ function pick(r,...ks){for(const k of ks){const v=r[k]??r[k.toLowerCase()]??r[k.
 
 let _env=()=>(document.getElementById('globalEnv')||{}).value||'HCM';
 
-async function sqlx(sql){
+async function sqlx(sql,binds){
   const r=await fetch('/api/sqlws/execute',{method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({sql,env:_env(),binds:{},max_rows:500})});
+    body:JSON.stringify({sql,env:_env(),binds:binds||{},max_rows:500})});
   const d=await r.json();
   return d.rows||[];
 }
 
 function setStatus(msg){document.getElementById('raStatus').textContent=msg}
 
+// ── Project search-as-you-type ──────────────────────────────────────
+let _suggestTimer=null, _suggestIdx=-1, _suggestItems=[];
+
+function hideSuggest(){
+  document.getElementById('projSuggest').style.display='none';
+  _suggestItems=[]; _suggestIdx=-1;
+}
+
+function onProjInput(){
+  clearTimeout(_suggestTimer);
+  const q=(document.getElementById('projInput').value||'').trim();
+  if(!q){hideSuggest();return;}
+  _suggestTimer=setTimeout(()=>loadSuggestions(q),200);
+}
+
+async function loadSuggestions(q){
+  const rows=await sqlx(
+    "SELECT PROJECTNAME, PROJECTDESCR FROM SYSADM.PSPROJECTDEFN WHERE UPPER(PROJECTNAME) LIKE UPPER(:q)||'%' ORDER BY PROJECTNAME FETCH FIRST 20 ROWS ONLY",
+    {q}
+  );
+  _suggestItems=rows.map(r=>({name:pick(r,'PROJECTNAME','projectname'),descr:pick(r,'PROJECTDESCR','projectdescr')}));
+  _suggestIdx=-1;
+  const box=document.getElementById('projSuggest');
+  if(!_suggestItems.length){box.style.display='none';return;}
+  box.innerHTML=_suggestItems.map((it,i)=>
+    `<div class="ra-suggest-item" data-i="${i}" onmousedown="pickSuggestion(${i})">
+       <div class="ra-suggest-name">${esc(it.name)}</div>
+       ${it.descr&&it.descr.trim()?`<div class="ra-suggest-descr">${esc(it.descr.trim())}</div>`:''}
+     </div>`).join('');
+  box.style.display='block';
+}
+
+function pickSuggestion(i){
+  const it=_suggestItems[i];
+  if(!it)return;
+  document.getElementById('projInput').value=it.name;
+  hideSuggest();
+  analyze();
+}
+
+function onProjKeydown(event){
+  if(event.key==='Enter'){
+    if(_suggestIdx>=0&&_suggestItems[_suggestIdx]){pickSuggestion(_suggestIdx);}
+    else{hideSuggest();analyze();}
+    return;
+  }
+  if(!_suggestItems.length)return;
+  if(event.key==='ArrowDown'){event.preventDefault();_suggestIdx=Math.min(_suggestIdx+1,_suggestItems.length-1);highlightSuggest();}
+  else if(event.key==='ArrowUp'){event.preventDefault();_suggestIdx=Math.max(_suggestIdx-1,0);highlightSuggest();}
+  else if(event.key==='Escape'){hideSuggest();}
+}
+
+function highlightSuggest(){
+  document.querySelectorAll('.ra-suggest-item').forEach((el,i)=>el.classList.toggle('hi',i===_suggestIdx));
+}
+
 async function analyze(){
   const proj=(document.getElementById('projInput').value||'').trim().toUpperCase();
   if(!proj)return;
+  hideSuggest();
   setStatus('Loading project items…');
   const body=document.getElementById('raBody');
   body.innerHTML='<div class="ra-none">Analyzing…</div>';
 
   // Step 1: Load project definition
-  const defnRows=await sqlx(`SELECT PROJECTNAME, DESCRLONG, LASTUPDDTTM, LASTUPDOPRID FROM SYSADM.PSPROJECTDEFN WHERE PROJECTNAME='${proj}'`);
+  const defnRows=await sqlx('SELECT PROJECTNAME, DESCRLONG, LASTUPDDTTM, LASTUPDOPRID FROM SYSADM.PSPROJECTDEFN WHERE PROJECTNAME=:proj',{proj});
   if(!defnRows.length){body.innerHTML='<div class="ra-none">Project not found: '+esc(proj)+'</div>';setStatus('');return;}
   const defn=defnRows[0];
 
   // Step 2: Load items grouped by type
   setStatus('Loading items…');
-  const itemRows=await sqlx(`SELECT OBJECTTYPE, OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3, OBJECTVALUE4, UPGRADEACTION FROM SYSADM.PSPROJECTITEM WHERE PROJECTNAME='${proj}' ORDER BY OBJECTTYPE, OBJECTVALUE1`);
+  const itemRows=await sqlx('SELECT OBJECTTYPE, OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3, OBJECTVALUE4, UPGRADEACTION FROM SYSADM.PSPROJECTITEM WHERE PROJECTNAME=:proj ORDER BY OBJECTTYPE, OBJECTVALUE1',{proj});
 
   // Group by type
   const byType={};

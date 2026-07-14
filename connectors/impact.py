@@ -85,7 +85,16 @@ def env_risk(env1: str, env2: str) -> dict:
     risk_score = 0
     for item in snap_rows:
         obj_type = item.get("type", "")
-        delta = item.get("delta", 0)
+        # .get(key, 0) only substitutes when the key is missing — a stored
+        # NULL/None delta (e.g. a type that wasn't comparable across two
+        # different pillars like HCM vs FSCM) still comes back as None and
+        # crashes abs() in _delta_level(). Treat None the same as missing.
+        delta = item.get("delta")
+        delta = delta if delta is not None else 0
+        env1_count = item.get("env1_count")
+        env1_count = env1_count if env1_count is not None else 0
+        env2_count = item.get("env2_count")
+        env2_count = env2_count if env2_count is not None else 0
         level = _delta_level(delta)
         weight = _TYPE_RISK_WEIGHT.get(obj_type, 1)
         contribution = weight * level
@@ -93,8 +102,8 @@ def env_risk(env1: str, env2: str) -> dict:
         type_risks.append({
             "type":        obj_type,
             "delta":       delta,
-            "env1_count":  item.get("env1_count", 0),
-            "env2_count":  item.get("env2_count", 0),
+            "env1_count":  env1_count,
+            "env2_count":  env2_count,
             "weight":      weight,
             "drift_level": _LEVEL_LABELS[level],
             "contribution": contribution,

@@ -645,7 +645,8 @@ async function loadKgRecords() {
   if (!fn) { $('kgRecContent').innerHTML = '<span style="color:#4a6a7a">No program loaded</span>'; return; }
   const nodeId = 'sqr_program:' + fn;
   try {
-    const r = await fetch('/api/graph/neighbors/' + encodeURIComponent(nodeId) + '?env=HCM&limit=150');
+    const env = document.getElementById('globalEnv')?.value || 'HCM';
+    const r = await fetch('/api/graph/neighbors/' + encodeURIComponent(nodeId) + '?env=' + encodeURIComponent(env) + '&limit=150');
     const d = await r.json();
     const edges = (d.edges || []).filter(e => e.type === 'READS' || e.type === 'WRITES');
     $('kgRecBadge').textContent = edges.length ? '(' + edges.length + ' from KG)' : '(KG)';

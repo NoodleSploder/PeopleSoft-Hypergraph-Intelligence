@@ -43,7 +43,7 @@ button{background:#9988ff;border:none;padding:5px 12px;cursor:pointer;font-size:
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 let _rows = [];
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -53,7 +53,7 @@ async function doSearch() {
   const q = document.getElementById('q').value.trim();
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 206});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 206});
   if (q) params.set('q', q);
   const d = await api('/api/peoplesoft/pm-metrics?' + params);
   if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
@@ -83,7 +83,7 @@ async function selectMetric(idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api('/api/peoplesoft/object/pm_metric/' + encodeURIComponent(String(r.pm_metricid)) + '?env=' + ENV);
+  const d = await api('/api/peoplesoft/object/pm_metric/' + encodeURIComponent(String(r.pm_metricid)) + '?env=' + ENV_VAL());
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const sections = d.sections || [];
@@ -134,6 +134,13 @@ async function selectMetric(idx) {
   detail.innerHTML = html;
 }
 
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
+
 doSearch();
 </script>""")
 
@@ -178,7 +185,7 @@ button{background:#bb99ff;border:none;padding:5px 12px;cursor:pointer;font-size:
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 let _rows = [];
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -188,7 +195,7 @@ async function doSearch() {
   const q = document.getElementById('q').value.trim();
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 100});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 100});
   if (q) params.set('q', q);
   const d = await api('/api/peoplesoft/pm-transactions?' + params);
   if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
@@ -218,7 +225,7 @@ async function selectTrans(idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api('/api/peoplesoft/object/pm_transaction/' + encodeURIComponent(String(r.pm_trans_defn_id)) + '?env=' + ENV);
+  const d = await api('/api/peoplesoft/object/pm_transaction/' + encodeURIComponent(String(r.pm_trans_defn_id)) + '?env=' + ENV_VAL());
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const sections = d.sections || [];
@@ -260,6 +267,13 @@ async function selectTrans(idx) {
   if (metSec) html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">' + esc(metSec.title) + '</h3>' + slotList(metSec);
   detail.innerHTML = html;
 }
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
 
 doSearch();
 </script>""")
@@ -305,7 +319,7 @@ button{background:#8877ee;border:none;padding:5px 12px;cursor:pointer;font-size:
   </div>
 </div>
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 let _rows = [];
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -315,7 +329,7 @@ async function doSearch() {
   const q = document.getElementById('q').value.trim();
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
-  const params = new URLSearchParams({env: ENV, limit: 50});
+  const params = new URLSearchParams({env: ENV_VAL(), limit: 50});
   if (q) params.set('q', q);
   const d = await api('/api/peoplesoft/pm-events?' + params);
   if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
@@ -345,7 +359,7 @@ async function selectEvent(idx) {
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api('/api/peoplesoft/object/pm_event/' + encodeURIComponent(String(r.pm_event_defn_id)) + '?env=' + ENV);
+  const d = await api('/api/peoplesoft/object/pm_event/' + encodeURIComponent(String(r.pm_event_defn_id)) + '?env=' + ENV_VAL());
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const sections = d.sections || [];
@@ -384,6 +398,13 @@ async function selectEvent(idx) {
   if (metSec) html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">' + esc(metSec.title) + '</h3>' + slotList(metSec);
   detail.innerHTML = html;
 }
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = doSearch;
+document.addEventListener('deathstar:envchange', doSearch);
 
 doSearch();
 </script>""")

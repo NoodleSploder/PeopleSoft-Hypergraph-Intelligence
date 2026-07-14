@@ -47,7 +47,7 @@ verification steps, and design tradeoffs — see `DEVELOPMENT_DIARY.md`.
   compare across environments, AI-directed "here's exactly what needs to
   change" guidance with a closure-verification loop (RESOLVED/STILL_DIVERGENT/
   NEW_ISSUE_INTRODUCED) — entirely read-only, no automated metadata writes
-- Admin shell smoke test harness (73 pages)
+- Admin shell smoke test harness (74 pages)
 
 ---
 
@@ -92,9 +92,23 @@ Classes, Content Services, PTF Tests, ADS Definitions, URL Definitions, Chatbot 
 Style Sheets, Archive Objects, Timezones, Locales, PM Metrics/Transactions/Events,
 SQR programs, COBOL programs/copybooks.
 
-### ⚠️ Stub providers (no backing tables in this environment)
-Guarded by `has_table()`, return empty/stub results without crashing:
-Navigation Collections, Event Mappings, Related Content, Drop Zones.
+### ✅ Formerly-stub providers, now fixed (2026-07-14)
+Navigation Collections, Event Mappings, Related Content, and Drop Zones were
+originally built against PeopleTools table names that don't exist on delivered
+PeopleTools (`PTNC_COLLECTION`, `PSEFMAPPINGDEFN`, `PSRELCONDEFN`, `PSPTDZDEFN`
+and friends) and silently returned empty results. All four were root-caused
+against live data and rewritten against the real schema:
+- Navigation Collections → `PSPRSMDEFN` (folder-type Content References under
+  `PORTAL_PRNTOBJNAME = 'CO_NAVIGATION_COLLECTIONS'`).
+- Related Content → `PSPTCSSRVDEFN` (same table Content Services uses),
+  filtered to rows with `FIELDNAME` populated.
+- Event Mappings → `PSPTCSSRVDEFN` filtered to `PC_EVENT_TYPE` populated;
+  event/handler are columns on the row itself, no child table.
+- Drop Zones → `PSPNLFIELD` (`FIELDTYPE IN (11, 18)`) joined to the
+  system-wide stub subpage in `PSOPTIONS.PTSTUBSUBPAGE` — not a named
+  definition at all.
+
+See `DEVELOPMENT_DIARY.md` session 51 for full investigation detail.
 
 ### ⛔ Deprioritized providers
 Investigated and deprioritized — reference table for future re-evaluation on other
@@ -102,11 +116,6 @@ environments/PeopleTools versions:
 
 | Provider | Tables | Reason |
 |---|---|---|
-| IB Schema Definitions | PSIBSCMADATA / PSIBSCMADFN | CLOB-only / no grant / redundant with PSMSGDEFN |
-| Navigation Collections | PTNC_COLLECTION | Does not exist |
-| Event Mappings | PSEFMAPPINGDEFN | Does not exist |
-| Related Content | PSRELCONDEFN | Does not exist |
-| Drop Zones | PSPTDZDEFN | Does not exist |
 | WorkCenters | — | No standalone definition table |
 | Dashboards | PS_EOEN_DASHBRD | 0 rows |
 | BI Publisher / Branding / Page Composer | — | No backing tables |
@@ -1283,9 +1292,12 @@ several naive `PS<Name>DEFN` guesses came back `ORA-00942` and were discarded, e
 Search Definitions is really `PSPTSF_SD`, not `PSSRCHDEFN`), then verified live with
 real, queryable HCM/FSCM counts before adding (same standard as the prior 17→23
 expansion). Persisted snapshot refreshed via `POST /api/drift/snapshot`, confirmed
-all 45 types present in `/api/drift/latest`. Remaining UOM types not added
-(Navigation Collections, Event Mappings, Related Content, Drop Zones) already have no
-backing table per the Phase 5 deprioritization table.
+all 45 types present in `/api/drift/latest`. At the time of this Phase 5 work,
+Navigation Collections/Event Mappings/Related Content/Drop Zones were believed to
+have no backing table and were left out of drift coverage; that assumption was
+wrong and all four were fixed on 2026-07-14 against real tables (see the "Formerly-
+stub providers" section above) — still not yet added to drift coverage, tracked as
+a follow-up.
 
 **Deployment/Configuration History.** New `connectors/deploymentdb.py`
 (`data/deployment_events.db`) links what the promotion log already records (*that* a
@@ -1335,14 +1347,71 @@ test → 74/74 pages (added `/admin/architecture` to the suite).
 
 ### Remaining (acknowledged, not blocking)
 - Drift coverage is now 45 of ~54 UOM types — the remainder (Navigation Collections,
-  Event Mappings, Related Content, Drop Zones) have no backing table in this
-  environment per Phase 5's deprioritization table, not a gap in effort.
+  Event Mappings, Related Content, Drop Zones) were excluded on the belief they had
+  no backing table; that was wrong (all four fixed 2026-07-14, see above) and they
+  should be added to drift coverage as a follow-up, now that real tables exist.
 - Deployment history correlates config.json + drift snapshots; it does not track
   PeopleTools metadata-level changes beyond what drift already counts (that's Phase
   13's retrofit-compare territory, not this phase's).
 - Architecture Assistant renders diagrams as Mermaid text, not an in-app rendered
   graphic — sufficient for "paste into a doc" use cases; an in-app Mermaid.js render
   would be a follow-up if requested, not required for this phase's completion.
+
+---
+
+# Phase 14 — Containerization, IB Transactions Redesign, and Admin UI Reliability Sweep (2026-07-14)
+
+**Containerized deployment.** `Dockerfile` (Python 3.12-slim, non-root user, tini
+entrypoint, healthcheck) and `compose.yml` added, alongside CI build/publish
+workflows. `connectors/paths.py` is the new single source of truth for path
+resolution (`APP_ROOT`, `CONFIG_FILE`, `DATA_DIR`, `LOG_DIR`), each overridable via
+`PHI_CONFIG_FILE`/`PHI_DATA_DIR`/`PHI_LOG_DIR` env vars; `PHI_PORT` makes the
+container port configurable end-to-end (compose port mapping + `uvicorn --port`).
+Eliminated ~26 hardcoded `/opt/deathstar-api` absolute-path occurrences and 14
+`Path(__file__).parent.parent / "config.json"` patterns across the codebase so the
+same image runs standalone or containerized. Verified via real `podman build`/
+`podman run` (Docker not available in-session; Docker buildx confirmed working via
+CI "Container check" after the fact).
+
+**IB Explorer Transactions redesigned.** Moved from a flat single-record view to the
+real PeopleSoft data model: Operation Instance (`PSAPMSGPUBHDR`) → Publication
+Transaction(s) (`PSAPMSGPUBCON`) → Subscription Transaction(s) (`PSAPMSGSUBCON`,
+fixing a join that used the wrong correlation column and always returned 0 rows).
+Added Request Message Body (decompressed from `PSAPMSGPUBDATA`, verified against a
+real zlib-compressed MIME payload) and IB Errors (`PSIBERR`/`PSIBERRP` joined to
+`PSMSGCATDEFN`). Response Message Body deliberately **not** implemented — no live
+data or schema path bridges `PSAPMSGPUBCON` to the `PUBID`-keyed
+`PSAPMSGSCONDATA`/`PCONDATA` tables in this environment; user confirmed skipping it
+rather than guessing.
+
+**Fabricated-table fixes.** Navigation Collections, Related Content, Event Mappings,
+and Drop Zones were all built against PeopleTools table names that don't exist on
+delivered PeopleTools and always returned empty results (not a missing-grant issue —
+the tables themselves aren't real). All four root-caused against live data and
+rewritten against the actual schema (`PSPRSMDEFN`, `PSPTCSSRVDEFN` ×2,
+`PSPNLFIELD`+`PSOPTIONS.PTSTUBSUBPAGE`) — see the Phase 5 update above for detail.
+One additional real SQL injection vulnerability was found and fixed in the Change
+Risk Analyzer / Impact Forecasting pages (`routers/admin/platform.py`,
+`routers/admin/tools.py`): user-typed project names were interpolated directly into
+SQL strings instead of using the existing bind-parameter support in
+`/api/sqlws/execute`.
+
+**Admin UI reliability sweep.** A systematic, page-by-page audit found the same bug
+pattern repeated across roughly 30 admin pages: an Env selector that either wasn't
+present, was a disconnected second selector, or — the most common root cause —
+captured the selected environment once (`const ENV = window.dsGetEnv() || 'X'`) at
+page load instead of reading it live, so switching environments silently kept
+showing stale data or crashed against the wrong environment's data. Fixed
+end-to-end across `routers/admin/{integration,platform,objects,security,portal,
+tools,perf,graph}.py`: converted every capture to a live `ENV_VAL()` read and wired
+`window.onEnvChange`/`deathstar:envchange` reload handlers, choosing the correct
+reload behavior per page (auto-refresh a live list, re-load a URL-driven object, or
+just clear stale state for pages that are fully user-triggered).
+
+**Verification (all of the above)**: `ast.parse()` after every scripted edit (one
+f-string brace-escaping mistake caught this way before shipping); live queries
+against HRTST for every schema fix; `TestClient` round-trips through the full HTTP
+path for every affected route, not just the underlying connector function.
 
 ---
 

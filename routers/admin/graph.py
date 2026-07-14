@@ -325,7 +325,7 @@ def admin_graph():
     </div>
 
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 
 async function api(path) {
     const res = await fetch(path);
@@ -429,7 +429,7 @@ async function loadGraph() {
 
     try {
         setStatus(`Loading ${normalizedType}:${name}...`);
-        const graph = await api(`/api/peoplesoft/graph/${encodeURIComponent(normalizedType)}/${encodeURIComponent(name)}?env=${ENV}`);
+        const graph = await api(`/api/peoplesoft/graph/${encodeURIComponent(normalizedType)}/${encodeURIComponent(name)}?env=${ENV_VAL()}`);
         renderGraph(graph);
         setStatus(`Loaded ${graph.nodes.length} nodes and ${graph.edges.length} edges.`);
     } catch (err) {
@@ -731,7 +731,7 @@ async function runImpact() {
   status.textContent = 'Analysing...';
   document.getElementById('impactPanels').style.display = 'none';
 
-  const data = await api(`/api/graph/impact/${encodeURIComponent(nodeId)}?env=${ENV}&depth=${depth}`);
+  const data = await api(`/api/graph/impact/${encodeURIComponent(nodeId)}?env=${ENV_VAL()}&depth=${depth}`);
   if (!data || !data.found) { status.textContent = `Node not found in graph: ${nodeId}. Build or rebuild the graph first.`; return; }
 
   status.textContent = `Found: [${type}] ${name} — ${data.summary.total_upstream} upstream, ${data.summary.total_downstream} downstream`;
@@ -742,6 +742,11 @@ async function runImpact() {
   renderImpactNodes(data.reverse_deps.nodes, 'impactReverse');
   renderImpactNodes(data.forward_deps.nodes, 'impactForward');
 }
+
+// This page is entirely user-triggered (Load/Analyze buttons, no
+// auto-load on open), and ENV_VAL() is now read live at click time, so
+// no reload wiring is needed here — the next click already uses
+// whichever environment is currently selected.
 </script>""")
 
 
@@ -1128,7 +1133,7 @@ def object_explorer_page(object_type="", object_name=""):
 
 <script>
 __ESC_JS__
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 const INITIAL_TYPE = __OBJECT_TYPE__;
 const INITIAL_NAME = __OBJECT_NAME__;
 
@@ -1876,7 +1881,7 @@ async function loadObject(type, name, options = {}) {
     setStatus(`Loading ${type}:${name}...`);
 
     try {
-        const object = await api(`/api/peoplesoft/object/${encodeURIComponent(type)}/${encodeURIComponent(name)}?env=${ENV}`);
+        const object = await api(`/api/peoplesoft/object/${encodeURIComponent(type)}/${encodeURIComponent(name)}?env=${ENV_VAL()}`);
         renderObject(object);
         const desc = (object.overview || {}).description || object.description || '';
         pushRecent(object.type, object.name, object.title || object.name, desc);
@@ -1903,7 +1908,7 @@ async function globalSearch() {
     }
 
     setStatus(`Searching for ${q}...`);
-    const rows = await api(`/api/peoplesoft/search?env=${ENV}&q=${encodeURIComponent(q)}`);
+    const rows = await api(`/api/peoplesoft/search?env=${ENV_VAL()}&q=${encodeURIComponent(q)}`);
     const results = document.getElementById('results');
     results.innerHTML = '';
     results.className = '';
@@ -1926,7 +1931,7 @@ async function globalSearch() {
     });
 
     const errCount = rows.length - valid.length;
-    setStatus(`Found ${valid.length} object${valid.length===1?'':'s'}${errCount > 0 ? ` (${errCount} types not accessible in ${ENV})` : ''}.`);
+    setStatus(`Found ${valid.length} object${valid.length===1?'':'s'}${errCount > 0 ? ` (${errCount} types not accessible in ${ENV_VAL()})` : ''}.`);
 }
 
 function openTypedObject() {
@@ -1972,7 +1977,7 @@ async function searchSqlDefinitions() {
     const q       = document.getElementById('objectName').value.trim();
     const sqltype = document.getElementById('sqlTypeFilter').value;
     setStatus('Searching SQL Definitions...');
-    const params = new URLSearchParams({env: ENV, q, limit: 50});
+    const params = new URLSearchParams({env: ENV_VAL(), q, limit: 50});
     if (sqltype !== '') params.set('sqltype', sqltype);
     const rows = await api(`/api/peoplesoft/sql_definitions?${params}`);
     const results = document.getElementById('results');
@@ -2001,6 +2006,20 @@ renderRecentList();
 if (INITIAL_TYPE && INITIAL_NAME) {
     loadObject(INITIAL_TYPE, INITIAL_NAME, {updateUrl: false});
 }
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// eagerly loads the object named in the URL on open (INITIAL_TYPE/NAME),
+// so switching environments left that stale detail on screen. Re-load the
+// same object under the newly-selected environment.
+function reload() {
+    if (INITIAL_TYPE && INITIAL_NAME) {
+        loadObject(INITIAL_TYPE, INITIAL_NAME, {updateUrl: false});
+    }
+    renderRecentList();
+}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
 </script>
 """)
     html = (
@@ -2276,7 +2295,7 @@ def admin_portal():
     </div>
 
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 let currentPortal = '';
 let treeMode = false;
 let currentTreePortal = '';
@@ -2331,7 +2350,7 @@ function adminUrl(type, name) {
 }
 
 async function initPortalTree() {
-    const portals = await api(`/api/peoplesoft/portal/portals?env=${ENV}`);
+    const portals = await api(`/api/peoplesoft/portal/portals?env=${ENV_VAL()}`);
     if (!portals) return;
     const sel = document.getElementById('portalSelect');
     portals.forEach(p => {
@@ -2366,7 +2385,7 @@ async function renderTree(portalName, parentObjname, containerEl, depth = 0) {
     const panel = containerEl || document.getElementById('treePanel');
     if (depth === 0) panel.innerHTML = '<span class="muted">Loading...</span>';
 
-    const rows = await api(`/api/peoplesoft/portal/folders?portal_name=${encodeURIComponent(portalName)}&parent=${encodeURIComponent(parentObjname)}&env=${ENV}`);
+    const rows = await api(`/api/peoplesoft/portal/folders?portal_name=${encodeURIComponent(portalName)}&parent=${encodeURIComponent(parentObjname)}&env=${ENV_VAL()}`);
     if (!rows) { panel.innerHTML = '<span class="muted">Failed to load.</span>'; return; }
     if (depth === 0) panel.innerHTML = '';
 
@@ -2414,7 +2433,7 @@ async function showAnalysis() {
     const pn = currentTreePortal || document.getElementById('portalSelect').value || 'EMPLOYEE';
     if (!pn) { alert('Select a portal first.'); return; }
     setStatus(`Analysing ${pn}...`);
-    const d = await api(`/api/peoplesoft/portal/analysis?portal_name=${encodeURIComponent(pn)}&env=${ENV}`);
+    const d = await api(`/api/peoplesoft/portal/analysis?portal_name=${encodeURIComponent(pn)}&env=${ENV_VAL()}`);
     if (!d) return;
 
     const card = document.getElementById('analysisCard');
@@ -2447,7 +2466,7 @@ async function searchPortal() {
         return;
     }
     setStatus(`Searching for ${q}...`);
-    const rows = await api(`/api/peoplesoft/search?env=${ENV}&q=${encodeURIComponent(q)}&limit=30`);
+    const rows = await api(`/api/peoplesoft/search?env=${ENV_VAL()}&q=${encodeURIComponent(q)}&limit=30`);
     const portals = rows.filter(row => row.type === 'portal_registry');
     const target = document.getElementById('results');
     if (!portals.length) {
@@ -2475,7 +2494,7 @@ async function loadPortal(name) {
     document.getElementById('objectLink').href = adminUrl('portal_registry', currentPortal);
     setStatus(`Loading ${currentPortal}...`);
 
-    const payload = await api(`/api/peoplesoft/object/portal_registry/${encodeURIComponent(currentPortal)}?env=${ENV}`);
+    const payload = await api(`/api/peoplesoft/object/portal_registry/${encodeURIComponent(currentPortal)}?env=${ENV_VAL()}`);
     const overview = payload.overview || {};
     const def = section(payload, 'Definition').data || {};
     const crumbs = section(payload, 'Breadcrumbs').items || [];
@@ -2529,7 +2548,7 @@ async function explainPortal() {
     }
 
     setStatus(`Explaining ${oprid} -> ${portal}...`);
-    const result = await api(`/api/peoplesoft/security/explain-portal?env=${ENV}&oprid=${encodeURIComponent(oprid)}&portal=${encodeURIComponent(portal)}`);
+    const result = await api(`/api/peoplesoft/security/explain-portal?env=${ENV_VAL()}&oprid=${encodeURIComponent(oprid)}&portal=${encodeURIComponent(portal)}`);
     const target = document.getElementById('explain');
     const grants = result.grant_paths || [];
     target.className = '';
@@ -2551,7 +2570,7 @@ async function expandSubtree() {
         return;
     }
     setStatus(`Expanding subtree of ${portal}...`);
-    const d = await api(`/api/peoplesoft/portal/subtree?env=${ENV}&portal_name=${encodeURIComponent(portalName)}&parent=${encodeURIComponent(portal)}&max_depth=6&max_rows=500`);
+    const d = await api(`/api/peoplesoft/portal/subtree?env=${ENV_VAL()}&portal_name=${encodeURIComponent(portalName)}&parent=${encodeURIComponent(portal)}&max_depth=6&max_rows=500`);
     if (!d) return;
     const items = d.items || [];
     const card = document.getElementById('subtreeCard');
@@ -2608,6 +2627,20 @@ document.getElementById('oprid').addEventListener('keydown', event => {
         toggleTreeMode();
     }
 })();
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// eagerly loads the portal tree (and optionally a specific portal/subtree)
+// on open, so switching environments left that stale data on screen.
+function reload() {
+    initPortalTree();
+    if (currentPortal) loadPortal(currentPortal);
+    if (treeMode && currentTreePortal) {
+        renderTree(currentTreePortal, portalRootMap[currentTreePortal] || 'PORTAL_ROOT_OBJECT');
+    }
+}
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
 </script>""")
 
 
@@ -2754,7 +2787,7 @@ def admin_metadata():
     </div>
 
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 
 async function api(path, options = {}) {
     const res = await fetch(path, options);
@@ -2849,11 +2882,11 @@ async function clearCache() {
 async function loadMetadata() {
     setStatus('Loading metadata diagnostics...');
     const [version, capabilities, cache, objectTypes, discovery] = await Promise.all([
-        api(`/api/metadata/version?env=${ENV}`),
-        api(`/api/metadata/capabilities?env=${ENV}`),
+        api(`/api/metadata/version?env=${ENV_VAL()}`),
+        api(`/api/metadata/capabilities?env=${ENV_VAL()}`),
         api('/api/metadata/cache'),
         api('/api/metadata/object-types'),
-        api(`/api/metadata/discovery?env=${ENV}`)
+        api(`/api/metadata/discovery?env=${ENV_VAL()}`)
     ]);
 
     renderVersion(version);
@@ -2864,6 +2897,13 @@ async function loadMetadata() {
     document.getElementById('discovery').textContent = JSON.stringify(discovery, null, 2);
     setStatus('Metadata diagnostics loaded.');
 }
+
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = loadMetadata;
+document.addEventListener('deathstar:envchange', loadMetadata);
 
 loadMetadata();
 </script>""")
@@ -3056,7 +3096,7 @@ def admin_graphdb():
     </div>
 
 <script>
-const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+function ENV_VAL() { return window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM'); }
 
 async function api(path, options = {}) {
     const res = await fetch(path, options);
@@ -3134,7 +3174,7 @@ function renderStats(data) {
 
 async function loadStats() {
     setStatus('Loading graph stats...');
-    const data = await api(`/api/graph/stats?env=${ENV}`);
+    const data = await api(`/api/graph/stats?env=${ENV_VAL()}`);
     renderStats(data);
     setStatus('Graph stats loaded.');
 }
@@ -3142,33 +3182,33 @@ async function loadStats() {
 async function buildGraph() {
     const limit = document.getElementById('buildLimit').value || '50';
     setStatus(`Building graph (limit=${limit})…`);
-    const data = await api(`/api/graph/build?env=${ENV}&limit=${limit}&persist=true`);
+    const data = await api(`/api/graph/build?env=${ENV_VAL()}&limit=${limit}&persist=true`);
     renderStats(data);
     setStatus(`Graph build complete (limit=${limit}).`);
 }
 
 async function clearGraph() {
     setStatus('Clearing graph...');
-    const data = await api(`/api/graph/clear?env=${ENV}`, {method: 'POST'});
+    const data = await api(`/api/graph/clear?env=${ENV_VAL()}`, {method: 'POST'});
     renderStats(data);
     setStatus('Graph cleared.');
 }
 
 async function compactGraph() {
     setStatus('Compacting graph...');
-    const data = await api(`/api/graph/compact?env=${ENV}`, {method: 'POST'});
+    const data = await api(`/api/graph/compact?env=${ENV_VAL()}`, {method: 'POST'});
     const msg = data.status === 'already_clean'
         ? `Graph already clean (${data.edges_after} edges, ${data.node_count} nodes).`
         : `Compacted: removed ${data.edges_removed} duplicate edges. ${data.edges_after} edges remaining.`;
     setStatus(msg);
-    renderStats(await api(`/api/graph/stats?env=${ENV}`));
+    renderStats(await api(`/api/graph/stats?env=${ENV_VAL()}`));
 }
 
 async function createSnapshot() {
     const name = document.getElementById('snapshotName').value.trim();
     const note = document.getElementById('snapshotNote').value.trim();
     setStatus('Creating graph snapshot...');
-    const snap = await api(`/api/graph/snapshots?env=${ENV}&name=${encodeURIComponent(name)}&note=${encodeURIComponent(note)}`, {method: 'POST'});
+    const snap = await api(`/api/graph/snapshots?env=${ENV_VAL()}&name=${encodeURIComponent(name)}&note=${encodeURIComponent(note)}`, {method: 'POST'});
     setStatus(`Snapshot created: ${snap.id}`);
     await loadSnapshots();
 }
@@ -3179,7 +3219,7 @@ async function loadSnapshots() {
     const right = document.getElementById('snapshotRight');
     el.innerHTML = '';
     el.className = '';
-    const data = await api(`/api/graph/snapshots?env=${ENV}`);
+    const data = await api(`/api/graph/snapshots?env=${ENV_VAL()}`);
     const snaps = data.snapshots || [];
     left.innerHTML = snaps.map(s => `<option value="${s.id}">${s.name} · ${s.created_at}</option>`).join('');
     right.innerHTML = snaps.map(s => `<option value="${s.id}">${s.name} · ${s.created_at}</option>`).join('');
@@ -3247,7 +3287,7 @@ async function deleteSnapshot(id) {
 
 function exportGraph() {
     const format = document.getElementById('exportFormat').value;
-    window.location.href = `/api/graph/export?env=${ENV}&format=${encodeURIComponent(format)}`;
+    window.location.href = `/api/graph/export?env=${ENV_VAL()}&format=${encodeURIComponent(format)}`;
 }
 
 async function searchGraph() {
@@ -3262,7 +3302,7 @@ async function searchGraph() {
         return;
     }
 
-    const params = new URLSearchParams({env: ENV, q, limit});
+    const params = new URLSearchParams({env: ENV_VAL(), q, limit});
     if (typeFilter) params.set('node_types', typeFilter);
     const rows = await api(`/api/graph/search?${params}`);
     target.innerHTML = '';
@@ -3288,5 +3328,12 @@ document.getElementById('searchText').addEventListener('keydown', event => {
 });
 
 loadStats();
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event -- this page
+// only read ENV_VAL() lazily per-request but never re-ran the load, so
+// switching environments silently left the prior env's data on screen.
+window.onEnvChange = loadSnapshots;
+document.addEventListener('deathstar:envchange', loadSnapshots);
+
 loadSnapshots();
 </script>""")
