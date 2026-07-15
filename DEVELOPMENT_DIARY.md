@@ -10215,3 +10215,33 @@ spins up the new thread and `status()` reports it correctly.
 
 **Files:** `connectors/promotiondb.py`, `connectors/scheduler.py`,
 `routers/promotions.py`, `config.json`, `ROADMAP.md`.
+
+## 2026-07-15 — Publish Container Images to Docker Hub in Addition to GHCR
+
+**What changed:** `.github/workflows/publish-container.yml` previously only
+published to `ghcr.io`. The user wanted the same tagged-release image also
+published to Docker Hub (`docker.io/hypergraphintel/peoplesoft-hypergraph-intelligence`).
+Added a second `docker/login-action@v3` step authenticating to Docker Hub via
+two new repo secrets the user added themselves (`DOCKERHUB_USERNAME`,
+`DOCKERHUB_TOKEN` — an access token, not the account password), and extended
+`docker/metadata-action@v5`'s `images:` input to list both registries.
+`docker/build-push-action@v6` already accepted a multi-line `tags:` output
+from `steps.meta.outputs.tags`, so this is one build pushing to both
+registries — no separate build step, no extra build time. Build provenance
+attestation (`actions/attest-build-provenance@v3`) stays scoped to GHCR only,
+since GitHub's attestation mechanism is GHCR/OIDC-specific and has no Docker
+Hub equivalent; not a gap worth chasing for this ask.
+
+Updated `README.md`'s container-installation section to mention both
+registries with the real Docker Hub path (the user confirmed their Docker
+Hub username, `hypergraphintel`, matches their GitHub org).
+
+**Not independently verified with a real workflow run** in this session
+(would require pushing a real `v*.*.*` tag, a release action, not something
+to do unprompted) — verified via `yaml.safe_load()` for syntax validity and
+a read-through against `docker/login-action`/`docker/metadata-action`'s
+documented multi-registry input shapes, consistent with how the existing
+GHCR-only step already worked. Next tagged release will be the first live
+confirmation this actually publishes to Docker Hub correctly.
+
+**Files:** `.github/workflows/publish-container.yml`, `README.md`.

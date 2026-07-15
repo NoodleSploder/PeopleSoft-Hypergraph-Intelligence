@@ -175,8 +175,9 @@ PeopleSoft-Hypergraph-Intelligence/
 Prefer running without a container? Skip to [Manual
 Installation](#manual-installation).
 
-Prebuilt images are published to GHCR on every tagged release:
-`ghcr.io/hypergraphintel/peoplesoft-hypergraph-intelligence`. Both
+Prebuilt images are published on every tagged release to both GHCR
+(`ghcr.io/hypergraphintel/peoplesoft-hypergraph-intelligence`) and Docker Hub
+(`docker.io/hypergraphintel/peoplesoft-hypergraph-intelligence`). Both
 [Docker](https://docs.docker.com/engine/install/) (with the Compose
 plugin) and [Podman](https://podman.io/) (with `podman-compose`) work —
 pick whichever you have installed; the commands below are identical
