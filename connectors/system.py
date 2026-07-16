@@ -34,12 +34,19 @@ def host_metrics():
 
 
 def service_status(service: str):
-    result = subprocess.run(
-        ["systemctl", "is-active", service],
-        capture_output=True,
-        text=True,
-        timeout=3
-    )
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", service],
+            capture_output=True,
+            text=True,
+            timeout=3
+        )
+    except FileNotFoundError:
+        # No systemd/systemctl inside the container -- expected when PHI
+        # itself runs containerized. See README.md's "Infrastructure
+        # page container introspection" section: this needs host
+        # D-Bus/systemd access, which isn't wired up.
+        return {"service": service, "status": "unavailable", "returncode": -1}
 
     return {
         "service": service,
@@ -68,10 +75,13 @@ def restart_service(unit: str):
     if unit not in allowed:
         return {"status": "error", "message": f"Restart not permitted for {unit}"}
 
-    result = subprocess.run(
-        ["systemctl", "restart", unit],
-        capture_output=True, text=True, timeout=15
-    )
+    try:
+        result = subprocess.run(
+            ["systemctl", "restart", unit],
+            capture_output=True, text=True, timeout=15
+        )
+    except FileNotFoundError:
+        return {"unit": unit, "status": "error", "stdout": "", "stderr": "systemctl unavailable (PHI runs containerized)", "returncode": -1}
     return {
         "unit": unit,
         "status": "ok" if result.returncode == 0 else "error",
@@ -82,10 +92,13 @@ def restart_service(unit: str):
 
 
 def reload_nginx():
-    result = subprocess.run(
-        ["systemctl", "reload", "nginx.service"],
-        capture_output=True, text=True, timeout=10
-    )
+    try:
+        result = subprocess.run(
+            ["systemctl", "reload", "nginx.service"],
+            capture_output=True, text=True, timeout=10
+        )
+    except FileNotFoundError:
+        return {"status": "error", "stdout": "", "stderr": "systemctl unavailable (PHI runs containerized)"}
     return {
         "status": "ok" if result.returncode == 0 else "error",
         "stdout": result.stdout.strip(),
@@ -147,12 +160,20 @@ def journal(units: str = "nginx,deathstar-api", lines: int = 100):
     for unit in [u.strip() for u in units.split(",") if u.strip()]:
         cmd.extend(["-u", unit])
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=5
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+    except FileNotFoundError:
+        return {
+            "units": units,
+            "lines": [],
+            "stderr": ["journalctl unavailable (PHI runs containerized)"],
+            "returncode": -1,
+        }
 
     return {
         "units": units,
