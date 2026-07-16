@@ -25,14 +25,13 @@ services:
       - phi-data:/app/data
       - phi-logs:/app/logs
 
-    # SSH ingestion: the private key is provided as a Compose secret
-    # rather than bind-mounted, so it's readable regardless of the
-    # container's uid and never needs host permissions loosened.
-    # config.json's ssh_hosts.*.key_path entries must point at
-    # /run/secrets/id_rsa to match.
-    secrets:
-      - source: ssh_id_rsa
-        target: id_rsa
+      # SSH ingestion: ./secrets/id_rsa is a dedicated copy of the host
+      # key (not the operator's own ~/.ssh/id_rsa), owned via `podman
+      # unshare chown 10001:10001` to match the image's built-in phi
+      # user so it stays 600/owner-only -- no permissions are loosened
+      # to make this readable. config.json's ssh_hosts.*.key_path
+      # entries must point at /run/secrets/id_rsa to match.
+      - ./secrets/id_rsa:/run/secrets/id_rsa:ro
 
     extra_hosts:
       - 'host.docker.internal:host-gateway'
@@ -46,7 +45,3 @@ services:
 volumes:
   phi-data:
   phi-logs:
-
-secrets:
-  ssh_id_rsa:
-    file: ${HOME}/.ssh/id_rsa
