@@ -275,7 +275,6 @@ a clean slate).
 
 -   Linux server
 -   Python 3.11+
--   Oracle Instant Client
 -   Network access to PeopleSoft Oracle databases
 -   SSH access to web/app server hosts (for Phase 8 log ingestion)
 

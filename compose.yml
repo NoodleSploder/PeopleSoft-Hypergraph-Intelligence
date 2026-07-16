@@ -26,9 +26,11 @@ services:
       - phi-data:/app/data
       - phi-logs:/app/logs
 
-      # Add only when SSH ingestion is required:
-      # - ${HOME}/.ssh/phi_ed25519:/home/phi/.ssh/id_ed25519:ro
-      # - ${HOME}/.ssh/known_hosts:/home/phi/.ssh/known_hosts:ro
+      # SSH ingestion: config.json's ssh_hosts.*.key_path entries use
+      # absolute host paths, so the key must be mounted at that same
+      # path inside the container (not remapped under /home/phi).
+      - ${HOME}/.ssh/id_rsa:${HOME}/.ssh/id_rsa:ro
+      - ${HOME}/.ssh/known_hosts:${HOME}/.ssh/known_hosts:ro
 
     extra_hosts:
       - 'host.docker.internal:host-gateway'
