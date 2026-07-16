@@ -253,9 +253,8 @@ a clean slate).
     volumes (`phi-data`, `phi-logs`) that persist across container
     restarts/upgrades.
 -   **SSH-based log/SQR/COBOL ingestion is optional** and disabled by
-    default in the container (no SSH key mounted). To enable it, mount a
-    private key and configure `ssh_hosts` in `config.json` — see the
-    commented-out volume lines in `compose.yml`.
+    default in the container (no SSH key mounted). See "SSH-based
+    ingestion setup" below to enable it.
 -   **AI Assistant API keys** (`OPENAI_API_KEY`, `CLAUDE_API_KEY`) can be
     set as environment variables instead of embedding them in
     `config.json` — `compose.yml` already passes them through if set in
@@ -537,6 +536,52 @@ Each key is an alias referenced in `log_sources[].ssh_host`.
 
 Use the special alias `"local"` in `log_sources[].ssh_host` to read files
 directly from disk without SSH (for logs on the same host as the platform).
+
+---
+
+### SSH-based ingestion setup
+
+To enable SSH-based log/SQR/COBOL ingestion, the container needs a
+private key mounted where `config.json`'s `ssh_hosts.*.key_path`
+(`~/.ssh/id_rsa` by convention) resolves to *inside the container* —
+`/app/.ssh/id_rsa`, since the image's built-in `phi` user (uid 10001)
+has `$HOME=/app`, not your host user's home directory.
+
+1.  Put a copy of the private key at `./secrets/id_rsa` next to
+    `compose.yml` (don't reuse your own interactive login key —
+    generate a dedicated keypair for this and authorize its public half
+    on the target hosts):
+
+    ``` bash
+    mkdir -p secrets && chmod 700 secrets
+    cp /path/to/your/ingestion_key secrets/id_rsa
+    ```
+
+2.  **Rootless Podman only:** the container's uid namespace remaps host
+    uids, so a bind-mounted file keeps your host user's ownership from
+    the container's point of view — not uid 10001 — and reads will fail
+    with `Permission denied` even though the file is `600` and you own
+    it. Fix the ownership from inside the same user namespace the
+    container will run in:
+
+    ``` bash
+    podman unshare chown 10001:10001 secrets/id_rsa
+    ```
+
+    (Plain Docker doesn't need this step — its default bridge/rootful
+    model doesn't remap uids, so a normal `chmod 600 secrets/id_rsa`
+    already works.)
+
+3.  Uncomment the SSH volume line in `compose.yml`:
+
+    ``` yaml
+    - ./secrets/id_rsa:/app/.ssh/id_rsa:ro
+    ```
+
+4.  Add matching entries under `ssh_hosts` in `config.json` (see above)
+    and reference them from `log_sources[].ssh_host`, then
+    `docker compose up -d` (or `podman-compose up -d`) to pick up the
+    mount.
 
 ---
 

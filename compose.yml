@@ -25,13 +25,17 @@ services:
       - phi-data:/app/data
       - phi-logs:/app/logs
 
-      # SSH ingestion: ./secrets/id_rsa is a dedicated copy of the host
-      # key (not the operator's own ~/.ssh/id_rsa), owned via `podman
-      # unshare chown 10001:10001` to match the image's built-in phi
-      # user so it stays 600/owner-only -- no permissions are loosened
-      # to make this readable. config.json's ssh_hosts.*.key_path
-      # entries must point at /run/secrets/id_rsa to match.
-      - ./secrets/id_rsa:/run/secrets/id_rsa:ro
+      # SSH-based log/SQR/COBOL ingestion (optional, off by default).
+      # config.json's ssh_hosts.*.key_path uses "~/.ssh/id_rsa", which
+      # expands (via os.path.expanduser) against the container's own
+      # $HOME -- /app for the image's built-in "phi" user (uid 10001)
+      # -- so the key must be mounted at /app/.ssh/id_rsa, not wherever
+      # it lives on the host. See README.md's "SSH-based ingestion
+      # setup" section for the full first-time setup (a plain bind
+      # mount of your real key will fail under rootless Podman with a
+      # permission-denied error, because the container's uid won't
+      # match your host user's).
+      # - ./secrets/id_rsa:/app/.ssh/id_rsa:ro
 
     extra_hosts:
       - 'host.docker.internal:host-gateway'
