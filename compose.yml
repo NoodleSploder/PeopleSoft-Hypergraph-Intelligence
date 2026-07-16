@@ -3,6 +3,10 @@ services:
     image: docker.io/hypergraphintel/peoplesoft-hypergraph-intelligence:latest
     container_name: phi
     restart: unless-stopped
+    # Run as the invoking host user so bind-mounted files (SSH keys,
+    # config.json) keep their normal host ownership/permissions instead
+    # of needing to be world-readable for the container's own user.
+    user: "${PHI_UID:-1000}:${PHI_GID:-1000}"
 
     ports:
       # Set PHI_PORT in your shell/.env to change the port (both the
