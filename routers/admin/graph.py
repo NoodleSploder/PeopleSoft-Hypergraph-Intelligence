@@ -754,7 +754,7 @@ async function runImpact() {
 
 
 def object_explorer_page(object_type="", object_name=""):
-    html = _shell("Object Explorer", "objects", content="""\
+    html = _shell("Object Explorer", "objects", content=r"""\
 <style>
         body {
             background: #050b12;

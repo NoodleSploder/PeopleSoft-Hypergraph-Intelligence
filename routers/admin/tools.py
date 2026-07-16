@@ -548,7 +548,7 @@ initEnvs();
 
 @router.get("/architecture", response_class=HTMLResponse)
 def admin_architecture():
-    return _shell("Architecture Assistant", "architecture", noscroll=False, content="""\
+    return _shell("Architecture Assistant", "architecture", noscroll=False, content=r"""\
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <style>
