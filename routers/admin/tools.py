@@ -751,7 +751,11 @@ def admin_assistant():
 .chat-layout{{display:flex;height:calc(100vh - 90px);gap:0;}}
 .chat-sidebar{{width:220px;flex-shrink:0;border-right:1px solid rgba(0,229,255,.15);
   padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;}}
-.sidebar-head{{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#445;margin-bottom:4px;}}
+.sidebar-head{{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#445;margin-bottom:4px;
+  cursor:pointer;user-select:none;display:flex;align-items:center;gap:5px;}}
+.sidebar-head:hover{{color:#7faab2;}}
+.sidebar-head .chev{{font-size:8px;transition:transform .15s;}}
+.sidebar-head.collapsed .chev{{transform:rotate(-90deg);}}
 .example-btn{{background:none;border:1px solid rgba(0,229,255,.15);color:#7faab2;
   font-size:10px;padding:6px 8px;cursor:pointer;text-align:left;line-height:1.4;
   transition:border-color .15s,color .15s;}}
@@ -762,7 +766,9 @@ def admin_assistant():
 #newConvBtn{{background:#00e5ff;border:none;color:#000;font-weight:bold;font-size:11px;
   padding:7px 8px;cursor:pointer;margin-bottom:4px;}}
 #newConvBtn:hover{{background:#33eeff;}}
-.conv-list{{display:flex;flex-direction:column;gap:2px;margin-bottom:10px;max-height:40vh;overflow-y:auto;}}
+.conv-list{{display:flex;flex-direction:column;gap:2px;margin-bottom:10px;max-height:40vh;
+  min-height:26px;flex-shrink:0;overflow-y:auto;}}
+.conv-list.collapsed{{display:none;}}
 .conv-item{{display:flex;align-items:center;gap:4px;padding:6px 8px;cursor:pointer;
   border:1px solid transparent;font-size:11px;color:#7faab2;}}
 .conv-item:hover{{border-color:rgba(0,229,255,.2);color:#d7faff;}}
@@ -845,7 +851,7 @@ a.obj-link:hover{{border-bottom-style:solid;}}
   <!-- Sidebar: conversations + examples + provider badge -->
   <div class="chat-sidebar">
     <button id="newConvBtn" onclick="startNewConversation()">+ New Conversation</button>
-    <div class="sidebar-head">Conversations</div>
+    <div class="sidebar-head" id="convHead" onclick="toggleConvList()"><span class="chev">&#9660;</span>Conversations</div>
     <div id="convList" class="conv-list"><div class="conv-empty">Loading…</div></div>
     <div class="sidebar-head">Example questions</div>
     <div id="exampleList"></div>
@@ -1581,6 +1587,16 @@ EXAMPLES.forEach(ex => {{
 }})();
 
 // ── Conversation threads ────────────────────────────────────────────────────────
+function toggleConvList() {{
+  const collapsed = document.getElementById('convList').classList.toggle('collapsed');
+  document.getElementById('convHead').classList.toggle('collapsed', collapsed);
+  localStorage.setItem('ds_convlist_collapsed', collapsed ? '1' : '0');
+}}
+if (localStorage.getItem('ds_convlist_collapsed') === '1') {{
+  document.getElementById('convList').classList.add('collapsed');
+  document.getElementById('convHead').classList.add('collapsed');
+}}
+
 async function loadConversationList() {{
   try {{
     const r = await fetch('/api/conversations');
