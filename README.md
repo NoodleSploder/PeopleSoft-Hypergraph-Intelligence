@@ -49,7 +49,6 @@ PeopleSoft-Hypergraph-Intelligence/
 ├── DEVELOPMENT_DIARY.md            # Chronological engineering journal
 ├── HANDOFF_PROMPT.md               # AI-agent handoff instructions
 ├── PLUGINS.md                      # Plugin SDK: extension points, loading, worked example
-├── PHASE2.md                       # Historical planning notes (superseded by Phase 8, implemented)
 ├── config/
 │   └── role_mapping.yml            # PeopleSoft role → Authelia group mapping
 ├── plugins/
