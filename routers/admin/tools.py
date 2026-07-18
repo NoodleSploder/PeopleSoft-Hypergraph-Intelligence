@@ -759,6 +759,14 @@ def admin_assistant():
 .provider-badge{{margin-top:auto;padding:8px;border:1px solid rgba(0,229,255,.12);
   font-size:10px;color:#445;line-height:1.6;}}
 .provider-name{{color:#00e5ff;font-weight:bold;}}
+.provider-picker select, .provider-picker input{{width:100%;background:#0b1b24;color:#d7faff;
+  border:1px solid #00e5ff33;padding:4px 6px;font-size:10px;margin-top:3px;font-family:inherit;}}
+.provider-picker select:focus, .provider-picker input:focus{{outline:none;border-color:#00e5ff;}}
+.provider-picker label{{display:block;color:#445;font-size:9px;text-transform:uppercase;
+  letter-spacing:.5px;margin-top:6px;}}
+.provider-picker label:first-child{{margin-top:0;}}
+.key-ok{{color:#00cc66;}}
+.key-missing{{color:#ff6666;}}
 #newConvBtn{{background:#00e5ff;border:none;color:#000;font-weight:bold;font-size:11px;
   padding:7px 8px;cursor:pointer;margin-bottom:4px;}}
 #newConvBtn:hover{{background:#33eeff;}}
@@ -849,7 +857,9 @@ a.obj-link:hover{{border-bottom-style:solid;}}
     <div id="convList" class="conv-list"><div class="conv-empty">Loading…</div></div>
     <div class="sidebar-head">Example questions</div>
     <div id="exampleList"></div>
-    <div class="provider-badge" id="providerBadge">Loading provider…</div>
+    <div class="provider-badge provider-picker" id="providerBadge">
+      Loading provider…
+    </div>
   </div>
 
   <!-- Main chat area -->
@@ -1562,19 +1572,58 @@ EXAMPLES.forEach(ex => {{
   el.appendChild(b);
 }});
 
-// ── Provider badge ────────────────────────────────────────────────────────────
+// ── Provider/model picker ─────────────────────────────────────────────────────
+// Lets a user override config.json's default provider+model for their own
+// chat requests (sent per-request, see sendMessage()) without touching
+// server config. Choice persists in localStorage across reloads.
+let providerStatusData = null;
+
+function selectedProvider() {{
+  return localStorage.getItem('ds_ai_provider') || (providerStatusData || {{}}).active_provider || 'claude';
+}}
+function selectedModel() {{
+  const p = selectedProvider();
+  const saved = localStorage.getItem('ds_ai_model_' + p);
+  if (saved) return saved;
+  return ((providerStatusData || {{}})[p] || {{}}).model || '';
+}}
+
+function renderProviderPicker() {{
+  const d = providerStatusData;
+  const badge = document.getElementById('providerBadge');
+  if (!d) {{ badge.textContent = 'Provider unknown'; return; }}
+
+  const providers = ['claude', 'openai', 'ollama'];
+  const p = selectedProvider();
+  const pCfg = d[p] || {{}};
+  const keyOk = p === 'ollama' ? true : pCfg.api_key !== 'missing';
+  const models = pCfg.known_models || [];
+
+  badge.innerHTML = `
+    <label for="providerSel">Provider</label>
+    <select id="providerSel">
+      ${{providers.map(x => `<option value="${{x}}"${{x===p?' selected':''}}>${{x.toUpperCase()}}${{x===d.active_provider?' (default)':''}}</option>`).join('')}}
+    </select>
+    <label for="modelInp">Model</label>
+    <input id="modelInp" list="modelList" value="${{esc(selectedModel())}}" spellcheck="false">
+    <datalist id="modelList">${{models.map(m => `<option value="${{esc(m)}}">`).join('')}}</datalist>
+    <div style="margin-top:6px">Key: ${{keyOk ? '<span class="key-ok">&#10003; configured</span>' : '<span class="key-missing">&#10005; missing</span>'}}</div>
+  `;
+
+  document.getElementById('providerSel').onchange = (e) => {{
+    localStorage.setItem('ds_ai_provider', e.target.value);
+    renderProviderPicker();
+  }};
+  document.getElementById('modelInp').onchange = (e) => {{
+    localStorage.setItem('ds_ai_model_' + selectedProvider(), e.target.value.trim());
+  }};
+}}
+
 (async () => {{
   try {{
     const r = await fetch('/api/assistant/status');
-    const d = await r.json();
-    const p = d.active_provider || '?';
-    const pCfg = d[p] || {{}};
-    const model = pCfg.model || '';
-    const keyOk = pCfg.api_key !== 'missing';
-    const badge = document.getElementById('providerBadge');
-    badge.innerHTML = `<span class="provider-name">${{p.toUpperCase()}}</span><br>
-      Model: ${{model}}<br>
-      Key: ${{keyOk ? '&#10003; configured' : '<span style="color:#ff6666">&#10005; missing</span>'}}`;
+    providerStatusData = await r.json();
+    renderProviderPicker();
   }} catch(e) {{
     document.getElementById('providerBadge').textContent = 'Provider unknown';
   }}
@@ -1708,7 +1757,8 @@ async function sendMessage() {{
     const r = await fetch('/api/assistant/chat', {{
       method: 'POST',
       headers: {{ 'Content-Type': 'application/json' }},
-      body: JSON.stringify({{ messages: conversationHistory, stream: false, conversation_id: currentConversationId }}),
+      body: JSON.stringify({{ messages: conversationHistory, stream: false, conversation_id: currentConversationId,
+        provider: selectedProvider(), model: selectedModel() }}),
     }});
     removeThinking();
     if (!r.ok) {{

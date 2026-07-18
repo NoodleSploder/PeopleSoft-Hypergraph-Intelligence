@@ -251,6 +251,8 @@ class ChatRequest(BaseModel):
     messages:        list[ChatMessage]
     stream:          bool = False
     conversation_id: int | None = None
+    provider:        str | None = None  # overrides config.json's default provider for this request only
+    model:           str | None = None  # overrides that provider's default model for this request only
 
 
 @router.get("/status")
@@ -285,23 +287,23 @@ def assistant_chat(req: ChatRequest):
 
     if req.stream:
         return StreamingResponse(
-            _stream_chat(req.messages, conv_id),
+            _stream_chat(req.messages, conv_id, provider_name=req.provider, model=req.model),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
-    result = _blocking_chat(req.messages)
+    result = _blocking_chat(req.messages, provider_name=req.provider, model=req.model)
     conversationdb.add_message(conv_id, "assistant", result["content"], tool_log=result.get("tool_log"))
     result["conversation_id"] = conv_id
     return result
 
 
-def _blocking_chat(messages: list[ChatMessage]) -> dict:
+def _blocking_chat(messages: list[ChatMessage], provider_name: str | None = None, model: str | None = None) -> dict:
     """Run full agentic loop and return complete result."""
     from connectors.ai import get_provider
     from connectors.ai_tools import TOOLS, dispatch
 
     try:
-        provider = get_provider()
+        provider = get_provider(provider_name, model)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
@@ -345,7 +347,8 @@ def _blocking_chat(messages: list[ChatMessage]) -> dict:
     raise HTTPException(status_code=500, detail="Maximum tool call rounds exceeded")
 
 
-async def _stream_chat(messages: list[ChatMessage], conversation_id: int = None):
+async def _stream_chat(messages: list[ChatMessage], conversation_id: int = None,
+                        provider_name: str | None = None, model: str | None = None):
     """
     SSE stream: yields events as the AI thinks and calls tools.
     Event types: tool_start, tool_result, content, done, error
@@ -358,7 +361,7 @@ async def _stream_chat(messages: list[ChatMessage], conversation_id: int = None)
         return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
     try:
-        provider = get_provider()
+        provider = get_provider(provider_name, model)
     except Exception as exc:
         yield _event("error", {"message": str(exc)})
         return
